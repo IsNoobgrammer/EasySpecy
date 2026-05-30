@@ -1,6 +1,7 @@
 //! Tauri IPC commands — exposed to the React frontend via invoke()
 
 use crate::capture;
+use crate::capture::RecordingConfig;
 use crate::config::AppConfig;
 use cpal::traits::{DeviceTrait, HostTrait};
 
@@ -46,7 +47,13 @@ pub fn start_recording(output_path: Option<String>) -> Result<(), String> {
         let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
         format!("{}/recording_{}.mp4", dir, timestamp)
     });
-    capture::start_recording(path, config.audio_enabled)
+
+    capture::start_recording(RecordingConfig {
+        output_path: path,
+        enable_audio: config.audio_enabled,
+        audio_sample_rate: config.audio_sample_rate,
+        fps: config.fps,
+    })
 }
 
 #[tauri::command]
