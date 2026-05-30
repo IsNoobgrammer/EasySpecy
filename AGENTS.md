@@ -2,7 +2,7 @@
 
 **Project:** EasySpecy — Free, cross-platform screen recorder
 **Stack:** Tauri 2 + Rust + React + FFmpeg
-**Current Phase:** 0 — Foundation
+**Current Phase:** 1 — Core Recording MVP
 
 ---
 
