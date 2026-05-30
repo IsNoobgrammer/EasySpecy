@@ -45,10 +45,44 @@ pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// Get recording status (placeholder for Phase 1)
+/// Start screen recording
 #[tauri::command]
-pub fn get_recording_status() -> bool {
-    false // TODO Phase 1: track actual recording state
+pub fn start_recording(output_path: Option<String>) -> Result<(), String> {
+    let config = AppConfig::load();
+    let path = output_path.unwrap_or_else(|| {
+        let dir = &config.output_dir;
+        let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+        format!("{}/recording_{}.mp4", dir, timestamp)
+    });
+    capture::start_recording(path)
+}
+
+/// Stop screen recording
+#[tauri::command]
+pub fn stop_recording() -> Result<capture::RecordingResult, String> {
+    capture::stop_recording()
+}
+
+/// Pause recording
+#[tauri::command]
+pub fn pause_recording_cmd() {
+    capture::pause_recording();
+}
+
+/// Resume recording
+#[tauri::command]
+pub fn resume_recording_cmd() {
+    capture::resume_recording();
+}
+
+/// Get recording status
+#[tauri::command]
+pub fn get_recording_status() -> (bool, bool, u32) {
+    (
+        capture::is_recording(),
+        capture::is_paused(),
+        capture::frame_count(),
+    )
 }
 
 /// Open a path in the system file explorer

@@ -9,7 +9,6 @@ use tracing_subscriber::EnvFilter;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -26,6 +25,10 @@ pub fn run() {
             commands::get_audio_devices,
             commands::get_screens,
             commands::get_version,
+            commands::start_recording,
+            commands::stop_recording,
+            commands::pause_recording_cmd,
+            commands::resume_recording_cmd,
             commands::get_recording_status,
             commands::open_path,
         ])

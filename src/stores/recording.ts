@@ -29,6 +29,13 @@ export interface AppConfig {
   recording_mode: "FullScreen" | "Region" | "Window";
 }
 
+export interface RecordingResult {
+  output_path: string;
+  duration_secs: number;
+  frame_count: number;
+  file_size_bytes: number;
+}
+
 export interface Toast {
   id: number;
   message: string;
@@ -42,15 +49,17 @@ interface AppState {
   isRecording: boolean;
   isPaused: boolean;
   recordingStartTime: number | null;
+  lastRecording: RecordingResult | null;
   audioDevices: string[];
   toasts: Toast[];
   toastId: number;
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
-  startRecording: () => void;
-  stopRecording: () => void;
-  pauseRecording: () => void;
+  startRecording: () => Promise<void>;
+  stopRecording: () => Promise<void>;
+  pauseRecording: () => Promise<void>;
+  resumeRecording: () => Promise<void>;
   loadAudioDevices: () => Promise<void>;
   addToast: (message: string, type: Toast["type"], action?: Toast["action"]) => void;
   removeToast: (id: number) => void;
@@ -63,6 +72,7 @@ export const useStore = create<AppState>((set, get) => ({
   isRecording: false,
   isPaused: false,
   recordingStartTime: null,
+  lastRecording: null,
   audioDevices: [],
   toasts: [],
   toastId: 0,
@@ -73,7 +83,6 @@ export const useStore = create<AppState>((set, get) => ({
       toasts: [...s.toasts, { id, message, type, action }],
       toastId: id,
     }));
-    // Auto-remove after 4s
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
     }, 4000);
@@ -101,27 +110,64 @@ export const useStore = create<AppState>((set, get) => ({
       set({ config });
       addToast("Settings saved!", "success");
     } catch (e) {
-      console.error("Failed to save config:", e);
       addToast(`Save failed: ${e}`, "error");
     }
   },
 
-  startRecording: () => {
-    set({ isRecording: true, isPaused: false, recordingStartTime: Date.now() });
-    get().addToast("Recording started", "success");
-    // TODO Phase 1: invoke Rust start_recording
+  startRecording: async () => {
+    const { addToast } = get();
+    try {
+      addToast("Starting recording...", "info");
+      await invoke("start_recording", { outputPath: null });
+      set({ isRecording: true, isPaused: false, recordingStartTime: Date.now() });
+      addToast("Recording!", "success");
+    } catch (e) {
+      addToast(`Recording failed: ${e}`, "error");
+    }
   },
 
-  stopRecording: () => {
-    set({ isRecording: false, isPaused: false, recordingStartTime: null });
-    get().addToast("Recording stopped", "success");
-    // TODO Phase 1: invoke Rust stop_recording, get file path
+  stopRecording: async () => {
+    const { addToast } = get();
+    try {
+      addToast("Stopping & encoding...", "info");
+      const result = await invoke<RecordingResult>("stop_recording");
+      set({
+        isRecording: false,
+        isPaused: false,
+        recordingStartTime: null,
+        lastRecording: result,
+      });
+      const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
+      const duration = result.duration_secs.toFixed(1);
+      addToast(
+        `Saved! ${duration}s, ${sizeMB}MB`,
+        "success",
+        { label: "Open file", onClick: () => get().openPath(result.output_path) }
+      );
+    } catch (e) {
+      set({ isRecording: false, isPaused: false, recordingStartTime: null });
+      addToast(`Stop failed: ${e}`, "error");
+    }
   },
 
-  pauseRecording: () => {
-    const { isPaused } = get();
-    set({ isPaused: !isPaused });
-    get().addToast(isPaused ? "Resumed" : "Paused", "info");
+  pauseRecording: async () => {
+    try {
+      await invoke("pause_recording_cmd");
+      set({ isPaused: true });
+      get().addToast("Paused", "info");
+    } catch (e) {
+      get().addToast(`Pause failed: ${e}`, "error");
+    }
+  },
+
+  resumeRecording: async () => {
+    try {
+      await invoke("resume_recording_cmd");
+      set({ isPaused: false });
+      get().addToast("Resumed", "info");
+    } catch (e) {
+      get().addToast(`Resume failed: ${e}`, "error");
+    }
   },
 
   loadAudioDevices: async () => {

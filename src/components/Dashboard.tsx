@@ -17,9 +17,12 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
     isRecording,
     isPaused,
     recordingStartTime,
+    lastRecording,
     startRecording,
     stopRecording,
     pauseRecording,
+    resumeRecording,
+    openPath,
   } = useStore();
 
   const [elapsed, setElapsed] = useState("00:00:00");
@@ -36,6 +39,21 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
     }, 1000);
     return () => clearInterval(interval);
   }, [isRecording, recordingStartTime]);
+
+  // Poll recording status
+  useEffect(() => {
+    if (!isRecording) return;
+    const interval = setInterval(async () => {
+      try {
+        const [active] = await invoke<[boolean, boolean, number]>("get_recording_status");
+        if (!active && isRecording) {
+          // Recording ended externally
+          stopRecording();
+        }
+      } catch {}
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isRecording]);
 
   const resolutionLabel = config
     ? `${config.resolution_width}×${config.resolution_height}`
@@ -57,10 +75,10 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
         </div>
         <button
           onClick={onOpenSettings}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-[#8b949e] hover:text-[#e6edf3] bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md transition-all"
+          disabled={isRecording}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-[#8b949e] hover:text-[#e6edf3] bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-          Settings
+          ⚙ Settings
         </button>
       </div>
 
@@ -72,6 +90,23 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             <div className={`w-2.5 h-2.5 rounded-full ${isPaused ? "bg-[#d29922]" : "bg-[#f85149] animate-pulse"}`} />
             <span className="font-mono text-2xl text-[#e6edf3] tracking-wider">{elapsed}</span>
             {isPaused && <span className="text-xs text-[#d29922] font-medium ml-1">PAUSED</span>}
+          </div>
+        )}
+
+        {/* Last Recording Info */}
+        {lastRecording && !isRecording && (
+          <div
+            className="flex items-center gap-4 px-5 py-3 rounded-lg bg-[#0d2818] border border-[#238636] cursor-pointer hover:bg-[#123322] transition-colors"
+            onClick={() => openPath(lastRecording.output_path)}
+          >
+            <div className="text-[#3fb950] text-lg">✓</div>
+            <div>
+              <div className="text-sm text-[#e6edf3] font-medium">
+                {lastRecording.duration_secs.toFixed(1)}s • {(lastRecording.file_size_bytes / 1_048_576).toFixed(1)}MB • {lastRecording.frame_count} frames
+              </div>
+              <div className="text-xs text-[#8b949e] truncate max-w-xs">{lastRecording.output_path}</div>
+            </div>
+            <div className="text-xs text-[#58a6ff] ml-2">Open →</div>
           </div>
         )}
 
@@ -94,11 +129,11 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           )}
         </button>
 
-        {/* Action Buttons Row */}
+        {/* Action Buttons */}
         <div className="flex items-center gap-3">
           {isRecording && (
             <button
-              onClick={pauseRecording}
+              onClick={isPaused ? resumeRecording : pauseRecording}
               className="px-5 py-2 text-sm font-medium border border-[#30363d] rounded-md bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] transition-all"
             >
               {isPaused ? "▶ Resume" : "⏸ Pause"}
@@ -106,14 +141,14 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           )}
         </div>
 
-        {/* Settings Summary Cards */}
+        {/* Settings Summary */}
         <div className="grid grid-cols-3 gap-3 w-full max-w-lg mt-2">
           <Card label="Resolution" value={resolutionLabel} />
           <Card label="Frame Rate" value={fpsLabel} />
           <Card label="Audio" value={config?.audio_enabled ? `${config.audio_sample_rate} Hz` : "Off"} />
         </div>
 
-        {/* Features indicator */}
+        {/* Feature badges */}
         <div className="flex items-center gap-4 text-xs text-[#484f58]">
           {config?.auto_zoom_enabled && <Badge text="Auto-Zoom" color="blue" />}
           {config?.cursor_trail_enabled && <Badge text="Cursor Trail" color="purple" />}
@@ -128,7 +163,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             <kbd className="px-2 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-[#8b949e] font-mono text-xs">
               {config?.hotkey_start || "Ctrl+Shift+R"}
             </kbd>{" "}
-            to start recording
+            to start
           </div>
         )}
       </div>
@@ -171,9 +206,8 @@ function Footer({ outputDir }: { outputDir: string }) {
         className="hover:text-[#58a6ff] transition-colors cursor-pointer flex items-center gap-1"
       >
         📁 {outputDir}
-        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
       </button>
-      <span>Phase 0 — UI Preview</span>
+      <span>Phase 1 — Recording</span>
     </div>
   );
 }
