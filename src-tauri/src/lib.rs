@@ -19,6 +19,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
@@ -32,6 +33,10 @@ pub fn run() {
             commands::get_recording_status,
             commands::open_path,
         ])
+        .setup(|app| {
+            tray::setup_tray(app.handle())?;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running EasySpecy");
 }

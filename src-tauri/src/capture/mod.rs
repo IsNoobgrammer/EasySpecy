@@ -1,6 +1,7 @@
 //! Screen capture module — real implementation using windows-capture
-//! Saves directly to MP4 via the built-in VideoEncoder
+//! Saves directly to MP4 via the built-in VideoEncoder, then merges audio via FFmpeg
 
+use crate::audio::AudioCapture;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -22,18 +23,22 @@ pub struct RecordingResult {
     pub duration_secs: f64,
     pub frame_count: u32,
     pub file_size_bytes: u64,
+    pub has_audio: bool,
 }
 
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 static SHOULD_STOP: AtomicBool = AtomicBool::new(false);
 static OUTPUT_PATH: Mutex<String> = Mutex::new(String::new());
+static VIDEO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
+static AUDIO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
 static START_TIME: Mutex<Option<Instant>> = Mutex::new(None);
 static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
 static RECORDING_PAUSED: AtomicBool = AtomicBool::new(false);
+static AUDIO_CAPTURE: Mutex<Option<AudioCapture>> = Mutex::new(None);
+static ENABLE_AUDIO: AtomicBool = AtomicBool::new(false);
 
 struct CaptureHandler {
     encoder: Option<VideoEncoder>,
-    start: Instant,
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -41,22 +46,21 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let output_path = OUTPUT_PATH.lock().unwrap().clone();
+        let video_path = VIDEO_TEMP_PATH.lock().unwrap().clone();
         let width = ctx.flags.0 as u32;
         let height = ctx.flags.1 as u32;
 
-        tracing::info!("Encoder: {}x{} -> {}", width, height, output_path);
+        tracing::info!("Video encoder: {}x{} -> {}", width, height, video_path);
 
         let encoder = VideoEncoder::new(
             VideoSettingsBuilder::new(width, height),
             AudioSettingsBuilder::default().disabled(true),
             ContainerSettingsBuilder::default(),
-            &output_path,
+            &video_path,
         )?;
 
         Ok(Self {
             encoder: Some(encoder),
-            start: Instant::now(),
         })
     }
 
@@ -72,7 +76,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
 
         if SHOULD_STOP.load(Ordering::Relaxed) {
-            if let Some(mut encoder) = self.encoder.take() {
+            if let Some(encoder) = self.encoder.take() {
                 encoder.finish()?;
             }
             capture_control.stop();
@@ -90,34 +94,45 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         let count = FRAME_COUNT.load(Ordering::Relaxed);
-        tracing::info!("Capture ended. Total frames: {}", count);
-        RECORDING_ACTIVE.store(false, Ordering::Relaxed);
+        tracing::info!("Video capture ended. Frames: {}", count);
         Ok(())
     }
 }
 
-/// Start screen recording. Returns immediately, recording runs in background thread.
-pub fn start_recording(output_path: String) -> Result<(), String> {
+/// Start screen + audio recording
+pub fn start_recording(output_path: String, enable_audio: bool) -> Result<(), String> {
     if RECORDING_ACTIVE.load(Ordering::Relaxed) {
         return Err("Recording already in progress".to_string());
     }
 
-    // Ensure output directory exists
-    if let Some(parent) = std::path::Path::new(&output_path).parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    // Paths
+    let temp_dir = std::env::temp_dir().join("easyspecy");
+    std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+
+    let video_temp = temp_dir.join("video_temp.mp4").to_string_lossy().to_string();
+    let audio_temp = temp_dir.join("audio_temp.wav").to_string_lossy().to_string();
 
     *OUTPUT_PATH.lock().unwrap() = output_path;
+    *VIDEO_TEMP_PATH.lock().unwrap() = video_temp;
+    *AUDIO_TEMP_PATH.lock().unwrap() = audio_temp.clone();
+
     FRAME_COUNT.store(0, Ordering::Relaxed);
     SHOULD_STOP.store(false, Ordering::Relaxed);
     RECORDING_PAUSED.store(false, Ordering::Relaxed);
+    ENABLE_AUDIO.store(enable_audio, Ordering::Relaxed);
     *START_TIME.lock().unwrap() = Some(Instant::now());
 
+    // Start audio capture
+    if enable_audio {
+        let mut audio = AudioCapture::new(audio_temp, None).map_err(|e| e.to_string())?;
+        audio.start().map_err(|e| e.to_string())?;
+        *AUDIO_CAPTURE.lock().unwrap() = Some(audio);
+    }
+
+    // Start video capture
     let monitor = Monitor::primary().map_err(|e| e.to_string())?;
     let width = monitor.width().map_err(|e| e.to_string())? as i32;
     let height = monitor.height().map_err(|e| e.to_string())? as i32;
-
-    tracing::info!("Starting capture: {}x{}", width, height);
 
     let settings = Settings::new(
         monitor,
@@ -132,7 +147,6 @@ pub fn start_recording(output_path: String) -> Result<(), String> {
 
     RECORDING_ACTIVE.store(true, Ordering::Relaxed);
 
-    // Capture::start blocks, so run in a thread
     std::thread::spawn(move || {
         if let Err(e) = CaptureHandler::start(settings) {
             tracing::error!("Capture error: {}", e);
@@ -143,7 +157,7 @@ pub fn start_recording(output_path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Stop the current recording. Returns the result with file info.
+/// Stop recording, merge audio+video if needed, return result
 pub fn stop_recording() -> Result<RecordingResult, String> {
     if !RECORDING_ACTIVE.load(Ordering::Relaxed) {
         return Err("No recording in progress".to_string());
@@ -151,7 +165,7 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
 
     SHOULD_STOP.store(true, Ordering::Relaxed);
 
-    // Wait for capture to finish (max 10s)
+    // Wait for video capture to finish
     for _ in 0..100 {
         if !RECORDING_ACTIVE.load(Ordering::Relaxed) {
             break;
@@ -159,12 +173,41 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
+    // Stop audio
+    let audio_path = if ENABLE_AUDIO.load(Ordering::Relaxed) {
+        let mut audio_lock = AUDIO_CAPTURE.lock().unwrap();
+        if let Some(audio) = audio_lock.as_mut() {
+            audio.stop().ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let video_path = VIDEO_TEMP_PATH.lock().unwrap().clone();
     let output_path = OUTPUT_PATH.lock().unwrap().clone();
     let frame_count = FRAME_COUNT.load(Ordering::Relaxed);
     let start = START_TIME.lock().unwrap().take();
-    let duration = start
-        .map(|s| s.elapsed().as_secs_f64())
-        .unwrap_or(0.0);
+    let duration = start.map(|s| s.elapsed().as_secs_f64()).unwrap_or(0.0);
+    let has_audio = audio_path.is_some();
+
+    // Merge video + audio with FFmpeg if we have audio
+    if has_audio {
+        let audio_file = audio_path.unwrap();
+        merge_audio_video(&video_path, &audio_file, &output_path)?;
+        // Cleanup temp files
+        let _ = std::fs::remove_file(&video_path);
+        let _ = std::fs::remove_file(&audio_file);
+    } else {
+        // Just move video to output
+        if video_path != output_path {
+            std::fs::rename(&video_path, &output_path)
+                .or_else(|_| std::fs::copy(&video_path, &output_path).map(|_| ()))
+                .map_err(|e| e.to_string())?;
+            let _ = std::fs::remove_file(&video_path);
+        }
+    }
 
     let file_size = std::fs::metadata(&output_path)
         .map(|m| m.len())
@@ -175,35 +218,90 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         duration_secs: duration,
         frame_count,
         file_size_bytes: file_size,
+        has_audio,
     })
 }
 
-/// Pause the current recording
+fn merge_audio_video(video: &str, audio: &str, output: &str) -> Result<(), String> {
+    let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
+
+    tracing::info!("Merging video + audio -> {}", output);
+
+    let status = std::process::Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-i",
+            video,
+            "-i",
+            audio,
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-shortest",
+            output,
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .status()
+        .map_err(|e| format!("FFmpeg failed: {}", e))?;
+
+    if !status.success() {
+        return Err("FFmpeg merge failed".to_string());
+    }
+
+    Ok(())
+}
+
+fn find_ffmpeg() -> Option<String> {
+    let paths = [
+        "ffmpeg",
+        "C:\\Users\\shaur\\OneDrive\\Documents\\ffmpeg\\bin\\ffmpeg.exe",
+    ];
+    for p in &paths {
+        if std::process::Command::new(p)
+            .arg("-version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok()
+        {
+            return Some(p.to_string());
+        }
+    }
+    None
+}
+
 pub fn pause_recording() {
     RECORDING_PAUSED.store(true, Ordering::Relaxed);
+    let audio_lock = AUDIO_CAPTURE.lock().unwrap();
+    if let Some(audio) = audio_lock.as_ref() {
+        audio.pause();
+    }
 }
 
-/// Resume the current recording
 pub fn resume_recording() {
     RECORDING_PAUSED.store(false, Ordering::Relaxed);
+    let audio_lock = AUDIO_CAPTURE.lock().unwrap();
+    if let Some(audio) = audio_lock.as_ref() {
+        audio.resume();
+    }
 }
 
-/// Check if recording is active
 pub fn is_recording() -> bool {
     RECORDING_ACTIVE.load(Ordering::Relaxed)
 }
 
-/// Check if recording is paused
 pub fn is_paused() -> bool {
     RECORDING_PAUSED.load(Ordering::Relaxed)
 }
 
-/// Get current frame count
 pub fn frame_count() -> u32 {
     FRAME_COUNT.load(Ordering::Relaxed)
 }
 
-/// Enumerate available displays
 pub fn get_displays() -> Vec<DisplayInfo> {
     match Monitor::enumerate() {
         Ok(monitors) => monitors

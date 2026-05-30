@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
 
 export interface AppConfig {
   output_dir: string;
@@ -34,6 +35,7 @@ export interface RecordingResult {
   duration_secs: number;
   frame_count: number;
   file_size_bytes: number;
+  has_audio: boolean;
 }
 
 export interface Toast {
@@ -53,6 +55,7 @@ interface AppState {
   audioDevices: string[];
   toasts: Toast[];
   toastId: number;
+  hotkeysRegistered: boolean;
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
@@ -61,9 +64,12 @@ interface AppState {
   pauseRecording: () => Promise<void>;
   resumeRecording: () => Promise<void>;
   loadAudioDevices: () => Promise<void>;
+  registerHotkeys: () => Promise<void>;
+  unregisterHotkeys: () => Promise<void>;
   addToast: (message: string, type: Toast["type"], action?: Toast["action"]) => void;
   removeToast: (id: number) => void;
   openPath: (path: string) => Promise<void>;
+  copyToClipboard: (text: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -76,6 +82,7 @@ export const useStore = create<AppState>((set, get) => ({
   audioDevices: [],
   toasts: [],
   toastId: 0,
+  hotkeysRegistered: false,
 
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
@@ -96,40 +103,80 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const config = await invoke<AppConfig>("get_config");
       set({ config, configLoaded: true });
+      // Auto-register hotkeys after config loads
+      if (!get().hotkeysRegistered) {
+        await get().registerHotkeys();
+      }
     } catch (e) {
-      console.error("Failed to load config:", e);
-      get().addToast(`Failed to load config: ${e}`, "error");
+      get().addToast(`Config load failed: ${e}`, "error");
     }
   },
 
   saveConfig: async (config: AppConfig) => {
-    const { addToast } = get();
     try {
-      addToast("Saving...", "info");
+      get().addToast("Saving...", "info");
       await invoke("save_config", { config });
       set({ config });
-      addToast("Settings saved!", "success");
+      // Re-register hotkeys if they changed
+      await get().unregisterHotkeys();
+      await get().registerHotkeys();
+      get().addToast("Settings saved!", "success");
     } catch (e) {
-      addToast(`Save failed: ${e}`, "error");
+      get().addToast(`Save failed: ${e}`, "error");
     }
+  },
+
+  registerHotkeys: async () => {
+    const { config } = get();
+    if (!config) return;
+    try {
+      const startKey = config.hotkey_start.toLowerCase().replace(/\s/g, "");
+      const stopKey = config.hotkey_stop.toLowerCase().replace(/\s/g, "");
+
+      await register(startKey, (event) => {
+        if (event.state === "Pressed" && !get().isRecording) {
+          get().startRecording();
+        }
+      });
+      await register(stopKey, (event) => {
+        if (event.state === "Pressed" && get().isRecording) {
+          get().stopRecording();
+        }
+      });
+      set({ hotkeysRegistered: true });
+    } catch (e) {
+      console.error("Hotkey registration failed:", e);
+    }
+  },
+
+  unregisterHotkeys: async () => {
+    try {
+      const { config } = get();
+      if (config) {
+        const startKey = config.hotkey_start.toLowerCase().replace(/\s/g, "");
+        const stopKey = config.hotkey_stop.toLowerCase().replace(/\s/g, "");
+        await unregister(startKey).catch(() => {});
+        await unregister(stopKey).catch(() => {});
+      }
+      set({ hotkeysRegistered: false });
+    } catch {}
   },
 
   startRecording: async () => {
     const { addToast } = get();
     try {
-      addToast("Starting recording...", "info");
+      addToast("Recording...", "success");
       await invoke("start_recording", { outputPath: null });
       set({ isRecording: true, isPaused: false, recordingStartTime: Date.now() });
-      addToast("Recording!", "success");
     } catch (e) {
-      addToast(`Recording failed: ${e}`, "error");
+      addToast(`Start failed: ${e}`, "error");
     }
   },
 
   stopRecording: async () => {
-    const { addToast } = get();
+    const { addToast, copyToClipboard } = get();
     try {
-      addToast("Stopping & encoding...", "info");
+      addToast("Encoding...", "info");
       const result = await invoke<RecordingResult>("stop_recording");
       set({
         isRecording: false,
@@ -138,12 +185,17 @@ export const useStore = create<AppState>((set, get) => ({
         lastRecording: result,
       });
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
-      const duration = result.duration_secs.toFixed(1);
+      const dur = result.duration_secs.toFixed(1);
+      const audioLabel = result.has_audio ? "+audio" : "video-only";
       addToast(
-        `Saved! ${duration}s, ${sizeMB}MB`,
+        `Saved! ${dur}s, ${sizeMB}MB (${audioLabel})`,
         "success",
         { label: "Open file", onClick: () => get().openPath(result.output_path) }
       );
+      // Copy path to clipboard
+      if (get().config?.copy_path_on_save) {
+        await copyToClipboard(result.output_path);
+      }
     } catch (e) {
       set({ isRecording: false, isPaused: false, recordingStartTime: null });
       addToast(`Stop failed: ${e}`, "error");
@@ -175,7 +227,7 @@ export const useStore = create<AppState>((set, get) => ({
       const devices = await invoke<string[]>("get_audio_devices");
       set({ audioDevices: devices });
     } catch (e) {
-      console.error("Failed to load audio devices:", e);
+      console.error("Audio devices failed:", e);
     }
   },
 
@@ -183,7 +235,14 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       await invoke("open_path", { path });
     } catch (e) {
-      get().addToast(`Failed to open: ${e}`, "error");
+      get().addToast(`Open failed: ${e}`, "error");
     }
+  },
+
+  copyToClipboard: async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      get().addToast("Path copied!", "info");
+    } catch {}
   },
 }));

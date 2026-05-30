@@ -4,24 +4,20 @@ use crate::capture;
 use crate::config::AppConfig;
 use cpal::traits::{DeviceTrait, HostTrait};
 
-/// Get the current configuration
 #[tauri::command]
 pub fn get_config() -> AppConfig {
     AppConfig::load()
 }
 
-/// Save configuration
 #[tauri::command]
 pub fn save_config(config: AppConfig) -> Result<(), String> {
     config.save().map_err(|e| e.to_string())
 }
 
-/// Get list of available audio input devices
 #[tauri::command]
 pub fn get_audio_devices() -> Result<Vec<String>, String> {
     let host = cpal::default_host();
     let mut devices = Vec::new();
-
     if let Ok(input_devices) = host.input_devices() {
         for device in input_devices {
             if let Ok(name) = device.name() {
@@ -29,23 +25,19 @@ pub fn get_audio_devices() -> Result<Vec<String>, String> {
             }
         }
     }
-
     Ok(devices)
 }
 
-/// Get list of available screens/monitors
 #[tauri::command]
 pub fn get_screens() -> Result<Vec<capture::DisplayInfo>, String> {
     Ok(capture::get_displays())
 }
 
-/// Get EasySpecy version
 #[tauri::command]
 pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
-/// Start screen recording
 #[tauri::command]
 pub fn start_recording(output_path: Option<String>) -> Result<(), String> {
     let config = AppConfig::load();
@@ -54,28 +46,24 @@ pub fn start_recording(output_path: Option<String>) -> Result<(), String> {
         let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
         format!("{}/recording_{}.mp4", dir, timestamp)
     });
-    capture::start_recording(path)
+    capture::start_recording(path, config.audio_enabled)
 }
 
-/// Stop screen recording
 #[tauri::command]
 pub fn stop_recording() -> Result<capture::RecordingResult, String> {
     capture::stop_recording()
 }
 
-/// Pause recording
 #[tauri::command]
 pub fn pause_recording_cmd() {
     capture::pause_recording();
 }
 
-/// Resume recording
 #[tauri::command]
 pub fn resume_recording_cmd() {
     capture::resume_recording();
 }
 
-/// Get recording status
 #[tauri::command]
 pub fn get_recording_status() -> (bool, bool, u32) {
     (
@@ -85,7 +73,6 @@ pub fn get_recording_status() -> (bool, bool, u32) {
     )
 }
 
-/// Open a path in the system file explorer
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
