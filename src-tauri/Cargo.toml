@@ -1,25 +1,37 @@
 [package]
-name = "easyspecy-app"
+name = "easyspecy"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Free, cross-platform screen recorder with auto-zoom and cursor effects"
+authors = ["Shaurya"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT"
 
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "easyspecy_app_lib"
+name = "easyspecy_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+cpal = "0.15"
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
 
+# Platform-specific screen capture
+[target.'cfg(windows)'.dependencies]
+windows-capture = "2.0"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pipewire = "0.8"

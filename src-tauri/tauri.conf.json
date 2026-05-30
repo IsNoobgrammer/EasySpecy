@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "easyspecy-app",
+  "productName": "EasySpecy",
   "version": "0.1.0",
-  "identifier": "com.shaur.easyspecy-app",
+  "identifier": "com.easyspecy.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,13 +12,21 @@
   "app": {
     "windows": [
       {
-        "title": "easyspecy-app",
-        "width": 800,
-        "height": 600
+        "title": "EasySpecy",
+        "width": 900,
+        "height": 640,
+        "resizable": true,
+        "center": true,
+        "minWidth": 700,
+        "minHeight": 500
       }
     ],
     "security": {
       "csp": null
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
     }
   },
   "bundle": {
@@ -30,6 +38,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/*"
     ]
   }
 }
