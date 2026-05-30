@@ -27,6 +27,7 @@ pub fn run() {
             commands::get_screens,
             commands::get_version,
             commands::get_recording_status,
+            commands::open_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running EasySpecy");

@@ -29,35 +29,59 @@ export interface AppConfig {
   recording_mode: "FullScreen" | "Region" | "Window";
 }
 
-interface RecordingState {
-  // Config
+export interface Toast {
+  id: number;
+  message: string;
+  type: "info" | "success" | "error";
+  action?: { label: string; onClick: () => void };
+}
+
+interface AppState {
   config: AppConfig | null;
   configLoaded: boolean;
-
-  // Recording state
   isRecording: boolean;
   isPaused: boolean;
   recordingStartTime: number | null;
-
-  // Devices
   audioDevices: string[];
+  toasts: Toast[];
+  toastId: number;
 
-  // Actions
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
   startRecording: () => void;
   stopRecording: () => void;
   pauseRecording: () => void;
   loadAudioDevices: () => Promise<void>;
+  addToast: (message: string, type: Toast["type"], action?: Toast["action"]) => void;
+  removeToast: (id: number) => void;
+  openPath: (path: string) => Promise<void>;
 }
 
-export const useRecordingStore = create<RecordingState>((set, get) => ({
+export const useStore = create<AppState>((set, get) => ({
   config: null,
   configLoaded: false,
   isRecording: false,
   isPaused: false,
   recordingStartTime: null,
   audioDevices: [],
+  toasts: [],
+  toastId: 0,
+
+  addToast: (message, type, action) => {
+    const id = get().toastId + 1;
+    set((s) => ({
+      toasts: [...s.toasts, { id, message, type, action }],
+      toastId: id,
+    }));
+    // Auto-remove after 4s
+    setTimeout(() => {
+      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+    }, 4000);
+  },
+
+  removeToast: (id) => {
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  },
 
   loadConfig: async () => {
     try {
@@ -65,32 +89,39 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       set({ config, configLoaded: true });
     } catch (e) {
       console.error("Failed to load config:", e);
+      get().addToast(`Failed to load config: ${e}`, "error");
     }
   },
 
   saveConfig: async (config: AppConfig) => {
+    const { addToast } = get();
     try {
+      addToast("Saving...", "info");
       await invoke("save_config", { config });
       set({ config });
+      addToast("Settings saved!", "success");
     } catch (e) {
       console.error("Failed to save config:", e);
+      addToast(`Save failed: ${e}`, "error");
     }
   },
 
   startRecording: () => {
     set({ isRecording: true, isPaused: false, recordingStartTime: Date.now() });
+    get().addToast("Recording started", "success");
     // TODO Phase 1: invoke Rust start_recording
   },
 
   stopRecording: () => {
     set({ isRecording: false, isPaused: false, recordingStartTime: null });
-    // TODO Phase 1: invoke Rust stop_recording
+    get().addToast("Recording stopped", "success");
+    // TODO Phase 1: invoke Rust stop_recording, get file path
   },
 
   pauseRecording: () => {
     const { isPaused } = get();
     set({ isPaused: !isPaused });
-    // TODO Phase 1: invoke Rust pause/resume
+    get().addToast(isPaused ? "Resumed" : "Paused", "info");
   },
 
   loadAudioDevices: async () => {
@@ -99,6 +130,14 @@ export const useRecordingStore = create<RecordingState>((set, get) => ({
       set({ audioDevices: devices });
     } catch (e) {
       console.error("Failed to load audio devices:", e);
+    }
+  },
+
+  openPath: async (path: string) => {
+    try {
+      await invoke("open_path", { path });
+    } catch (e) {
+      get().addToast(`Failed to open: ${e}`, "error");
     }
   },
 }));

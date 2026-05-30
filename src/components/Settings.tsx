@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
-import { useRecordingStore, AppConfig } from "../stores/recording";
+import { useStore, AppConfig } from "../stores/recording";
 
 export function Settings({ onBack }: { onBack: () => void }) {
-  const { config, saveConfig, loadAudioDevices, audioDevices } =
-    useRecordingStore();
+  const { config, saveConfig, loadAudioDevices, audioDevices } = useStore();
   const [local, setLocal] = useState<AppConfig | null>(null);
-  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (config) setLocal({ ...config });
@@ -15,168 +13,67 @@ export function Settings({ onBack }: { onBack: () => void }) {
   const handleSave = async () => {
     if (!local) return;
     await saveConfig(local);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    onBack();
   };
 
   if (!local)
     return (
-      <div className="p-6 text-[var(--text-secondary)]">Loading config...</div>
+      <div className="flex items-center justify-center h-full bg-[#0d1117]">
+        <div className="text-[#8b949e] text-sm">Loading settings...</div>
+      </div>
     );
 
   const update = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) =>
     setLocal((prev) => (prev ? { ...prev, [key]: value } : prev));
 
-  const Section = ({
-    title,
-    children,
-  }: {
-    title: string;
-    children: React.ReactNode;
-  }) => (
-    <div className="mb-6">
-      <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-3">
-        {title}
-      </h3>
-      <div className="space-y-3">{children}</div>
-    </div>
-  );
-
-  const Field = ({
-    label,
-    children,
-  }: {
-    label: string;
-    children: React.ReactNode;
-  }) => (
-    <div className="flex items-center justify-between">
-      <label className="text-sm text-[var(--text-primary)]">{label}</label>
-      <div className="w-48">{children}</div>
-    </div>
-  );
-
-  const Select = ({
-    value,
-    onChange,
-    options,
-  }: {
-    value: string | number;
-    onChange: (v: string) => void;
-    options: { label: string; value: string | number }[];
-  }) => (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-2 py-1.5 text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-
-  const Input = ({
-    value,
-    onChange,
-    type = "text",
-  }: {
-    value: string | number;
-    onChange: (v: string) => void;
-    type?: string;
-  }) => (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full px-2 py-1.5 text-sm bg-[var(--bg-card)] border border-[var(--border)] rounded-md text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-    />
-  );
-
-  const Toggle = ({
-    checked,
-    onChange,
-  }: {
-    checked: boolean;
-    onChange: (v: boolean) => void;
-  }) => (
-    <button
-      onClick={() => onChange(!checked)}
-      className={`
-        w-10 h-5 rounded-full transition-colors duration-200 relative
-        ${checked ? "bg-[var(--accent-green)]" : "bg-[var(--border)]"}
-      `}
-    >
-      <div
-        className={`
-          w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform duration-200
-          ${checked ? "translate-x-5" : "translate-x-0.5"}
-        `}
-      />
-    </button>
-  );
-
-  const resolutions = [
-    { label: "480p (854x480)", value: "854x480" },
-    { label: "720p (1280x720)", value: "1280x720" },
-    { label: "1080p (1920x1080)", value: "1920x1080" },
-  ];
-
-  const fpsOptions = [
-    { label: "24 fps", value: 24 },
-    { label: "30 fps", value: 30 },
-    { label: "60 fps", value: 60 },
-  ];
-
-  const sampleRates = [
-    { label: "22050 Hz", value: 22050 },
-    { label: "44100 Hz", value: 44100 },
-    { label: "48000 Hz", value: 48000 },
-  ];
-
-  const currentRes = `${local.resolution_width}x${local.resolution_height}`;
-
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-[#0d1117]">
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-[var(--border)]">
+      <div className="flex items-center gap-3 px-6 py-3 border-b border-[#21262d]">
         <button
           onClick={onBack}
-          className="text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="flex items-center gap-1 text-[#8b949e] hover:text-[#e6edf3] text-sm transition-colors"
         >
-          ← Back
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          Back
         </button>
-        <span className="text-lg font-semibold">Settings</span>
+        <span className="text-base font-semibold text-[#e6edf3]">Settings</span>
       </div>
 
       {/* Settings Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        <Section title="Video">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+        {/* Video Section */}
+        <Section title="Video" icon="🎬">
           <Field label="Resolution">
             <Select
-              value={currentRes}
+              value={`${local.resolution_width}x${local.resolution_height}`}
               onChange={(v) => {
                 const [w, h] = v.split("x").map(Number);
                 update("resolution_width", w);
                 update("resolution_height", h);
               }}
-              options={resolutions}
+              options={[
+                { label: "480p (854×480)", value: "854x480" },
+                { label: "720p (1280×720)", value: "1280x720" },
+                { label: "1080p (1920×1080)", value: "1920x1080" },
+              ]}
             />
           </Field>
           <Field label="Frame Rate">
             <Select
               value={local.fps}
               onChange={(v) => update("fps", Number(v))}
-              options={fpsOptions}
+              options={[
+                { label: "24 fps", value: 24 },
+                { label: "30 fps", value: 30 },
+                { label: "60 fps", value: 60 },
+              ]}
             />
           </Field>
-          <Field label="Recording Mode">
+          <Field label="Mode">
             <Select
               value={local.recording_mode}
-              onChange={(v) =>
-                update("recording_mode", v as AppConfig["recording_mode"])
-              }
+              onChange={(v) => update("recording_mode", v as AppConfig["recording_mode"])}
               options={[
                 { label: "Full Screen", value: "FullScreen" },
                 { label: "Region Select", value: "Region" },
@@ -186,18 +83,20 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Field>
         </Section>
 
-        <Section title="Audio">
+        {/* Audio Section */}
+        <Section title="Audio" icon="🎤">
           <Field label="Enabled">
-            <Toggle
-              checked={local.audio_enabled}
-              onChange={(v) => update("audio_enabled", v)}
-            />
+            <Toggle checked={local.audio_enabled} onChange={(v) => update("audio_enabled", v)} />
           </Field>
           <Field label="Sample Rate">
             <Select
               value={local.audio_sample_rate}
               onChange={(v) => update("audio_sample_rate", Number(v))}
-              options={sampleRates}
+              options={[
+                { label: "22050 Hz", value: 22050 },
+                { label: "44100 Hz", value: 44100 },
+                { label: "48000 Hz", value: 48000 },
+              ]}
             />
           </Field>
           <Field label="Device">
@@ -212,22 +111,20 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Field>
         </Section>
 
-        <Section title="Auto-Zoom">
+        {/* Auto-Zoom Section */}
+        <Section title="Auto-Zoom" icon="🔍">
           <Field label="Enabled">
-            <Toggle
-              checked={local.auto_zoom_enabled}
-              onChange={(v) => update("auto_zoom_enabled", v)}
-            />
+            <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
           </Field>
           <Field label="Zoom Level">
             <Select
               value={local.zoom_level}
               onChange={(v) => update("zoom_level", Number(v))}
               options={[
-                { label: "1.5x", value: 1.5 },
-                { label: "2x", value: 2 },
-                { label: "2.5x", value: 2.5 },
-                { label: "3x", value: 3 },
+                { label: "1.5×", value: 1.5 },
+                { label: "2×", value: 2 },
+                { label: "2.5×", value: 2.5 },
+                { label: "3×", value: 3 },
               ]}
             />
           </Field>
@@ -245,73 +142,61 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Field>
         </Section>
 
-        <Section title="Cursor Effects">
+        {/* Cursor Effects Section */}
+        <Section title="Cursor Effects" icon="✨">
           <Field label="Trail Enabled">
-            <Toggle
-              checked={local.cursor_trail_enabled}
-              onChange={(v) => update("cursor_trail_enabled", v)}
-            />
+            <Toggle checked={local.cursor_trail_enabled} onChange={(v) => update("cursor_trail_enabled", v)} />
           </Field>
           <Field label="Trail Color">
-            <Input
-              value={local.cursor_trail_color}
-              onChange={(v) => update("cursor_trail_color", v)}
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={local.cursor_trail_color}
+                onChange={(e) => update("cursor_trail_color", e.target.value)}
+                className="w-8 h-8 rounded border border-[#30363d] bg-transparent cursor-pointer"
+              />
+              <span className="text-xs text-[#8b949e] font-mono">{local.cursor_trail_color}</span>
+            </div>
           </Field>
           <Field label="Cursor Size">
             <Select
               value={local.cursor_size_multiplier}
               onChange={(v) => update("cursor_size_multiplier", Number(v))}
               options={[
-                { label: "1x (normal)", value: 1 },
-                { label: "1.5x", value: 1.5 },
-                { label: "2x", value: 2 },
-                { label: "3x", value: 3 },
+                { label: "1× (normal)", value: 1 },
+                { label: "1.5×", value: 1.5 },
+                { label: "2×", value: 2 },
+                { label: "3×", value: 3 },
               ]}
             />
           </Field>
           <Field label="Smoothing">
-            <Toggle
-              checked={local.cursor_smoothing}
-              onChange={(v) => update("cursor_smoothing", v)}
-            />
+            <Toggle checked={local.cursor_smoothing} onChange={(v) => update("cursor_smoothing", v)} />
           </Field>
         </Section>
 
-        <Section title="Hotkeys">
-          <Field label="Start">
-            <Input
-              value={local.hotkey_start}
-              onChange={(v) => update("hotkey_start", v)}
-            />
+        {/* Hotkeys Section */}
+        <Section title="Hotkeys" icon="⌨️">
+          <Field label="Start Recording">
+            <Input value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} />
           </Field>
-          <Field label="Stop">
-            <Input
-              value={local.hotkey_stop}
-              onChange={(v) => update("hotkey_stop", v)}
-            />
+          <Field label="Stop Recording">
+            <Input value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} />
           </Field>
           <Field label="Pause">
-            <Input
-              value={local.hotkey_pause}
-              onChange={(v) => update("hotkey_pause", v)}
-            />
+            <Input value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} />
           </Field>
         </Section>
 
-        <Section title="Webcam">
+        {/* Webcam Section */}
+        <Section title="Webcam" icon="📷">
           <Field label="Enabled">
-            <Toggle
-              checked={local.webcam_enabled}
-              onChange={(v) => update("webcam_enabled", v)}
-            />
+            <Toggle checked={local.webcam_enabled} onChange={(v) => update("webcam_enabled", v)} />
           </Field>
           <Field label="Position">
             <Select
               value={local.webcam_position}
-              onChange={(v) =>
-                update("webcam_position", v as AppConfig["webcam_position"])
-              }
+              onChange={(v) => update("webcam_position", v as AppConfig["webcam_position"])}
               options={[
                 { label: "Top Left", value: "TopLeft" },
                 { label: "Top Right", value: "TopRight" },
@@ -320,7 +205,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
               ]}
             />
           </Field>
-          <Field label="Size (px)">
+          <Field label="Size">
             <Select
               value={local.webcam_size}
               onChange={(v) => update("webcam_size", Number(v))}
@@ -334,44 +219,95 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Field>
         </Section>
 
-        <Section title="General">
+        {/* General Section */}
+        <Section title="General" icon="⚙️">
           <Field label="Output Directory">
-            <Input
-              value={local.output_dir}
-              onChange={(v) => update("output_dir", v)}
-            />
+            <Input value={local.output_dir} onChange={(v) => update("output_dir", v)} />
           </Field>
           <Field label="Minimize to Tray">
-            <Toggle
-              checked={local.minimize_to_tray}
-              onChange={(v) => update("minimize_to_tray", v)}
-            />
+            <Toggle checked={local.minimize_to_tray} onChange={(v) => update("minimize_to_tray", v)} />
           </Field>
           <Field label="Copy Path on Save">
-            <Toggle
-              checked={local.copy_path_on_save}
-              onChange={(v) => update("copy_path_on_save", v)}
-            />
+            <Toggle checked={local.copy_path_on_save} onChange={(v) => update("copy_path_on_save", v)} />
           </Field>
         </Section>
       </div>
 
       {/* Save Button */}
-      <div className="px-6 py-4 border-t border-[var(--border)]">
+      <div className="px-6 py-4 border-t border-[#21262d]">
         <button
           onClick={handleSave}
-          className={`
-            w-full py-2 rounded-md text-sm font-semibold transition-colors
-            ${
-              saved
-                ? "bg-[var(--accent-green)] text-black"
-                : "bg-[var(--accent-blue)] text-white hover:bg-blue-500"
-            }
-          `}
+          className="w-full py-2.5 rounded-md text-sm font-semibold bg-[#238636] hover:bg-[#2ea043] text-white transition-colors"
         >
-          {saved ? "Saved!" : "Save Settings"}
+          Save Settings
         </button>
       </div>
     </div>
+  );
+}
+
+/* ---- Shared UI Components ---- */
+
+function Section({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
+      <h3 className="text-sm font-semibold text-[#e6edf3] mb-3 flex items-center gap-2">
+        <span>{icon}</span> {title}
+      </h3>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between">
+      <label className="text-sm text-[#8b949e]">{label}</label>
+      <div className="w-48">{children}</div>
+    </div>
+  );
+}
+
+function Select({ value, onChange, options }: { value: string | number; onChange: (v: string) => void; options: { label: string; value: string | number }[] }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-2.5 py-1.5 text-sm bg-[#0d1117] border border-[#30363d] rounded-md text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] transition-colors"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+function Input({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-2.5 py-1.5 text-sm bg-[#0d1117] border border-[#30363d] rounded-md text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] transition-colors font-mono"
+    />
+  );
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      className={`
+        w-10 h-5 rounded-full transition-colors duration-200 relative cursor-pointer
+        ${checked ? "bg-[#238636]" : "bg-[#30363d]"}
+      `}
+    >
+      <div
+        className={`
+          w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform duration-200 shadow-sm
+          ${checked ? "translate-x-5" : "translate-x-0.5"}
+        `}
+      />
+    </button>
   );
 }

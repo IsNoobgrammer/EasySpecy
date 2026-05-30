@@ -1,16 +1,25 @@
 import { useState, useEffect } from "react";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
-import { useRecordingStore } from "./stores/recording";
+import { ToastContainer } from "./components/Toast";
+import { useStore } from "./stores/recording";
 
 export default function App() {
   const [page, setPage] = useState<"dashboard" | "settings">("dashboard");
-  const loadConfig = useRecordingStore((s) => s.loadConfig);
+  const loadConfig = useStore((s) => s.loadConfig);
 
   useEffect(() => {
     loadConfig();
   }, []);
 
-  if (page === "settings") return <Settings onBack={() => setPage("dashboard")} />;
-  return <Dashboard onOpenSettings={() => setPage("settings")} />;
+  return (
+    <div className="h-screen w-screen overflow-hidden">
+      <ToastContainer />
+      {page === "settings" ? (
+        <Settings onBack={() => setPage("dashboard")} />
+      ) : (
+        <Dashboard onOpenSettings={() => setPage("settings")} />
+      )}
+    </div>
+  );
 }
