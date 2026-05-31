@@ -1,55 +1,15 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useState, useEffect } from "react";
+import { motion } from "motion/react";
 import { invoke } from "@tauri-apps/api/core";
 
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface Region {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
+// ═══ REGION SELECTOR (fullscreen overlay) ═══
 export function RegionSelector({ onComplete, onCancel }: {
-  onComplete: (region: Region) => void;
+  onComplete: (region: { x: number; y: number; width: number; height: number }) => void;
   onCancel: () => void;
 }) {
-  const [start, setStart] = useState<Point | null>(null);
-  const [end, setEnd] = useState<Point | null>(null);
+  const [start, setStart] = useState<{ x: number; y: number } | null>(null);
+  const [end, setEnd] = useState<{ x: number; y: number } | null>(null);
   const [selecting, setSelecting] = useState(false);
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    setStart({ x: e.clientX, y: e.clientY });
-    setEnd({ x: e.clientX, y: e.clientY });
-    setSelecting(true);
-  }, []);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (selecting) {
-      setEnd({ x: e.clientX, y: e.clientY });
-    }
-  }, [selecting]);
-
-  const handleMouseUp = useCallback(() => {
-    if (start && end) {
-      const x = Math.min(start.x, end.x);
-      const y = Math.min(start.y, end.y);
-      const width = Math.abs(end.x - start.x);
-      const height = Math.abs(end.y - start.y);
-
-      if (width > 50 && height > 50) {
-        onComplete({ x, y, width, height });
-      } else {
-        onCancel();
-      }
-    }
-    setSelecting(false);
-  }, [start, end, onComplete, onCancel]);
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
@@ -62,98 +22,92 @@ export function RegionSelector({ onComplete, onCancel }: {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onCancel]);
 
-  const region = start && end ? {
-    x: Math.min(start.x, end.x),
-    y: Math.min(start.y, end.y),
-    width: Math.abs(end.x - start.x),
-    height: Math.abs(end.y - start.y),
-  } : null;
+  const handleMouseDown = (e: React.MouseEvent) => {
+    setStart({ x: e.clientX, y: e.clientY });
+    setEnd({ x: e.clientX, y: e.clientY });
+    setSelecting(true);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (selecting) setEnd({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleMouseUp = () => {
+    if (!start || !end) return;
+    setSelecting(false);
+    const rect = getRect();
+    if (rect.width > 30 && rect.height > 30) {
+      // Auto-confirm on mouse up
+      onComplete(rect);
+    }
+  };
+
+  const getRect = () => {
+    if (!start || !end) return { x: 0, y: 0, width: 0, height: 0 };
+    return {
+      x: Math.min(start.x, end.x),
+      y: Math.min(start.y, end.y),
+      width: Math.abs(end.x - start.x),
+      height: Math.abs(end.y - start.y),
+    };
+  };
+
+  const rect = start && end ? getRect() : null;
 
   return (
     <div
-      ref={overlayRef}
       className="fixed inset-0 z-[9999] cursor-crosshair"
-      style={{ background: "oklch(0 0 0 / 0.5)" }}
+      style={{ background: "oklch(0 0 0 / 0.45)" }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
     >
       {/* Instructions */}
-      <AnimatePresence>
-        {!selecting && !region && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="absolute top-8 left-1/2 -translate-x-1/2 px-6 py-3"
-            style={{
-              background: "var(--bg-surface)",
-              border: "var(--border-width) solid var(--border-default)",
-            }}
-          >
-            <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>
-              Drag to select recording area · Press Esc to cancel
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {!selecting && !rect && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute top-8 left-1/2 -translate-x-1/2 px-6 py-3"
+          style={{ background: "var(--bg-surface)", border: "var(--border-width) solid var(--border-default)" }}
+        >
+          <span className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>
+            Drag to select area · Press <kbd style={{ background: "var(--bg-elevated)", border: "var(--border-thin) solid var(--border-default)", padding: "2px 6px", margin: "0 4px", fontSize: "0.75rem" }}>Esc</kbd> to cancel
+          </span>
+        </motion.div>
+      )}
 
-      {/* Selection rectangle */}
-      {region && region.width > 0 && region.height > 0 && (
+      {/* Selection */}
+      {rect && rect.width > 0 && rect.height > 0 && (
         <>
-          {/* Clear area (selected region) */}
+          {/* Clear area */}
           <div
             className="absolute"
             style={{
-              left: region.x,
-              top: region.y,
-              width: region.width,
-              height: region.height,
+              left: rect.x, top: rect.y, width: rect.width, height: rect.height,
               background: "transparent",
-              boxShadow: "0 0 0 9999px oklch(0 0 0 / 0.5)",
+              boxShadow: "0 0 0 9999px oklch(0 0 0 / 0.45)",
             }}
           />
           {/* Border */}
           <div
             className="absolute pointer-events-none"
-            style={{
-              left: region.x,
-              top: region.y,
-              width: region.width,
-              height: region.height,
-              border: "2px solid var(--accent-primary)",
-            }}
+            style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, border: "2px solid var(--accent-primary)" }}
           />
-          {/* Size indicator */}
+          {/* Size label */}
           <div
             className="absolute font-mono text-xs px-2 py-1 pointer-events-none"
-            style={{
-              left: region.x,
-              top: region.y - 28,
-              background: "var(--accent-primary)",
-              color: "var(--text-primary)",
-            }}
+            style={{ left: rect.x, top: Math.max(0, rect.y - 28), background: "var(--accent-primary)", color: "var(--text-primary)" }}
           >
-            {region.width} × {region.height}
+            {rect.width} × {rect.height}
           </div>
           {/* Corner handles */}
           {[
-            { x: region.x - 4, y: region.y - 4 },
-            { x: region.x + region.width - 4, y: region.y - 4 },
-            { x: region.x - 4, y: region.y + region.height - 4 },
-            { x: region.x + region.width - 4, y: region.y + region.height - 4 },
+            { x: rect.x - 4, y: rect.y - 4 },
+            { x: rect.x + rect.width - 4, y: rect.y - 4 },
+            { x: rect.x - 4, y: rect.y + rect.height - 4 },
+            { x: rect.x + rect.width - 4, y: rect.y + rect.height - 4 },
           ].map((pos, i) => (
-            <div
-              key={i}
-              className="absolute pointer-events-none"
-              style={{
-                left: pos.x,
-                top: pos.y,
-                width: 8,
-                height: 8,
-                background: "var(--accent-primary)",
-              }}
-            />
+            <div key={i} className="absolute pointer-events-none" style={{ left: pos.x, top: pos.y, width: 8, height: 8, background: "var(--accent-primary)" }} />
           ))}
         </>
       )}
@@ -161,7 +115,7 @@ export function RegionSelector({ onComplete, onCancel }: {
   );
 }
 
-// ═══ WINDOW PICKER ═══
+// ═══ WINDOW INFO TYPE ═══
 export interface WindowInfo {
   title: string;
   x: number;
@@ -171,12 +125,14 @@ export interface WindowInfo {
   hwnd: number;
 }
 
+// ═══ WINDOW PICKER (Alt+Tab style grid) ═══
 export function WindowPicker({ onSelect, onClose }: {
   onSelect: (window: WindowInfo) => void;
   onClose: () => void;
 }) {
   const [windows, setWindows] = useState<WindowInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(0);
 
   useEffect(() => {
     invoke<WindowInfo[]>("get_windows").then((w) => {
@@ -188,10 +144,18 @@ export function WindowPicker({ onSelect, onClose }: {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && windows.length > 0) onSelect(windows[selected]);
+      if (e.key === "ArrowRight" || e.key === "Tab") {
+        e.preventDefault();
+        setSelected((s) => (s + 1) % windows.length);
+      }
+      if (e.key === "ArrowLeft") {
+        setSelected((s) => (s - 1 + windows.length) % windows.length);
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [windows, selected, onSelect, onClose]);
 
   return (
     <motion.div
@@ -199,69 +163,65 @@ export function WindowPicker({ onSelect, onClose }: {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[9999] flex items-center justify-center"
-      style={{ background: "oklch(0 0 0 / 0.7)" }}
+      style={{ background: "oklch(0 0 0 / 0.75)" }}
       onClick={onClose}
     >
       <motion.div
         initial={{ scale: 0.95, y: 20 }}
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.95, y: 20 }}
-        className="w-full max-w-lg max-h-[70vh] overflow-hidden"
-        style={{
-          background: "var(--bg-surface)",
-          border: "var(--border-width) solid var(--border-default)",
-        }}
+        className="w-full max-w-3xl max-h-[80vh] overflow-hidden"
+        style={{ background: "var(--bg-surface)", border: "var(--border-width) solid var(--border-default)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "var(--border-thin) solid var(--border-default)" }}>
-          <span className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-            Select Window
-          </span>
-          <motion.button
-            onClick={onClose}
-            className="font-mono text-xs cursor-pointer"
-            style={{ color: "var(--text-muted)" }}
-            whileHover={{ color: "var(--text-primary)" }}
-          >
-            Esc to close
-          </motion.button>
+        <div className="px-6 py-4" style={{ borderBottom: "var(--border-thin) solid var(--border-default)" }}>
+          <div className="font-mono text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
+            Select Window to Capture
+          </div>
+          <div className="font-mono text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+            Arrow keys to navigate · Enter to select · Esc to cancel
+          </div>
         </div>
 
-        {/* Window List */}
-        <div className="overflow-y-auto max-h-[50vh] p-2 space-y-1">
+        {/* Window Grid */}
+        <div className="p-6 overflow-y-auto max-h-[60vh]">
           {loading ? (
-            <div className="p-8 text-center font-mono text-xs" style={{ color: "var(--text-muted)" }}>
-              Enumerating windows...
+            <div className="text-center py-12 font-mono text-sm" style={{ color: "var(--text-muted)" }}>
+              Scanning windows...
             </div>
           ) : windows.length === 0 ? (
-            <div className="p-8 text-center font-mono text-xs" style={{ color: "var(--text-muted)" }}>
-              No windows found
+            <div className="text-center py-12 font-mono text-sm" style={{ color: "var(--text-muted)" }}>
+              No capturable windows found
             </div>
           ) : (
-            windows.map((w, i) => (
-              <motion.button
-                key={i}
-                className="w-full text-left px-3 py-2.5 cursor-pointer flex items-center justify-between"
-                style={{
-                  border: "var(--border-thin) solid var(--border-default)",
-                  background: "var(--bg-base)",
-                }}
-                whileHover={{ borderColor: "var(--accent-primary)", background: "var(--bg-elevated)" }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => onSelect(w)}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="font-mono text-xs truncate" style={{ color: "var(--text-primary)" }}>
+            <div className="grid grid-cols-3 gap-4">
+              {windows.map((w, i) => (
+                <motion.button
+                  key={i}
+                  className="text-left p-4 cursor-pointer"
+                  style={{
+                    border: `var(--border-width) solid ${i === selected ? "var(--accent-primary)" : "var(--border-default)"}`,
+                    background: i === selected ? "var(--bg-elevated)" : "var(--bg-base)",
+                  }}
+                  whileHover={{ borderColor: "var(--accent-primary)", background: "var(--bg-elevated)" }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => onSelect(w)}
+                  onMouseEnter={() => setSelected(i)}
+                >
+                  {/* Window icon placeholder */}
+                  <div className="w-full h-20 mb-3 flex items-center justify-center" style={{ background: "var(--bg-surface)", border: "var(--border-thin) solid var(--border-default)" }}>
+                    <span className="text-2xl">🪟</span>
+                  </div>
+                  <div className="font-mono text-xs font-medium truncate" style={{ color: "var(--text-primary)" }}>
                     {w.title}
                   </div>
-                  <div className="font-mono mt-0.5" style={{ color: "var(--text-muted)", fontSize: "0.55rem" }}>
+                  <div className="font-mono mt-1" style={{ color: "var(--text-muted)", fontSize: "0.55rem" }}>
                     {w.width}×{w.height}
                   </div>
-                </div>
-                <span className="font-mono text-xs ml-2" style={{ color: "var(--accent-primary)" }}>→</span>
-              </motion.button>
-            ))
+                </motion.button>
+              ))}
+            </div>
           )}
         </div>
       </motion.div>
