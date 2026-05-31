@@ -6,286 +6,219 @@
   <title>EasySpecy Effects Overlay</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body {
-      width: 100%; height: 100%;
-      background: transparent;
-      overflow: hidden;
-      user-select: none;
-      -webkit-user-select: none;
-    }
-    canvas {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100vw; height: 100vh;
-      pointer-events: none;
-    }
+    html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none; }
+    canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; }
   </style>
 </head>
 <body>
   <canvas id="fx"></canvas>
-  <script type="module">
-    // Inline the effects engine (minimal version for the overlay window)
+  <script>
+    // ── Premium Effects Engine v2 (inlined for overlay window) ──
+
     function hexToRgb(hex) {
       const h = hex.replace("#", "");
       return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
     }
-    function rgba(hex, alpha) {
+    function rgba(hex, a) {
       const [r, g, b] = hexToRgb(hex);
-      return `rgba(${r},${g},${b},${alpha})`;
+      return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a))})`;
     }
-    function hslToStr(h, s, l, a) {
-      return `hsla(${h},${s}%,${l}%,${a})`;
+    function hsl(h, s, l, a) { return `hsla(${h % 360},${s}%,${l}%,${Math.max(0, Math.min(1, a))})`; }
+    function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+    function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+    function drawSmoothPath(ctx, pts) {
+      if (pts.length < 2) return;
+      ctx.moveTo(pts[0].x, pts[0].y);
+      if (pts.length === 2) { ctx.lineTo(pts[1].x, pts[1].y); return; }
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[Math.max(0, i - 1)], p1 = pts[i];
+        const p2 = pts[Math.min(pts.length - 1, i + 1)], p3 = pts[Math.min(pts.length - 1, i + 2)];
+        ctx.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6,
+          p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
+      }
     }
 
     // ── Trail Renderer ──
     class TrailRenderer {
-      constructor() { this.points = []; this.style = "glow"; this.color = "#00e88a"; this.time = 0; }
+      constructor() { this.points = []; this.style = "glow"; this.color = "#00e88a"; this.time = 0; this.lastX = 0; this.lastY = 0; this.velocity = 0; }
       addPoint(x, y) {
-        const last = this.points[this.points.length - 1];
-        if (last && Math.hypot(x - last.x, y - last.y) < 2) return;
-        this.points.push({ x, y, age: 0, hue: Math.random() * 60 - 30 });
-        if (this.points.length > 60) this.points.shift();
+        const dx = x - this.lastX, dy = y - this.lastY, dist = Math.hypot(dx, dy);
+        if (dist < 1.5) return;
+        this.velocity = Math.min(dist, 30); this.lastX = x; this.lastY = y;
+        this.points.push({ x, y, age: 0, vx: dx * 0.1, vy: dy * 0.1 });
+        if (this.points.length > 80) this.points.shift();
       }
       update() {
-        this.time++;
-        this.points = this.points.filter(p => { p.age++; return p.age < 45; });
+        this.time++; this.velocity *= 0.92;
+        this.points = this.points.filter(p => { p.age++; p.x += p.vx * 0.3; p.y += p.vy * 0.3; p.vx *= 0.95; p.vy *= 0.95; return p.age < 50; });
       }
-      draw(ctx, w, h) {
+      draw(ctx) {
         if (this.style === "none" || this.points.length === 0) return;
-        const drawFn = {
-          glow: () => this.drawGlow(ctx),
-          particles: () => this.drawParticles(ctx),
-          ribbon: () => this.drawRibbon(ctx),
-          dots: () => this.drawDots(ctx),
-          aurora: () => this.drawAurora(ctx),
-        }[this.style];
-        if (drawFn) drawFn();
+        ({ glow: () => this.drawGlow(ctx), particles: () => this.drawParticles(ctx), ribbon: () => this.drawRibbon(ctx), dots: () => this.drawDots(ctx), aurora: () => this.drawAurora(ctx) })[this.style]?.();
       }
       drawGlow(ctx) {
-        const pts = this.points;
-        if (pts.length < 2) return;
-        ctx.save();
-        ctx.lineCap = "round"; ctx.lineJoin = "round";
-        for (let pass = 0; pass < 3; pass++) {
-          const widths = [20, 10, 4]; const alphas = [0.06, 0.12, 0.8];
-          ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) {
-            const p0 = pts[i-1], p1 = pts[i];
-            ctx.quadraticCurveTo(p0.x, p0.y, (p0.x+p1.x)/2, (p0.y+p1.y)/2);
-          }
-          ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
-          ctx.strokeStyle = rgba(this.color, alphas[pass]);
-          ctx.lineWidth = widths[pass]; ctx.stroke();
+        const pts = this.points; if (pts.length < 2) return; ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round";
+        const velFactor = Math.min(1, this.velocity / 15);
+        for (const { width, alpha, blur } of [{ width: 28, alpha: 0.035, blur: 12 }, { width: 16, alpha: 0.08, blur: 6 }, { width: 8, alpha: 0.25, blur: 2 }, { width: 3, alpha: 0.9, blur: 0 }]) {
+          ctx.save(); if (blur > 0) ctx.filter = `blur(${blur}px)`;
+          ctx.beginPath(); drawSmoothPath(ctx, pts); ctx.strokeStyle = rgba(this.color, alpha); ctx.lineWidth = width * (0.6 + velFactor * 0.4); ctx.stroke(); ctx.restore();
         }
-        const head = pts[pts.length-1];
-        const ha = Math.max(0, 1 - head.age/20);
-        const grad = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 18);
-        grad.addColorStop(0, rgba(this.color, 0.6*ha));
-        grad.addColorStop(0.4, rgba(this.color, 0.2*ha));
-        grad.addColorStop(1, rgba(this.color, 0));
-        ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(head.x, head.y, 18, 0, Math.PI*2); ctx.fill();
+        const head = pts[pts.length - 1], hl = Math.max(0, 1 - head.age / 25), pulse = 1 + Math.sin(this.time * 0.12) * 0.15, hr = (14 + velFactor * 8) * pulse;
+        const g = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, hr);
+        g.addColorStop(0, rgba(this.color, 0.7 * hl)); g.addColorStop(0.3, rgba(this.color, 0.3 * hl)); g.addColorStop(0.6, rgba(this.color, 0.08 * hl)); g.addColorStop(1, rgba(this.color, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(head.x, head.y, hr, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(head.x, head.y, 2 * hl, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,255,255,${0.9 * hl})`; ctx.fill();
         ctx.restore();
       }
       drawParticles(ctx) {
         const pts = this.points; ctx.save();
         for (let i = 0; i < pts.length; i++) {
-          const p = pts[i]; const lr = 1 - p.age/45; if (lr <= 0) continue;
-          ctx.beginPath(); ctx.arc(p.x, p.y, 2+lr*3, 0, Math.PI*2);
-          ctx.fillStyle = rgba(this.color, lr*0.9); ctx.fill();
-          for (let s = 0; s < Math.floor(lr*4); s++) {
-            const a = (this.time*0.1+i*0.7+s*1.8)%(Math.PI*2);
-            const d = 4+Math.random()*8*lr;
-            ctx.beginPath(); ctx.arc(p.x+Math.cos(a)*d, p.y+Math.sin(a)*d, 0.5+Math.random()*1.5, 0, Math.PI*2);
-            ctx.fillStyle = rgba(this.color, lr*0.4*Math.random()); ctx.fill();
+          const p = pts[i], life = 1 - p.age / 50; if (life <= 0) continue;
+          const size = (2 + life * 4) * (0.5 + this.velocity / 20);
+          const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size * 2);
+          glow.addColorStop(0, rgba(this.color, life * 0.9)); glow.addColorStop(0.5, rgba(this.color, life * 0.3)); glow.addColorStop(1, rgba(this.color, 0));
+          ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(p.x, p.y, size * 2, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(p.x, p.y, size * 0.6, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,255,255,${life * 0.7})`; ctx.fill();
+          for (let s = 0; s < Math.floor(life * 5); s++) {
+            const a = this.time * 0.08 + i * 1.3 + s * 2.4, d = 3 + Math.sin(this.time * 0.06 + s) * 6 * life;
+            ctx.beginPath(); ctx.arc(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 0.8 + life * 1.2, 0, Math.PI * 2);
+            ctx.fillStyle = rgba(this.color, life * 0.5 * (0.5 + Math.sin(a * 3) * 0.5)); ctx.fill();
           }
         }
         if (pts.length > 0) {
-          const head = pts[pts.length-1];
-          for (let i = 0; i < 8; i++) {
-            const a = (this.time*0.03+i*0.785)%(Math.PI*2);
-            const d = 10+Math.sin(this.time*0.05+i)*8;
-            ctx.beginPath(); ctx.arc(head.x+Math.cos(a)*d, head.y+Math.sin(a)*d, 1+Math.sin(this.time*0.08+i*2)*0.5, 0, Math.PI*2);
-            ctx.fillStyle = rgba(this.color, 0.3+Math.sin(this.time*0.1+i)*0.2); ctx.fill();
+          const head = pts[pts.length - 1];
+          for (let i = 0; i < 12; i++) {
+            const a = this.time * 0.025 + i * 0.524, d = 8 + Math.sin(this.time * 0.04 + i * 1.7) * 12;
+            ctx.beginPath(); ctx.arc(head.x + Math.cos(a) * d, head.y + Math.sin(a) * d, 1 + Math.sin(this.time * 0.07 + i * 1.5) * 0.6, 0, Math.PI * 2);
+            ctx.fillStyle = rgba(this.color, 0.3 + Math.sin(this.time * 0.12 + i * 2.3) * 0.25); ctx.fill();
           }
         }
         ctx.restore();
       }
       drawRibbon(ctx) {
         const pts = this.points; if (pts.length < 3) return; ctx.save();
-        for (let pass = 0; pass < 2; pass++) {
-          const bw = pass===0?12:5, al = pass===0?0.08:0.3;
-          ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length-1; i++) {
-            const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[Math.min(pts.length-1,i+1)],p3=pts[Math.min(pts.length-1,i+2)];
-            ctx.bezierCurveTo(p1.x+(p2.x-p0.x)/6, p1.y+(p2.y-p0.y)/6, p2.x-(p3.x-p1.x)/6, p2.y-(p3.y-p1.y)/6, p2.x, p2.y);
-          }
-          ctx.strokeStyle=rgba(this.color,al); ctx.lineWidth=bw; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.stroke();
+        for (const { width, alpha, blur } of [{ width: 18, alpha: 0.04, blur: 4 }, { width: 10, alpha: 0.12, blur: 1 }, { width: 4, alpha: 0.35, blur: 0 }, { width: 1.5, alpha: 0.7, blur: 0 }]) {
+          ctx.save(); if (blur > 0) ctx.filter = `blur(${blur}px)`; ctx.beginPath(); drawSmoothPath(ctx, pts);
+          ctx.strokeStyle = rgba(this.color, alpha); ctx.lineWidth = width; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke(); ctx.restore();
         }
-        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length-1; i++) {
-          const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[Math.min(pts.length-1,i+1)],p3=pts[Math.min(pts.length-1,i+2)];
-          ctx.bezierCurveTo(p1.x+(p2.x-p0.x)/6, p1.y+(p2.y-p0.y)/6, p2.x-(p3.x-p1.x)/6, p2.y-(p3.y-p1.y)/6, p2.x, p2.y);
-        }
-        ctx.strokeStyle=rgba(this.color,0.5); ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
+        ctx.beginPath(); drawSmoothPath(ctx, pts); ctx.strokeStyle = `rgba(255,255,255,${0.15 + Math.sin(this.time * 0.08) * 0.1})`; ctx.lineWidth = 1;
+        ctx.setLineDash([4, 8]); ctx.lineDashOffset = -this.time * 2; ctx.stroke(); ctx.setLineDash([]);
+        ctx.restore();
       }
       drawDots(ctx) {
         const pts = this.points; ctx.save();
         for (let i = 0; i < pts.length; i++) {
-          const p = pts[i]; const lr = 1-p.age/45; if (lr <= 0) continue;
-          ctx.beginPath(); ctx.arc(p.x, p.y, 2+lr*4+2, 0, Math.PI*2);
-          ctx.fillStyle = rgba(this.color, lr*0.15); ctx.fill();
-          ctx.beginPath(); ctx.arc(p.x, p.y, 2+lr*4, 0, Math.PI*2);
-          ctx.fillStyle = rgba(this.color, lr*0.8); ctx.fill();
-          if (i < pts.length-1) {
-            const n = pts[i+1]; const nl = 1-n.age/45;
-            ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(n.x,n.y);
-            ctx.strokeStyle = rgba(this.color, Math.min(lr,nl)*0.2); ctx.lineWidth=1; ctx.stroke();
-          }
+          const p = pts[i], life = 1 - p.age / 50; if (life <= 0) continue;
+          const size = (2 + life * 5) * easeOutCubic(life), alpha = life * 0.85;
+          ctx.beginPath(); ctx.arc(p.x, p.y, size + 3, 0, Math.PI * 2); ctx.fillStyle = rgba(this.color, alpha * 0.1); ctx.fill();
+          ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, Math.PI * 2); ctx.fillStyle = rgba(this.color, alpha); ctx.fill();
+          ctx.beginPath(); ctx.arc(p.x, p.y, size * 0.35, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,255,255,${alpha * 0.6})`; ctx.fill();
+          if (i < pts.length - 1) { const n = pts[i + 1], nl = 1 - n.age / 50; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(n.x, n.y); ctx.strokeStyle = rgba(this.color, Math.min(alpha, nl) * 0.15); ctx.lineWidth = 1; ctx.stroke(); }
         }
         ctx.restore();
       }
       drawAurora(ctx) {
-        const pts = this.points; if (pts.length < 3) return; ctx.save();
-        const bh = (this.time*2)%360;
-        for (let layer = 0; layer < 3; layer++) {
-          const off=layer*40, w=18-layer*5, la=0.08+layer*0.05;
+        const pts = this.points; if (pts.length < 4) return; ctx.save();
+        const bh = (this.time * 1.5) % 360;
+        for (let layer = 0; layer < 4; layer++) {
+          const off = layer * 35, w = 22 - layer * 4, la = 0.04 + layer * 0.03, wa = 8 + layer * 3, wf = 0.15 + layer * 0.05;
           ctx.beginPath();
-          for (let i = 0; i < pts.length; i++) {
-            const p=pts[i], lr=1-p.age/45;
-            const wave=Math.sin(this.time*0.03+i*0.2+layer)*6*lr;
-            const nx=p.x+wave, ny=p.y-w/2+Math.sin(this.time*0.02+i*0.15)*3;
-            if(i===0)ctx.moveTo(nx,ny); else ctx.lineTo(nx,ny);
-          }
-          for (let i=pts.length-1;i>=0;i--) {
-            const p=pts[i], lr=1-p.age/45;
-            const wave=Math.sin(this.time*0.03+i*0.2+layer+1)*6*lr;
-            ctx.lineTo(p.x+wave, p.y+w/2+Math.sin(this.time*0.02+i*0.15+2)*3);
-          }
+          for (let i = 0; i < pts.length; i++) { const p = pts[i], lr = 1 - p.age / 50, wave = Math.sin(this.time * 0.025 + i * wf + layer * 1.2) * wa * lr; if (i === 0) ctx.moveTo(p.x + wave, p.y - w / 2 + Math.sin(this.time * 0.018 + i * 0.12 + layer) * 4); else ctx.lineTo(p.x + wave, p.y - w / 2 + Math.sin(this.time * 0.018 + i * 0.12 + layer) * 4); }
+          for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i], lr = 1 - p.age / 50, wave = Math.sin(this.time * 0.025 + i * wf + layer * 1.2 + 2) * wa * lr; ctx.lineTo(p.x + wave, p.y + w / 2 + Math.sin(this.time * 0.018 + i * 0.12 + layer + 2) * 4); }
           ctx.closePath();
-          const hue=(bh+off)%360;
-          const grd=ctx.createLinearGradient(pts[0].x,pts[0].y,pts[pts.length-1].x,pts[pts.length-1].y);
-          grd.addColorStop(0,hslToStr(hue,80,60,0));
-          grd.addColorStop(0.3,hslToStr(hue+30,80,60,la));
-          grd.addColorStop(0.7,hslToStr(hue+60,80,60,la));
-          grd.addColorStop(1,hslToStr(hue+90,80,60,0));
-          ctx.fillStyle=grd; ctx.fill();
+          const hue = (bh + off) % 360, grd = ctx.createLinearGradient(pts[0].x, pts[0].y, pts[pts.length - 1].x, pts[pts.length - 1].y);
+          grd.addColorStop(0, hsl(hue, 80, 55, 0)); grd.addColorStop(0.2, hsl(hue + 20, 85, 60, la)); grd.addColorStop(0.5, hsl(hue + 50, 80, 55, la * 1.2)); grd.addColorStop(0.8, hsl(hue + 80, 85, 60, la)); grd.addColorStop(1, hsl(hue + 100, 80, 55, 0));
+          ctx.fillStyle = grd; ctx.fill();
         }
-        ctx.beginPath();
-        for (let i=0;i<pts.length;i++){if(i===0)ctx.moveTo(pts[i].x,pts[i].y);else ctx.lineTo(pts[i].x,pts[i].y);}
-        ctx.strokeStyle=rgba(this.color,0.4);ctx.lineWidth=2;ctx.lineCap="round";ctx.stroke();ctx.restore();
+        ctx.beginPath(); drawSmoothPath(ctx, pts); ctx.strokeStyle = rgba(this.color, 0.35); ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.stroke();
+        ctx.beginPath(); drawSmoothPath(ctx, pts); ctx.strokeStyle = `rgba(255,255,255,${0.1 + Math.sin(this.time * 0.06) * 0.08})`; ctx.lineWidth = 1; ctx.stroke();
+        ctx.restore();
       }
     }
 
     // ── Click Effect Renderer ──
     class ClickEffectRenderer {
-      constructor() { this.clicks=[]; this.style="ripple"; this.color="#00e88a"; this.confetti=[]; }
-      addClick(x,y) {
-        this.clicks.push({x,y,age:0,color:this.color});
-        if(this.style==="confetti")this.spawnConfetti(x,y);
-      }
-      spawnConfetti(x,y) {
-        for(let i=0;i<24;i++){
-          const a=(Math.PI*2*i)/24+(Math.random()-0.5)*0.3;
-          const sp=2+Math.random()*4;
-          const colors=[this.color,"#ff4444","#4488ff","#ffcc00","#ff44cc","#44ffcc"];
-          this.confetti.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2,age:0,maxAge:40+Math.random()*20,
-            color:colors[Math.floor(Math.random()*colors.length)],size:2+Math.random()*3,rot:Math.random()*Math.PI*2,rs:(Math.random()-0.5)*0.2});
+      constructor() { this.clicks = []; this.style = "ripple"; this.color = "#00e88a"; this.confetti = []; }
+      addClick(x, y) { this.clicks.push({ x, y, age: 0, color: this.color }); if (this.style === "confetti") this.spawnConfetti(x, y); }
+      spawnConfetti(x, y) {
+        const colors = [this.color, "#ff4455", "#4488ff", "#ffcc22", "#ff44cc", "#44ffcc", "#ff8844"];
+        const shapes = ["rect", "circle", "triangle"];
+        for (let i = 0; i < 30; i++) {
+          const a = (Math.PI * 2 * i) / 30 + (Math.random() - 0.5) * 0.4, sp = 2.5 + Math.random() * 5;
+          this.confetti.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2.5, age: 0, maxAge: 45 + Math.random() * 25, color: colors[Math.floor(Math.random() * colors.length)], size: 2 + Math.random() * 4, rot: Math.random() * Math.PI * 2, rs: (Math.random() - 0.5) * 0.25, shape: shapes[Math.floor(Math.random() * shapes.length)] });
         }
       }
       update() {
-        this.clicks=this.clicks.filter(c=>{c.age++;return c.age<60;});
-        this.confetti=this.confetti.filter(p=>{p.age++;p.x+=p.vx;p.y+=p.vy;p.vy+=0.12;p.vx*=0.98;p.rot+=p.rs;return p.age<p.maxAge;});
+        this.clicks = this.clicks.filter(c => { c.age++; return c.age < 65; });
+        this.confetti = this.confetti.filter(p => { p.age++; p.x += p.vx; p.y += p.vy; p.vy += 0.13; p.vx *= 0.985; p.rot += p.rs; return p.age < p.maxAge; });
       }
       draw(ctx) {
-        if(this.style==="none")return;
-        for(const c of this.clicks){
-          if(this.style==="ripple")this.drawRipple(ctx,c);
-          else if(this.style==="spotlight")this.drawSpotlight(ctx,c);
-          else if(this.style==="ring")this.drawRing(ctx,c);
-          else if(this.style==="pulse")this.drawPulse(ctx,c);
-        }
-        if(this.style==="confetti")this.drawConfetti(ctx);
+        if (this.style === "none") return;
+        for (const c of this.clicks) ({ ripple: () => this.drawRipple(ctx, c), spotlight: () => this.drawSpotlight(ctx, c), ring: () => this.drawRing(ctx, c), pulse: () => this.drawPulse(ctx, c) })[this.style]?.();
+        if (this.style === "confetti") this.drawConfetti(ctx);
       }
-      drawRipple(ctx,c) {
-        const p=c.age/60; if(p>=1)return;
-        for(let i=0;i<3;i++){const rp=Math.min(1,(p-i*0.1)/0.7);if(rp<=0||rp>=1)continue;
-          ctx.beginPath();ctx.arc(c.x,c.y,rp*40,0,Math.PI*2);ctx.strokeStyle=rgba(c.color,(1-rp)*0.6);ctx.lineWidth=2.5-rp*2;ctx.stroke();}
-        if(p<0.15){const fa=(1-p/0.15)*0.8;const g=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,8);
-          g.addColorStop(0,rgba(c.color,fa));g.addColorStop(1,rgba(c.color,0));ctx.fillStyle=g;ctx.beginPath();ctx.arc(c.x,c.y,8,0,Math.PI*2);ctx.fill();}
+      drawRipple(ctx, c) {
+        const p = c.age / 65; if (p >= 1) return;
+        for (let i = 0; i < 3; i++) { const rt = easeInOutQuad(Math.max(0, Math.min(1, (p - i * 0.12) / 0.65))); if (rt <= 0 || rt >= 1) continue; ctx.beginPath(); ctx.arc(c.x, c.y, rt * 45, 0, Math.PI * 2); ctx.strokeStyle = rgba(c.color, (1 - rt) * 0.7); ctx.lineWidth = 3 - rt * 2.5; ctx.stroke(); }
+        if (p < 0.2) { const ft = 1 - p / 0.2, fs = 6 + (1 - ft) * 4; const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, fs); g.addColorStop(0, `rgba(255,255,255,${ft * 0.9})`); g.addColorStop(0.3, rgba(c.color, ft * 0.7)); g.addColorStop(1, rgba(c.color, 0)); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, fs, 0, Math.PI * 2); ctx.fill(); }
       }
-      drawSpotlight(ctx,c) {
-        const p=c.age/60; if(p>=1)return;
-        const r=8+p*35, a=(1-p)*0.5;
-        const g=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,r);
-        g.addColorStop(0,rgba(c.color,a*0.8));g.addColorStop(0.3,rgba(c.color,a*0.4));
-        g.addColorStop(0.7,rgba(c.color,a*0.1));g.addColorStop(1,rgba(c.color,0));
-        ctx.fillStyle=g;ctx.beginPath();ctx.arc(c.x,c.y,r,0,Math.PI*2);ctx.fill();
-        if(p<0.5){const la=(1-p*2)*0.4,ll=6+p*20;ctx.strokeStyle=rgba(c.color,la);ctx.lineWidth=1.5;
-          for(let a=0;a<4;a++){const an=(a*Math.PI)/4+p*0.5;ctx.beginPath();
-            ctx.moveTo(c.x+Math.cos(an)*3,c.y+Math.sin(an)*3);ctx.lineTo(c.x+Math.cos(an)*ll,c.y+Math.sin(an)*ll);ctx.stroke();}}
+      drawSpotlight(ctx, c) {
+        const p = c.age / 65; if (p >= 1) return;
+        const r = 6 + easeOutCubic(p) * 40, a = (1 - p) * 0.55;
+        const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
+        g.addColorStop(0, `rgba(255,255,255,${a * 0.5})`); g.addColorStop(0.15, rgba(c.color, a * 0.7)); g.addColorStop(0.4, rgba(c.color, a * 0.3)); g.addColorStop(0.75, rgba(c.color, a * 0.06)); g.addColorStop(1, rgba(c.color, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, Math.PI * 2); ctx.fill();
+        if (p < 0.6) { const ra = (1 - p / 0.6) * 0.45, rl = 4 + p * 25; ctx.strokeStyle = rgba(c.color, ra); ctx.lineWidth = 1.5; for (let i = 0; i < 6; i++) { const an = (i * Math.PI) / 3 + p * 0.8; ctx.beginPath(); ctx.moveTo(c.x + Math.cos(an) * 2, c.y + Math.sin(an) * 2); ctx.lineTo(c.x + Math.cos(an) * rl, c.y + Math.sin(an) * rl); ctx.stroke(); } }
       }
-      drawRing(ctx,c) {
-        const p=c.age/60; if(p>=1)return;
-        ctx.beginPath();ctx.arc(c.x,c.y,5+p*30,0,Math.PI*2);ctx.strokeStyle=rgba(c.color,(1-p)*0.7);ctx.lineWidth=3-p*2;ctx.stroke();
-        if(p<0.5){ctx.beginPath();ctx.arc(c.x,c.y,Math.max(0,15-p*20),0,Math.PI*2);ctx.strokeStyle=rgba(c.color,(1-p*2)*0.5);ctx.lineWidth=2;ctx.stroke();}
-        ctx.beginPath();ctx.arc(c.x,c.y,3*(1-p),0,Math.PI*2);ctx.fillStyle=rgba(c.color,(1-p)*0.9);ctx.fill();
+      drawRing(ctx, c) {
+        const p = c.age / 65; if (p >= 1) return;
+        ctx.beginPath(); ctx.arc(c.x, c.y, 4 + easeOutCubic(p) * 35, 0, Math.PI * 2); ctx.strokeStyle = rgba(c.color, (1 - p) * 0.75); ctx.lineWidth = 3.5 - p * 2.5; ctx.stroke();
+        if (p < 0.45) { const it = p / 0.45; ctx.beginPath(); ctx.arc(c.x, c.y, Math.max(0, 18 * (1 - easeOutCubic(it))), 0, Math.PI * 2); ctx.strokeStyle = rgba(c.color, (1 - it) * 0.6); ctx.lineWidth = 2; ctx.stroke(); }
+        const ds = 3.5 * (1 - p); if (ds > 0.3) { ctx.beginPath(); ctx.arc(c.x, c.y, ds, 0, Math.PI * 2); ctx.fillStyle = rgba(c.color, (1 - p) * 0.9); ctx.fill(); ctx.beginPath(); ctx.arc(c.x, c.y, ds * 0.4, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,255,255,${(1 - p) * 0.8})`; ctx.fill(); }
       }
-      drawPulse(ctx,c) {
-        const p=c.age/60; if(p>=1)return;
-        for(let i=0;i<4;i++){const ph=(p+i*0.15)%1;ctx.beginPath();ctx.arc(c.x,c.y,ph*25,0,Math.PI*2);
-          ctx.strokeStyle=rgba(c.color,(1-ph)*0.5);ctx.lineWidth=2;ctx.stroke();}
-        const pulse=Math.sin(p*Math.PI*6)*0.3+0.7;
-        const g=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,6);
-        g.addColorStop(0,rgba(c.color,pulse*(1-p)));g.addColorStop(1,rgba(c.color,0));
-        ctx.fillStyle=g;ctx.beginPath();ctx.arc(c.x,c.y,6,0,Math.PI*2);ctx.fill();
+      drawPulse(ctx, c) {
+        const p = c.age / 65; if (p >= 1) return;
+        for (let i = 0; i < 5; i++) { const ph = (p * 1.5 + i * 0.18) % 1; ctx.beginPath(); ctx.arc(c.x, c.y, ph * 30, 0, Math.PI * 2); ctx.strokeStyle = rgba(c.color, (1 - ph) * 0.55); ctx.lineWidth = 2.5 - ph * 2; ctx.stroke(); }
+        const b = Math.sin(p * Math.PI * 8) * 0.3 + 0.7, gs = 5 + b * 3;
+        const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, gs); g.addColorStop(0, rgba(c.color, b * (1 - p) * 0.8)); g.addColorStop(1, rgba(c.color, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, gs, 0, Math.PI * 2); ctx.fill();
       }
       drawConfetti(ctx) {
-        for(const p of this.confetti){const lr=1-p.age/p.maxAge;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);
-          ctx.fillStyle=rgba(p.color,lr*0.9);ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size*0.4);ctx.restore();}
+        for (const p of this.confetti) { const lr = 1 - p.age / p.maxAge; ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.globalAlpha = lr * 0.9; ctx.fillStyle = p.color;
+          if (p.shape === "rect") ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+          else if (p.shape === "circle") { ctx.beginPath(); ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2); ctx.fill(); }
+          else { ctx.beginPath(); ctx.moveTo(0, -p.size / 2); ctx.lineTo(p.size / 2, p.size / 2); ctx.lineTo(-p.size / 2, p.size / 2); ctx.closePath(); ctx.fill(); }
+          ctx.globalAlpha = 1; ctx.restore();
+        }
       }
     }
 
-    // ── Main overlay logic ──
+    // ── Main ──
     const canvas = document.getElementById("fx");
     const ctx = canvas.getContext("2d");
     const trail = new TrailRenderer();
     const click = new ClickEffectRenderer();
 
-    // Resize
     function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-    resize();
-    window.addEventListener("resize", resize);
-
-    // Listen for config from Tauri
-    let config = { trail_style: "glow", click_effect: "ripple", color: "#00e88a" };
+    resize(); window.addEventListener("resize", resize);
 
     async function loadConfig() {
       try {
         const cfg = await window.__TAURI__.core.invoke("get_config");
-        config = {
-          trail_style: cfg.trail_style || "glow",
-          click_effect: cfg.click_effect || "ripple",
-          color: cfg.cursor_trail_color || "#00e88a",
-        };
-        trail.style = config.trail_style;
-        trail.color = config.color;
-        click.style = config.click_effect;
-        click.color = config.color;
-      } catch (e) {}
+        trail.style = cfg.trail_style || "glow"; trail.color = cfg.cursor_trail_color || "#00e88a";
+        click.style = cfg.click_effect || "ripple"; click.color = cfg.cursor_trail_color || "#00e88a";
+      } catch (e) { console.error("Config load failed:", e); }
     }
     loadConfig();
 
-    // Track mouse
-    document.addEventListener("mousemove", (e) => { trail.addPoint(e.clientX, e.clientY); });
-    document.addEventListener("mousedown", (e) => { click.addClick(e.clientX, e.clientY); });
+    document.addEventListener("mousemove", e => trail.addPoint(e.clientX, e.clientY));
+    document.addEventListener("mousedown", e => click.addClick(e.clientX, e.clientY));
 
-    // Animation loop
     function animate() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      trail.update();
-      trail.draw(ctx, canvas.width, canvas.height);
-      click.update();
-      click.draw(ctx);
+      trail.update(); trail.draw(ctx);
+      click.update(); click.draw(ctx);
       requestAnimationFrame(animate);
     }
     animate();
