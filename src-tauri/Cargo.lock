@@ -1055,6 +1055,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "windows 0.62.2",
  "windows-capture",
 ]
 

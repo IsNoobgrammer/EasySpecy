@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
 import { useThemeStore } from "../lib/theme";
@@ -302,13 +302,13 @@ export function Settings({ onBack }: { onBack: () => void }) {
           {/* ── Hotkeys ── */}
           <Card title="Hotkeys" icon="⌨️" index={5}>
             <Row label="Start Recording" desc="Keyboard shortcut to begin">
-              <Input value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} />
+              <HotkeyRecorder value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} />
             </Row>
             <Row label="Stop Recording" desc="Keyboard shortcut to stop">
-              <Input value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} />
+              <HotkeyRecorder value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} />
             </Row>
             <Row label="Pause / Resume" desc="Keyboard shortcut to pause">
-              <Input value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} />
+              <HotkeyRecorder value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} />
             </Row>
           </Card>
 
@@ -328,20 +328,21 @@ export function Settings({ onBack }: { onBack: () => void }) {
       </div>
 
       {/* ═══ SAVE BUTTON ═══ */}
-      <div className="px-6 py-4" style={{ borderTop: "var(--border-width) solid var(--border-default)" }}>
+      <div className="px-6 py-4" style={{ borderTop: "var(--border-width) solid var(--border-default)", background: "oklch(from var(--bg-base) l c h / 0.5)" }}>
         <motion.button
           onClick={handleSave}
-          className="w-full py-3 font-mono text-sm font-semibold cursor-pointer"
+          className="w-full py-3 font-mono text-xs uppercase font-bold cursor-pointer shadow-md"
           style={{
-            border: `var(--border-width) solid ${saved ? "var(--accent-success)" : "var(--accent-primary)"}`,
+            border: `var(--border-width) solid ${saved ? "var(--accent-success)" : "var(--border-strong)"}`,
             background: saved ? "var(--accent-success)" : "var(--accent-primary)",
-            color: "var(--text-primary)",
-            letterSpacing: "0.03em",
+            color: saved ? "white" : "var(--bg-base)",
+            borderRadius: "var(--radius-sm)",
+            letterSpacing: "0.05em",
           }}
-          whileHover={{ scale: 1.01, y: -1 }}
+          whileHover={{ scale: 1.01, y: -1, boxShadow: "var(--shadow-lg)", borderColor: "var(--border-strong)" }}
           whileTap={{ scale: 0.98 }}
         >
-          {saved ? "✓ Saved" : "Save Settings"}
+          {saved ? "✓ Settings Saved Successfully" : "💾 Save Settings Configuration"}
         </motion.button>
       </div>
     </div>
@@ -362,19 +363,21 @@ function Card({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      className="shadow-sm overflow-hidden"
       style={{
         border: "var(--border-width) solid var(--border-default)",
         background: "var(--bg-surface)",
+        borderRadius: "var(--radius-md)",
       }}
     >
       {/* Card Header */}
       <div
         className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: "var(--border-thin) solid var(--border-default)" }}
+        style={{ borderBottom: "var(--border-thin) solid var(--border-default)", background: "oklch(from var(--bg-surface) l c h / 0.3)" }}
       >
         <div className="flex items-center gap-2">
           <span className="text-base">{icon}</span>
-          <span className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+          <span className="font-mono text-xs font-bold" style={{ color: "var(--text-primary)" }}>
             {title}
           </span>
         </div>
@@ -385,6 +388,7 @@ function Card({
               fontSize: "0.55rem",
               color: "var(--text-muted)",
               border: "var(--border-thin) solid var(--border-default)",
+              borderRadius: "var(--radius-xs)",
               letterSpacing: "0.05em",
             }}
           >
@@ -394,7 +398,7 @@ function Card({
       </div>
 
       {/* Card Body */}
-      <div className="px-4 py-3 space-y-4">
+      <div className="px-4 py-3.5 space-y-4">
         {children}
       </div>
     </motion.div>
@@ -405,11 +409,11 @@ function Row({ label, desc, children }: { label: string; desc?: string; children
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex-1 min-w-0">
-        <div className="font-mono text-sm" style={{ color: "var(--text-primary)" }}>
+        <div className="font-mono text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
           {label}
         </div>
         {desc && (
-          <div className="font-mono mt-0.5" style={{ color: "var(--text-muted)", fontSize: "0.6rem", lineHeight: 1.4 }}>
+          <div className="font-mono mt-0.5" style={{ color: "var(--text-muted)", fontSize: "0.58rem", lineHeight: 1.4 }}>
             {desc}
           </div>
         )}
@@ -427,15 +431,19 @@ function Select({ value, onChange, options }: {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[160px]"
+      className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[160px] outline-none transition-colors duration-200"
       style={{
         border: "var(--border-width) solid var(--border-default)",
         background: "var(--bg-base)",
         color: "var(--text-primary)",
+        borderRadius: "var(--radius-sm)",
+        boxShadow: "var(--shadow-sm)",
       }}
+      onFocus={(e) => e.target.style.borderColor = "var(--border-focus)"}
+      onBlur={(e) => e.target.style.borderColor = "var(--border-default)"}
     >
       {options.map((o) => (
-        <option key={o.value} value={o.value}>{o.label}</option>
+        <option key={o.value} value={o.value} style={{ background: "var(--bg-elevated)", color: "var(--text-primary)" }}>{o.label}</option>
       ))}
     </select>
   );
@@ -444,23 +452,35 @@ function Select({ value, onChange, options }: {
 function Segmented<T extends string | number>({ value, options, onChange }: {
   value: T; options: { label: string; value: T }[]; onChange: (v: T) => void;
 }) {
+  const layoutId = useId();
   return (
-    <div className="flex" style={{ border: "var(--border-width) solid var(--border-default)" }}>
-      {options.map((opt, i) => (
+    <div className="flex p-0.5 relative gap-0.5" style={{ border: "var(--border-width) solid var(--border-default)", background: "var(--bg-base)", borderRadius: "var(--radius-sm)" }}>
+      {options.map((opt) => (
         <motion.button
           key={String(opt.value)}
           onClick={() => onChange(opt.value)}
-          className="px-3 py-1.5 font-mono text-xs cursor-pointer"
+          className="px-3 py-1 font-mono text-[10px] cursor-pointer relative z-10 font-bold"
           style={{
-            background: opt.value === value ? "var(--accent-primary)" : "var(--bg-base)",
-            color: opt.value === value ? "var(--text-primary)" : "var(--text-secondary)",
-            borderRight: i < options.length - 1 ? "var(--border-thin) solid var(--border-default)" : "none",
+            color: opt.value === value ? "var(--bg-base)" : "var(--text-secondary)",
+            border: "none",
+            background: "transparent",
             letterSpacing: "0.03em",
           }}
-          whileHover={opt.value !== value ? { background: "var(--bg-elevated)" } : {}}
-          whileTap={{ scale: 0.95 }}
+          whileHover={opt.value !== value ? { color: "var(--text-primary)" } : {}}
+          whileTap={{ scale: 0.96 }}
         >
-          {opt.label}
+          <span className="relative z-20">{opt.label}</span>
+          {opt.value === value && (
+            <motion.div
+              layoutId={layoutId}
+              className="absolute inset-0 z-0 shadow-sm"
+              style={{
+                background: "var(--accent-primary)",
+                borderRadius: "calc(var(--radius-sm) - 3px)",
+              }}
+              transition={{ type: "spring", stiffness: 450, damping: 28 }}
+            />
+          )}
         </motion.button>
       ))}
     </div>
@@ -473,13 +493,205 @@ function Input({ value, onChange }: { value: string; onChange: (v: string) => vo
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-1.5 font-mono text-xs min-w-[160px]"
+      className="px-3 py-1.5 font-mono text-xs min-w-[160px] outline-none transition-colors duration-200"
       style={{
         border: "var(--border-width) solid var(--border-default)",
         background: "var(--bg-base)",
         color: "var(--text-primary)",
+        borderRadius: "var(--radius-sm)",
+        boxShadow: "var(--shadow-sm)",
       }}
+      onFocus={(e) => e.target.style.borderColor = "var(--border-focus)"}
+      onBlur={(e) => e.target.style.borderColor = "var(--border-default)"}
     />
+  );
+}
+
+function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [tempModifiers, setTempModifiers] = useState({
+    ctrl: false,
+    shift: false,
+    alt: false,
+    super: false,
+  });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isRecording) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const key = e.key;
+      const isModifier = ["Control", "Shift", "Alt", "Meta", "OS"].includes(key);
+
+      // Track current modifiers state in real-time
+      const newModifiers = {
+        ctrl: e.ctrlKey || key === "Control",
+        shift: e.shiftKey || key === "Shift",
+        alt: e.altKey || key === "Alt",
+        super: e.metaKey || key === "Meta" || key === "OS",
+      };
+      setTempModifiers(newModifiers);
+
+      if (key === "Escape") {
+        setIsRecording(false);
+        buttonRef.current?.blur();
+        return;
+      }
+
+      if (key === "Backspace" && !newModifiers.ctrl && !newModifiers.shift && !newModifiers.alt && !newModifiers.super) {
+        onChange("");
+        setIsRecording(false);
+        buttonRef.current?.blur();
+        return;
+      }
+
+      if (!isModifier) {
+        // A non-modifier key was pressed - compile shortcut
+        const parts: string[] = [];
+        if (newModifiers.ctrl) parts.push("Ctrl");
+        if (newModifiers.shift) parts.push("Shift");
+        if (newModifiers.alt) parts.push("Alt");
+        if (newModifiers.super) parts.push("Super");
+
+        // Format key name nicely
+        let keyName = key;
+        if (key === " ") {
+          keyName = "Space";
+        } else if (key.length === 1) {
+          keyName = key.toUpperCase();
+        } else if (key.startsWith("Arrow")) {
+          keyName = key.replace("Arrow", ""); // Up, Down, Left, Right
+        }
+
+        parts.push(keyName);
+        const shortcutString = parts.join("+");
+
+        onChange(shortcutString);
+        setIsRecording(false);
+        buttonRef.current?.blur();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Update modifier states when they are released
+      setTempModifiers({
+        ctrl: e.ctrlKey,
+        shift: e.shiftKey,
+        alt: e.altKey,
+        super: e.metaKey,
+      });
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("keyup", handleKeyUp, true);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("keyup", handleKeyUp, true);
+    };
+  }, [isRecording, onChange]);
+
+  const handleClick = () => {
+    setIsRecording(true);
+    setTempModifiers({ ctrl: false, shift: false, alt: false, super: false });
+  };
+
+  const handleBlur = () => {
+    setIsRecording(false);
+  };
+
+  return (
+    <div className="relative">
+      <motion.button
+        ref={buttonRef}
+        onClick={handleClick}
+        onBlur={handleBlur}
+        className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[160px] text-center outline-none select-none transition-all duration-200"
+        style={{
+          border: "var(--border-width) solid " + (isRecording ? "var(--border-focus)" : "var(--border-default)"),
+          background: isRecording ? "oklch(from var(--border-focus) l c h / 0.08)" : "var(--bg-base)",
+          color: isRecording ? "var(--border-focus)" : "var(--text-primary)",
+          borderRadius: "var(--radius-sm)",
+          boxShadow: isRecording ? "0 0 10px oklch(from var(--border-focus) l c h / 0.15)" : "var(--shadow-sm)",
+        }}
+        whileTap={{ scale: 0.98 }}
+      >
+        {isRecording ? (
+          <span className="flex items-center justify-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse-dot" />
+            Listening...
+          </span>
+        ) : (
+          value || "None"
+        )}
+      </motion.button>
+
+      <AnimatePresence>
+        {isRecording && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.95 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="absolute top-full mt-2 left-1/2 -translate-x-1/2 flex gap-1 p-1 bg-elevated border border-default shadow-lg z-50 rounded"
+            style={{
+              background: "var(--bg-elevated)",
+              border: "var(--border-thin) solid var(--border-default)",
+              borderRadius: "var(--radius-sm)",
+              boxShadow: "var(--shadow-lg)",
+            }}
+          >
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
+              style={{
+                background: tempModifiers.ctrl ? "var(--accent-primary)" : "var(--bg-base)",
+                color: tempModifiers.ctrl ? "var(--bg-base)" : "var(--text-muted)",
+                border: tempModifiers.ctrl ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
+              }}
+            >
+              Ctrl
+            </span>
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
+              style={{
+                background: tempModifiers.shift ? "var(--accent-primary)" : "var(--bg-base)",
+                color: tempModifiers.shift ? "var(--bg-base)" : "var(--text-muted)",
+                border: tempModifiers.shift ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
+              }}
+            >
+              Shift
+            </span>
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
+              style={{
+                background: tempModifiers.alt ? "var(--accent-primary)" : "var(--bg-base)",
+                color: tempModifiers.alt ? "var(--bg-base)" : "var(--text-muted)",
+                border: tempModifiers.alt ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
+              }}
+            >
+              Alt
+            </span>
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
+              style={{
+                background: tempModifiers.super ? "var(--accent-primary)" : "var(--bg-base)",
+                color: tempModifiers.super ? "var(--bg-base)" : "var(--text-muted)",
+                border: tempModifiers.super ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
+              }}
+            >
+              Win
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -493,12 +705,13 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
         height: 24,
         border: `var(--border-width) solid ${checked ? "var(--accent-primary)" : "var(--border-default)"}`,
         background: checked ? "var(--accent-primary)" : "var(--bg-base)",
+        borderRadius: "var(--radius-full)",
       }}
       whileTap={{ scale: 0.95 }}
     >
       <motion.div
         className="absolute top-0.5"
-        style={{ width: 18, height: 18, background: "var(--text-primary)" }}
+        style={{ width: 16, height: 16, background: "var(--text-primary)", borderRadius: "var(--radius-full)" }}
         animate={{ left: checked ? 22 : 2 }}
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
       />

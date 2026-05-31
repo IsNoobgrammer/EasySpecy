@@ -5,6 +5,7 @@ use crate::capture::RecordingConfig;
 use crate::config::AppConfig;
 use crate::history::{RecordingEntry, RecordingHistory};
 use cpal::traits::{DeviceTrait, HostTrait};
+use crate::region;
 
 #[tauri::command]
 pub fn get_config() -> AppConfig {
@@ -178,4 +179,24 @@ pub fn open_path(path: String) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_capture_region(x: i32, y: i32, width: i32, height: i32) {
+    region::set_region(region::CaptureRegion { x, y, width, height });
+}
+
+#[tauri::command]
+pub fn get_capture_region() -> Option<region::CaptureRegion> {
+    region::get_region()
+}
+
+#[tauri::command]
+pub fn clear_capture_region() {
+    region::clear_region();
+}
+
+#[tauri::command]
+pub fn get_windows() -> Vec<region::WindowInfo> {
+    region::get_windows()
 }

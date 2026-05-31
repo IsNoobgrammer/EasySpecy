@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
 import { useThemeStore } from "../lib/theme";
+import { RegionSelector, WindowPicker } from "./RegionSelector";
 import { invoke } from "@tauri-apps/api/core";
 
 function formatDuration(ms: number): string {
@@ -47,48 +48,53 @@ function PresetCard({
   return (
     <motion.div
       ref={ref}
-      className="relative text-center px-2 py-3 cursor-pointer select-none"
+      className="relative text-center px-3 py-3.5 cursor-pointer select-none"
       style={{
         border: `var(--border-width) solid ${open ? "var(--accent-primary)" : "var(--border-default)"}`,
         background: "var(--bg-surface)",
+        borderRadius: "var(--radius-md)",
+        boxShadow: "var(--shadow-sm)",
       }}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 + index * 0.05, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      whileHover={disabled ? {} : { y: -2, borderColor: "var(--border-strong)" }}
+      whileHover={disabled ? {} : { y: -2, borderColor: "var(--border-strong)", boxShadow: "var(--shadow-md)" }}
       onClick={() => !disabled && setOpen(!open)}
     >
       <div className="font-mono uppercase" style={{ color: "var(--text-muted)", letterSpacing: "0.08em", fontSize: "0.55rem" }}>
         {label}
       </div>
-      <div className="font-mono text-sm font-bold mt-1" style={{ color: "var(--text-primary)" }}>
-        {value}
-      </div>
-      <div className="font-mono" style={{ color: "var(--text-muted)", fontSize: "0.5rem", marginTop: 2 }}>
-        {disabled ? "" : "▼"}
+      <div className="font-mono text-xs font-bold mt-1.5 flex items-center justify-center gap-1" style={{ color: "var(--text-primary)" }}>
+        <span>{value}</span>
+        {!disabled && (
+          <span className="transition-transform duration-200" style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", fontSize: "0.5rem", color: "var(--text-muted)" }}>
+            ▼
+          </span>
+        )}
       </div>
 
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.97 }}
+            initial={{ opacity: 0, y: 4, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.97 }}
-            transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute left-0 right-0 z-50 mt-1"
+            exit={{ opacity: 0, y: 4, scale: 0.95 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute left-0 right-0 z-50 mt-2 overflow-hidden"
             style={{
               top: "100%",
-              border: "var(--border-width) solid var(--border-strong)",
+              border: "var(--border-thin) solid var(--border-strong)",
               background: "var(--bg-elevated)",
-              boxShadow: "var(--shadow-md)",
+              boxShadow: "var(--shadow-lg)",
+              borderRadius: "var(--radius-sm)",
             }}
           >
             {options.map((opt) => (
               <motion.button
                 key={opt.value}
-                className="w-full px-3 py-2 text-left font-mono text-xs cursor-pointer"
+                className="w-full px-3 py-2.5 text-left font-mono text-[10px] cursor-pointer flex items-center justify-between"
                 style={{
-                  color: opt.value === value ? "var(--accent-primary)" : "var(--text-secondary)",
+                  color: opt.value === value ? "var(--text-primary)" : "var(--text-secondary)",
                   background: opt.value === value ? "var(--bg-surface)" : "transparent",
                   borderBottom: "var(--border-thin) solid var(--border-default)",
                   letterSpacing: "0.03em",
@@ -100,8 +106,8 @@ function PresetCard({
                   setOpen(false);
                 }}
               >
-                {opt.label}
-                {opt.value === value && <span className="ml-2" style={{ color: "var(--accent-primary)" }}>●</span>}
+                <span>{opt.label}</span>
+                {opt.value === value && <span style={{ color: "var(--accent-primary)" }}>✓</span>}
               </motion.button>
             ))}
           </motion.div>
@@ -117,52 +123,82 @@ function HistoryPanel({ entries, onOpen, onClear }: {
   onOpen: (path: string) => void;
   onClear: () => void;
 }) {
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3, duration: 0.3 }}
+        className="w-full max-w-xl text-center p-6 border border-dashed rounded-lg mt-4"
+        style={{
+          borderColor: "var(--border-default)",
+          background: "var(--bg-surface)",
+          borderRadius: "var(--radius-md)",
+        }}
+      >
+        <span className="text-xl mb-1.5 block">🎬</span>
+        <h3 className="font-semibold text-xs mb-1" style={{ color: "var(--text-primary)" }}>No recordings yet</h3>
+        <p className="text-[10px] max-w-xs mx-auto mb-3" style={{ color: "var(--text-secondary)" }}>
+          Ready to capture your screen? Press the start hotkey or click the record button below to begin.
+        </p>
+        <div className="flex items-center justify-center gap-2 text-[10px] font-mono" style={{ color: "var(--text-muted)" }}>
+          <span>Hotkey:</span>
+          <kbd className="px-1.5 py-0.5" style={{ border: "var(--border-thin) solid var(--border-default)", background: "var(--bg-base)", borderRadius: "var(--radius-xs)" }}>Ctrl+Shift+R</kbd>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="w-full max-w-xl"
+      className="w-full max-w-xl mt-4"
     >
       <div className="flex items-center justify-between mb-2">
         <span className="font-mono text-xs uppercase" style={{ color: "var(--text-muted)", letterSpacing: "0.08em" }}>
           Recent Recordings
         </span>
         <motion.button
-          className="font-mono text-xs cursor-pointer"
-          style={{ color: "var(--text-muted)" }}
-          whileHover={{ color: "var(--accent-danger)" }}
+          className="font-mono text-xs cursor-pointer px-2 py-0.5 font-semibold"
+          style={{ color: "var(--text-muted)", border: "var(--border-thin) solid transparent" }}
+          whileHover={{ color: "var(--accent-danger)", borderColor: "var(--border-default)", borderRadius: "var(--radius-xs)" }}
           onClick={onClear}
         >
           Clear
         </motion.button>
       </div>
-      <div className="space-y-1 max-h-32 overflow-y-auto">
+      <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
         {entries.slice(0, 5).map((entry, i) => (
           <motion.div
             key={entry.id}
-            className="flex items-center gap-3 px-3 py-2 cursor-pointer group"
+            className="flex items-center gap-3 px-3 py-2.5 cursor-pointer group"
             style={{
               border: "var(--border-thin) solid var(--border-default)",
               background: "var(--bg-surface)",
+              borderRadius: "var(--radius-sm)",
+              boxShadow: "var(--shadow-sm)",
             }}
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: i * 0.03 }}
-            whileHover={{ borderColor: "var(--accent-info)" }}
+            whileHover={{ borderColor: "var(--accent-info)", y: -1, boxShadow: "var(--shadow-md)" }}
             onClick={() => onOpen(entry.output_path)}
           >
             <div className="flex-1 min-w-0">
-              <div className="font-mono text-xs" style={{ color: "var(--text-primary)" }}>
-                {entry.duration_secs.toFixed(1)}s · {formatBytes(entry.file_size_bytes)} · {entry.resolution}
+              <div className="font-mono text-xs font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+                <span>📁 {entry.resolution}</span>
+                <span style={{ color: "var(--text-muted)" }}>·</span>
+                <span>{entry.duration_secs.toFixed(1)}s</span>
+                <span style={{ color: "var(--text-muted)" }}>·</span>
+                <span>{formatBytes(entry.file_size_bytes)}</span>
               </div>
-              <div className="font-mono truncate" style={{ color: "var(--text-muted)", fontSize: "0.55rem" }}>
+              <div className="font-mono truncate mt-1" style={{ color: "var(--text-muted)", fontSize: "0.55rem" }}>
                 {normalizePath(entry.output_path)}
               </div>
             </div>
-            <span className="font-mono text-xs opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: "var(--accent-info)" }}>
+            <span className="font-mono text-[10px] opacity-0 group-hover:opacity-100 transition-opacity px-2 py-0.5" style={{ color: "var(--accent-info)", border: "var(--border-thin) solid var(--accent-info)", borderRadius: "var(--radius-xs)", background: "oklch(from var(--accent-info) l c h / 0.1)" }}>
               OPEN
             </span>
           </motion.div>
@@ -174,14 +210,19 @@ function HistoryPanel({ entries, onOpen, onClear }: {
 
 // ═══ AUDIO LEVEL METER ═══
 function AudioMeter({ active }: { active: boolean }) {
-  const [level, setLevel] = useState(0);
+  const [levels, setLevels] = useState<number[]>(new Array(12).fill(0.05));
   const animRef = useRef<number>(0);
 
   useEffect(() => {
-    if (!active) { setLevel(0); return; }
+    if (!active) {
+      setLevels(new Array(12).fill(0.05));
+      return;
+    }
     const tick = () => {
-      // Simulated mic level — real implementation would use Web Audio API
-      setLevel(Math.random() * 0.6 + 0.1);
+      setLevels(prev => prev.map(l => {
+        const target = Math.random() * 0.7 + 0.15;
+        return l + (target - l) * 0.45;
+      }));
       animRef.current = requestAnimationFrame(tick);
     };
     animRef.current = requestAnimationFrame(tick);
@@ -189,18 +230,20 @@ function AudioMeter({ active }: { active: boolean }) {
   }, [active]);
 
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="font-mono" style={{ color: "var(--text-muted)", fontSize: "0.5rem" }}>MIC</span>
-      <div className="flex gap-0.5 h-3">
-        {Array.from({ length: 8 }).map((_, i) => (
+    <div className="flex items-center gap-2 px-3 py-1.5" style={{ border: "var(--border-thin) solid var(--border-default)", background: "var(--bg-surface)", borderRadius: "var(--radius-sm)" }}>
+      <span className="font-mono" style={{ color: "var(--text-muted)", fontSize: "0.55rem", letterSpacing: "0.05em" }}>AUDIO</span>
+      <div className="flex items-end gap-0.5 h-3.5 w-14">
+        {levels.map((level, i) => (
           <div
             key={i}
-            className="w-1 transition-all duration-75"
+            className="w-[3px] rounded-t-[1px] transition-all duration-75"
             style={{
-              height: 12,
-              background: i / 8 < level
-                ? i < 5 ? "var(--accent-success)" : i < 7 ? "var(--accent-warning)" : "var(--accent-danger)"
-                : "var(--bg-elevated)",
+              height: `${Math.max(15, level * 100)}%`,
+              background: i < 7 
+                ? "var(--accent-success)" 
+                : i < 10 
+                  ? "var(--accent-warning)" 
+                  : "var(--accent-danger)",
             }}
           />
         ))}
@@ -215,6 +258,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
     config, recordingPhase, isPaused, recordingStartTime, lastRecording, history,
     startRecording, stopRecording, pauseRecording, resumeRecording,
     openPath, updateField, loadHistory, clearHistory,
+    selectorMode, setCaptureRegion, setCaptureWindow, setSelectorMode,
   } = useStore();
 
   const { theme, toggleTheme } = useThemeStore();
@@ -243,16 +287,12 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
     : "OFF";
   const modeValue = config?.recording_mode === "FullScreen" ? "FULL" : config?.recording_mode === "Region" ? "REGION" : "WINDOW";
 
-  const recordingBorder = isRecording
-    ? isPaused ? "3px solid var(--accent-warning)" : "3px solid var(--accent-record)"
-    : "3px solid transparent";
-
   return (
     <div
       className="flex flex-col h-full relative"
       style={{
         background: "var(--bg-base)",
-        borderLeft: recordingBorder,
+        borderLeft: isRecording ? isPaused ? "4px solid var(--accent-warning)" : "4px solid var(--accent-record)" : "4px solid transparent",
         transition: "border-color var(--duration-normal) var(--ease-out-expo)",
       }}
     >
@@ -260,31 +300,30 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
       <header className="flex items-center justify-between px-6 py-3" style={{ borderBottom: "var(--border-width) solid var(--border-default)" }}>
         <div className="flex items-center gap-3">
           <motion.div
-            className="flex items-center justify-center font-mono text-sm font-bold"
+            className="flex items-center justify-center shadow-sm overflow-hidden"
             style={{
               width: 36, height: 36,
-              background: isRecording ? "var(--accent-record)" : "var(--accent-primary)",
-              color: "white",
               border: "var(--border-width) solid var(--border-strong)",
-              transition: "background var(--duration-normal) var(--ease-out-expo)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--bg-surface)",
             }}
             whileHover={{ scale: 1.05, rotate: -2 }}
             whileTap={{ scale: 0.95 }}
           >
-            ES
+            <img src="/logo.png" alt="EasySpecy Logo" className="w-full h-full object-cover" />
           </motion.div>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>EASYSPECY</span>
-            <span className="font-mono text-xs" style={{ color: "var(--text-muted)", letterSpacing: "0.05em" }}>V{version}</span>
+            <span className="text-sm font-bold tracking-wide" style={{ color: "var(--text-primary)" }}>EasySpecy</span>
+            <span className="font-mono text-[9px] uppercase font-bold" style={{ color: "var(--text-muted)", letterSpacing: "0.05em" }}>v{version}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {isRecording && <AudioMeter active={!isPaused} />}
           <motion.button
             onClick={toggleTheme}
-            className="flex items-center justify-center cursor-pointer"
-            style={{ width: 36, height: 36, border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)" }}
+            className="flex items-center justify-center cursor-pointer shadow-sm"
+            style={{ width: 36, height: 36, border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)", borderRadius: "var(--radius-sm)" }}
             whileHover={{ scale: 1.05, borderColor: "var(--border-strong)" }}
             whileTap={{ scale: 0.95 }}
             title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
@@ -296,12 +335,12 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           <motion.button
             onClick={onOpenSettings}
             disabled={isRecording || isEncoding}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-mono uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)", letterSpacing: "0.05em", fontSize: "var(--text-xs)" }}
-            whileHover={{ scale: 1.02, y: -1 }}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-mono uppercase font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+            style={{ border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)", borderRadius: "var(--radius-sm)", letterSpacing: "0.05em" }}
+            whileHover={{ scale: 1.02, y: -1, borderColor: "var(--border-strong)" }}
             whileTap={{ scale: 0.97 }}
           >
-            CONFIG
+            ⚙️ Config
           </motion.button>
         </div>
       </header>
@@ -317,12 +356,21 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.95 }}
               transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-              className="flex items-center gap-4 px-6 py-3"
-              style={{ border: `var(--border-width) solid ${isPaused ? "var(--accent-warning)" : "var(--accent-record)"}`, background: "var(--bg-surface)" }}
+              className="flex items-center gap-4 px-6 py-3 shadow-md"
+              style={{ 
+                border: `var(--border-width) solid ${isPaused ? "var(--accent-warning)" : "var(--accent-record)"}`, 
+                background: "var(--bg-surface)",
+                borderRadius: "var(--radius-md)"
+              }}
             >
               <motion.div
-                className="w-3 h-3"
-                style={{ background: isPaused ? "var(--accent-warning)" : "var(--accent-record)", animation: isPaused ? "none" : "pulse-dot 1.5s ease-in-out infinite" }}
+                className="w-3 h-3 rounded-full"
+                style={{ 
+                  background: isPaused ? "var(--accent-warning)" : "var(--accent-record)", 
+                  boxShadow: isPaused ? "none" : "0 0 10px var(--accent-record-glow)"
+                }}
+                animate={isPaused ? {} : { opacity: [1, 0.4, 1], scale: [1, 0.92, 1] }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
               />
               <span className="font-mono text-2xl font-bold tracking-widest" style={{ color: "var(--text-primary)" }}>{elapsed}</span>
               {isPaused && (
@@ -342,17 +390,17 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-              className="flex flex-col items-center gap-3 px-8 py-5 min-w-[280px]"
-              style={{ border: "var(--border-width) solid var(--accent-info)", background: "var(--bg-surface)" }}
+              className="flex flex-col items-center gap-3 px-8 py-5 min-w-[280px] shadow-lg"
+              style={{ border: "var(--border-width) solid var(--accent-info)", background: "var(--bg-surface)", borderRadius: "var(--radius-md)" }}
             >
               <div className="flex items-center gap-3">
                 <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-t-transparent rounded-full" style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }} />
-                <span className="font-mono text-sm uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>Encoding</span>
+                <span className="font-mono text-xs font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>Encoding Video</span>
               </div>
-              <div className="w-full h-1 overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
-                <motion.div className="h-full w-1/3" style={{ background: "var(--accent-info)" }} animate={{ x: ["-100%", "300%"] }} transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }} />
+              <div className="w-full h-1 overflow-hidden" style={{ background: "var(--bg-elevated)", borderRadius: "var(--radius-full)" }}>
+                <motion.div className="h-full w-1/3" style={{ background: "var(--accent-info)", borderRadius: "var(--radius-full)" }} animate={{ x: ["-100%", "300%"] }} transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }} />
               </div>
-              <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>MERGING VIDEO + AUDIO</span>
+              <span className="font-mono text-[9px] font-bold" style={{ color: "var(--text-muted)" }}>MERGING VIDEO + AUDIO STREAMS</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -366,17 +414,18 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
               exit={{ opacity: 0, y: 16 }}
               transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
               onClick={() => openPath(lastRecording.output_path)}
-              className="flex items-center gap-4 px-5 py-3 cursor-pointer w-full max-w-md group"
-              style={{ border: "var(--border-width) solid var(--accent-success)", background: "var(--bg-surface)" }}
+              className="flex items-center gap-4 px-5 py-3.5 cursor-pointer w-full max-w-md group shadow-md"
+              style={{ border: "var(--border-width) solid var(--accent-success)", background: "var(--bg-surface)", borderRadius: "var(--radius-md)" }}
+              whileHover={{ y: -2, borderColor: "var(--accent-info)", boxShadow: "var(--shadow-lg)" }}
             >
               <motion.div className="font-mono text-lg font-bold" style={{ color: "var(--accent-success)" }} initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: "spring", stiffness: 400, damping: 15 }}>✓</motion.div>
               <div className="flex-1 min-w-0">
-                <div className="font-mono text-xs uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
+                <div className="font-mono text-xs font-bold" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
                   {lastRecording.duration_secs.toFixed(1)}s · {formatBytes(lastRecording.file_size_bytes)} · {lastRecording.has_audio ? "VIDEO+AUDIO" : "VIDEO"}
                 </div>
-                <div className="text-xs truncate mt-1" style={{ color: "var(--text-muted)", fontSize: "0.55rem" }}>{normalizePath(lastRecording.output_path)}</div>
+                <div className="text-[10px] truncate mt-1 font-mono" style={{ color: "var(--text-muted)" }}>{normalizePath(lastRecording.output_path)}</div>
               </div>
-              <motion.span className="font-mono text-xs font-bold uppercase" style={{ color: "var(--accent-info)" }} whileHover={{ x: 3 }}>OPEN →</motion.span>
+              <motion.span className="font-mono text-[10px] font-bold uppercase" style={{ color: "var(--accent-info)" }} whileHover={{ x: 3 }}>OPEN →</motion.span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -385,24 +434,35 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
         <motion.button
           onClick={isRecording ? stopRecording : isIdle ? startRecording : undefined}
           disabled={isEncoding}
-          className="relative flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          className="relative flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           style={{
-            width: 120, height: 120,
+            width: 110, height: 110,
             border: `3px solid ${isRecording ? "var(--accent-record)" : isEncoding ? "var(--accent-info)" : "var(--accent-primary)"}`,
             background: "var(--bg-surface)",
-            animation: isRecording ? "breathe 2s ease-in-out infinite" : "none",
+            borderRadius: "var(--radius-full)",
           }}
-          whileHover={isIdle ? { scale: 1.06, y: -2 } : isRecording ? { scale: 1.03 } : {}}
+          animate={isRecording ? "breathe" : ""}
+          variants={{
+            breathe: {
+              boxShadow: [
+                "0 0 12px var(--accent-record-glow), inset 0 0 8px var(--accent-record-glow)",
+                "0 0 28px var(--accent-record-glow), inset 0 0 16px var(--accent-record-glow)",
+                "0 0 12px var(--accent-record-glow), inset 0 0 8px var(--accent-record-glow)"
+              ],
+              transition: { duration: 2, repeat: Infinity, ease: "easeInOut" }
+            }
+          }}
+          whileHover={isIdle ? { scale: 1.05, y: -2, boxShadow: "var(--shadow-lg)" } : isRecording ? { scale: 1.03 } : {}}
           whileTap={!isEncoding ? { scale: 0.94 } : {}}
           transition={{ type: "spring", stiffness: 400, damping: 20 }}
         >
           <AnimatePresence mode="wait">
             {isRecording ? (
-              <motion.div key="stop" initial={{ scale: 0, rotate: 90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: -90 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-8 h-8" style={{ background: "var(--accent-record)" }} />
+              <motion.div key="stop" initial={{ scale: 0, rotate: 90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: -90 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-7 h-7" style={{ background: "var(--accent-record)", borderRadius: "var(--radius-xs)" }} />
             ) : isEncoding ? (
-              <motion.div key="encoding" animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-8 h-8 border-3 border-t-transparent rounded-full" style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }} />
+              <motion.div key="encoding" animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-7 h-7 border-3 border-t-transparent rounded-full" style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }} />
             ) : (
-              <motion.div key="record" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-8 h-8 rounded-full" style={{ background: "var(--accent-primary)" }} />
+              <motion.div key="record" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-7 h-7 rounded-full" style={{ background: "var(--accent-primary)" }} />
             )}
           </AnimatePresence>
         </motion.button>
@@ -413,12 +473,12 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}>
               <motion.button
                 onClick={isPaused ? resumeRecording : pauseRecording}
-                className="px-5 py-2 font-mono text-xs uppercase cursor-pointer"
-                style={{ border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-primary)", letterSpacing: "0.05em" }}
-                whileHover={{ scale: 1.03, y: -1 }}
+                className="px-5 py-2 font-mono text-[10px] font-bold uppercase cursor-pointer shadow-sm"
+                style={{ border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-primary)", borderRadius: "var(--radius-sm)", letterSpacing: "0.05em" }}
+                whileHover={{ scale: 1.03, y: -1, borderColor: "var(--border-strong)" }}
                 whileTap={{ scale: 0.96 }}
               >
-                {isPaused ? "▶ RESUME" : "⏸ PAUSE"}
+                {isPaused ? "▶ Resume" : "⏸ Pause"}
               </motion.button>
             </motion.div>
           )}
@@ -486,11 +546,11 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
 
         {/* Hotkey Hint */}
         {isIdle && (
-          <motion.div className="font-mono text-xs" style={{ color: "var(--text-muted)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
-            <kbd className="px-2 py-1 font-mono text-xs" style={{ border: "var(--border-thin) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)" }}>
+          <motion.div className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}>
+            <kbd className="px-2 py-1 font-mono text-[10px] font-bold" style={{ border: "var(--border-thin) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)", borderRadius: "var(--radius-xs)", boxShadow: "var(--shadow-sm)" }}>
               {config?.hotkey_start || "Ctrl+Shift+R"}
             </kbd>
-            <span className="ml-2">TO RECORD</span>
+            <span className="ml-2 font-semibold">TO RECORD</span>
           </motion.div>
         )}
 
@@ -510,9 +570,29 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           <span>{normalizePath(config?.output_dir || "~/Videos/EasySpecy")}</span>
         </motion.button>
         <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
-          {history.length} RECORDINGS
+          {history.length} recordings
         </span>
       </footer>
+
+      {/* ═══ REGION SELECTOR OVERLAY ═══ */}
+      <AnimatePresence>
+        {selectorMode === "region" && (
+          <RegionSelector
+            onComplete={(region) => setCaptureRegion(region)}
+            onCancel={() => setSelectorMode("none")}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ═══ WINDOW PICKER OVERLAY ═══ */}
+      <AnimatePresence>
+        {selectorMode === "window" && (
+          <WindowPicker
+            onSelect={(window) => setCaptureWindow(window)}
+            onClose={() => setSelectorMode("none")}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -520,8 +600,8 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
 function Badge({ text }: { text: string }) {
   return (
     <motion.span
-      className="font-mono text-xs px-2 py-1"
-      style={{ border: "var(--border-thin) solid var(--border-default)", color: "var(--text-secondary)", letterSpacing: "0.05em", fontSize: "0.6rem" }}
+      className="font-mono text-[9px] font-bold px-2 py-1"
+      style={{ border: "var(--border-thin) solid var(--border-default)", color: "var(--text-secondary)", letterSpacing: "0.05em", borderRadius: "var(--radius-xs)", background: "var(--bg-surface)" }}
       whileHover={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)" }}
     >
       {text}

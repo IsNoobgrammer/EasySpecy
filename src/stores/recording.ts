@@ -57,7 +57,24 @@ export interface Toast {
   action?: { label: string; onClick: () => void };
 }
 
+export interface CaptureRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface WindowInfo {
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hwnd: number;
+}
+
 type RecordingPhase = "idle" | "recording" | "encoding";
+type SelectorMode = "none" | "region" | "window";
 
 interface AppState {
   config: AppConfig | null;
@@ -71,6 +88,7 @@ interface AppState {
   toasts: Toast[];
   toastId: number;
   hotkeysRegistered: boolean;
+  selectorMode: SelectorMode;
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
@@ -84,6 +102,9 @@ interface AppState {
   clearHistory: () => Promise<void>;
   registerHotkeys: () => Promise<void>;
   unregisterHotkeys: () => Promise<void>;
+  setSelectorMode: (mode: SelectorMode) => void;
+  setCaptureRegion: (region: CaptureRegion) => Promise<void>;
+  setCaptureWindow: (window: WindowInfo) => Promise<void>;
   addToast: (message: string, type: Toast["type"], action?: Toast["action"]) => void;
   removeToast: (id: number) => void;
   openPath: (path: string) => Promise<void>;
@@ -102,30 +123,22 @@ export const useStore = create<AppState>((set, get) => ({
   toasts: [],
   toastId: 0,
   hotkeysRegistered: false,
+  selectorMode: "none",
 
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
-    set((s) => ({
-      toasts: [...s.toasts, { id, message, type, action }],
-      toastId: id,
-    }));
-    setTimeout(() => {
-      set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
-    }, 4000);
+    set((s) => ({ toasts: [...s.toasts, { id, message, type, action }], toastId: id }));
+    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), 4000);
   },
 
-  removeToast: (id) => {
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
-  },
+  removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   loadConfig: async () => {
     try {
       const config = await invoke<AppConfig>("get_config");
       set({ config, configLoaded: true });
       if (!get().hotkeysRegistered) await get().registerHotkeys();
-    } catch (e) {
-      get().addToast(`Config load failed: ${e}`, "error");
-    }
+    } catch (e) { get().addToast(`Config load failed: ${e}`, "error"); }
   },
 
   saveConfig: async (config: AppConfig) => {
@@ -134,21 +147,16 @@ export const useStore = create<AppState>((set, get) => ({
       set({ config });
       await get().unregisterHotkeys();
       await get().registerHotkeys();
-    } catch (e) {
-      get().addToast(`Save failed: ${e}`, "error");
-    }
+    } catch (e) { get().addToast(`Save failed: ${e}`, "error"); }
   },
 
   updateField: async (key: string, value: string | number | boolean) => {
     try {
       await invoke("update_config_field", { key, value });
-      // Reload config to get updated state
       const config = await invoke<AppConfig>("get_config");
       set({ config });
       get().addToast(`${key} updated`, "success");
-    } catch (e) {
-      get().addToast(`Update failed: ${e}`, "error");
-    }
+    } catch (e) { get().addToast(`Update failed: ${e}`, "error"); }
   },
 
   registerHotkeys: async () => {
@@ -164,9 +172,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (event.state === "Pressed" && get().recordingPhase === "recording") get().stopRecording();
       });
       set({ hotkeysRegistered: true });
-    } catch (e) {
-      console.error("Hotkey registration failed:", e);
-    }
+    } catch (e) { console.error("Hotkey registration failed:", e); }
   },
 
   unregisterHotkeys: async () => {
@@ -180,14 +186,44 @@ export const useStore = create<AppState>((set, get) => ({
     } catch {}
   },
 
+  setSelectorMode: (mode) => set({ selectorMode: mode }),
+
+  setCaptureRegion: async (region) => {
+    try {
+      await invoke("set_capture_region", { x: region.x, y: region.y, width: region.width, height: region.height });
+      set({ selectorMode: "none" });
+      get().addToast(`Region: ${region.width}×${region.height}`, "success");
+      // Auto-start recording after region selection
+      await get().startRecording();
+    } catch (e) { get().addToast(`Region failed: ${e}`, "error"); }
+  },
+
+  setCaptureWindow: async (window) => {
+    try {
+      await invoke("set_capture_region", { x: window.x, y: window.y, width: window.width, height: window.height });
+      set({ selectorMode: "none" });
+      get().addToast(`Window: ${window.title.substring(0, 30)}`, "success");
+      await get().startRecording();
+    } catch (e) { get().addToast(`Window select failed: ${e}`, "error"); }
+  },
+
   startRecording: async () => {
+    const { config } = get();
+    // If Region mode, show selector first
+    if (config?.recording_mode === "Region") {
+      set({ selectorMode: "region" });
+      return;
+    }
+    // If Window mode, show window picker first
+    if (config?.recording_mode === "Window") {
+      set({ selectorMode: "window" });
+      return;
+    }
     try {
       await invoke("start_recording", { outputPath: null });
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       get().addToast("Recording started", "success");
-    } catch (e) {
-      get().addToast(`Start failed: ${e}`, "error");
-    }
+    } catch (e) { get().addToast(`Start failed: ${e}`, "error"); }
   },
 
   stopRecording: async () => {
@@ -198,18 +234,11 @@ export const useStore = create<AppState>((set, get) => ({
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, lastRecording: result });
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
-      get().addToast(
-        `Saved! ${dur}s, ${sizeMB}MB`,
-        "success",
-        { label: "Open", onClick: () => get().openPath(result.output_path) }
-      );
+      get().addToast(`Saved! ${dur}s, ${sizeMB}MB`, "success", { label: "Open", onClick: () => get().openPath(result.output_path) });
       if (get().config?.copy_path_on_save) await get().copyToClipboard(result.output_path);
-      // System notification
       try {
         if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("EasySpecy — Recording Saved", {
-            body: `${dur}s, ${sizeMB}MB — ${result.output_path}`,
-          });
+          new Notification("EasySpecy — Recording Saved", { body: `${dur}s, ${sizeMB}MB` });
         }
       } catch {}
       await get().loadHistory();
@@ -220,45 +249,25 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   pauseRecording: async () => {
-    try {
-      await invoke("pause_recording_cmd");
-      set({ isPaused: true });
-      get().addToast("Paused", "info");
-    } catch (e) {
-      get().addToast(`Pause failed: ${e}`, "error");
-    }
+    try { await invoke("pause_recording_cmd"); set({ isPaused: true }); get().addToast("Paused", "info"); }
+    catch (e) { get().addToast(`Pause failed: ${e}`, "error"); }
   },
 
   resumeRecording: async () => {
-    try {
-      await invoke("resume_recording_cmd");
-      set({ isPaused: false });
-      get().addToast("Resumed", "info");
-    } catch (e) {
-      get().addToast(`Resume failed: ${e}`, "error");
-    }
+    try { await invoke("resume_recording_cmd"); set({ isPaused: false }); get().addToast("Resumed", "info"); }
+    catch (e) { get().addToast(`Resume failed: ${e}`, "error"); }
   },
 
   loadAudioDevices: async () => {
-    try {
-      const devices = await invoke<string[]>("get_audio_devices");
-      set({ audioDevices: devices });
-    } catch {}
+    try { const devices = await invoke<string[]>("get_audio_devices"); set({ audioDevices: devices }); } catch {}
   },
 
   loadHistory: async () => {
-    try {
-      const history = await invoke<RecordingEntry[]>("get_recording_history");
-      set({ history });
-    } catch {}
+    try { const history = await invoke<RecordingEntry[]>("get_recording_history"); set({ history }); } catch {}
   },
 
   clearHistory: async () => {
-    try {
-      await invoke("clear_recording_history");
-      set({ history: [] });
-      get().addToast("History cleared", "info");
-    } catch {}
+    try { await invoke("clear_recording_history"); set({ history: [] }); get().addToast("History cleared", "info"); } catch {}
   },
 
   openPath: async (path: string) => {
@@ -266,9 +275,6 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   copyToClipboard: async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      get().addToast("Path copied!", "info");
-    } catch {}
+    try { await navigator.clipboard.writeText(text); get().addToast("Path copied!", "info"); } catch {}
   },
 }));

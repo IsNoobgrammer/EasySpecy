@@ -23,6 +23,13 @@
   --space-12: 48px;
   --space-16: 64px;
 
+  /* ─── Border Radius (Premium Rounding) ─── */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
   /* ─── Typography ─── */
   --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Fira Code", monospace;
@@ -59,38 +66,42 @@
    No pure black. Surfaces have subtle noise texture.
    ═══════════════════════════════════════════════════════ */
 [data-theme="dark"] {
-  --bg-base: oklch(0.16 0.006 55);       /* warm matte charcoal */
-  --bg-surface: oklch(0.20 0.006 55);    /* elevated surface */
-  --bg-elevated: oklch(0.24 0.008 55);   /* cards, popovers */
-  --bg-overlay: oklch(0.14 0.008 55 / 0.92);
+  --bg-base: oklch(0.11 0.012 260);       /* deep slate-indigo space black */
+  --bg-surface: oklch(0.15 0.016 260);    /* elevated space surface */
+  --bg-elevated: oklch(0.18 0.020 260);   /* cards, popovers */
+  --bg-overlay: oklch(0.10 0.015 260 / 0.92);
 
-  --text-primary: oklch(0.90 0.008 55);  /* warm off-white (not pure white) */
-  --text-secondary: oklch(0.62 0.008 55);
-  --text-muted: oklch(0.42 0.006 55);
+  --text-primary: oklch(0.92 0.008 260);  /* ice white */
+  --text-secondary: oklch(0.76 0.012 260); /* cool silver */
+  --text-muted: oklch(0.52 0.015 260);     /* space gray */
 
-  --border-default: oklch(0.30 0.008 55);
-  --border-strong: oklch(0.42 0.012 55);
-  --border-focus: oklch(0.62 0.16 150);
+  --border-default: oklch(0.20 0.02 260);
+  --border-strong: oklch(0.26 0.03 260);
+  --border-focus: oklch(0.74 0.14 165);    /* emerald-mint glow */
 
-  /* Primary = sage green (ready/success) */
-  --accent-primary: oklch(0.62 0.16 150);      /* sage green — ready to record */
-  --accent-primary-hover: oklch(0.68 0.16 150);
+  /* Primary = emerald-mint */
+  --accent-primary: oklch(0.74 0.14 165);      /* glowing emerald-mint */
+  --accent-primary-hover: oklch(0.80 0.14 165);
 
-  /* Record = distinct red (only when recording) */
-  --accent-record: oklch(0.62 0.24 25);       /* warm red */
-  --accent-record-glow: oklch(0.62 0.24 25 / 0.35);
+  /* Record = distinct warm red */
+  --accent-record: oklch(0.64 0.20 25);
+  --accent-record-glow: oklch(0.64 0.20 25 / 0.35);
 
   /* Semantic colors */
-  --accent-success: oklch(0.62 0.16 150);     /* muted sage green */
-  --accent-danger: oklch(0.58 0.22 25);       /* deep warm red */
-  --accent-warning: oklch(0.70 0.14 75);      /* warm amber */
-  --accent-info: oklch(0.62 0.10 240);        /* muted steel blue */
+  --accent-success: oklch(0.74 0.14 165);     /* glowing emerald-mint */
+  --accent-danger: oklch(0.64 0.20 25);
+  --accent-warning: oklch(0.80 0.12 85);      /* warm amber */
+  --accent-info: oklch(0.70 0.10 230);        /* sleek space blue */
 
-  /* Shadows — warm, not pure black */
-  --shadow-sm: 0 1px 3px oklch(0.08 0.005 55 / 0.4);
-  --shadow-md: 0 4px 12px oklch(0.08 0.005 55 / 0.5);
-  --shadow-lg: 0 8px 32px oklch(0.08 0.005 55 / 0.6);
+  /* Shadows — multi-layer soft shadows tinted with indigo-black */
+  --shadow-sm: 0 1px 2px oklch(0.06 0.01 260 / 0.5);
+  --shadow-md: 0 4px 12px oklch(0.06 0.01 260 / 0.6), 0 1px 3px oklch(0.06 0.01 260 / 0.3);
+  --shadow-lg: 0 12px 28px oklch(0.06 0.01 260 / 0.7), 0 4px 10px oklch(0.06 0.01 260 / 0.4);
   --shadow-glow: 0 0 24px var(--accent-record-glow);
+
+  /* Background Glow Gradient (Aurora effect) */
+  --bg-gradient: radial-gradient(circle at 5% 5%, oklch(0.18 0.035 270 / 0.3) 0%, transparent 50%),
+                 radial-gradient(circle at 95% 95%, oklch(0.18 0.030 165 / 0.12) 0%, transparent 60%);
 
   color-scheme: dark;
 }
@@ -100,31 +111,31 @@
    No pure white. Warm beige/cream surfaces.
    ═══════════════════════════════════════════════════════ */
 [data-theme="light"] {
-  --bg-base: oklch(0.94 0.015 75);       /* warm parchment */
-  --bg-surface: oklch(0.96 0.010 75);    /* moonwhite */
-  --bg-elevated: oklch(0.98 0.006 75);   /* brightest surface (not pure white) */
-  --bg-overlay: oklch(0.94 0.015 75 / 0.92);
+  --bg-base: oklch(0.95 0.012 75);       /* warm parchment */
+  --bg-surface: oklch(0.97 0.008 75);    /* moonwhite */
+  --bg-elevated: oklch(0.99 0.006 75);   /* brightest surface (not pure white) */
+  --bg-overlay: oklch(0.95 0.012 75 / 0.90);
 
-  --text-primary: oklch(0.20 0.012 55);  /* warm dark (not pure black) */
-  --text-secondary: oklch(0.42 0.012 55);
-  --text-muted: oklch(0.58 0.008 55);
+  --text-primary: oklch(0.22 0.012 55);  /* warm dark (not pure black) */
+  --text-secondary: oklch(0.46 0.012 55);
+  --text-muted: oklch(0.62 0.008 55);
 
-  --border-default: oklch(0.84 0.018 65);
-  --border-strong: oklch(0.68 0.025 55);
-  --border-focus: oklch(0.48 0.14 150);
+  --border-default: oklch(0.86 0.012 75);
+  --border-strong: oklch(0.72 0.018 75);
+  --border-focus: oklch(0.52 0.12 150);
 
-  --accent-primary: oklch(0.48 0.14 150);      /* sage green */
-  --accent-primary-hover: oklch(0.42 0.14 150);
-  --accent-record: oklch(0.50 0.22 25);
-  --accent-record-glow: oklch(0.50 0.22 25 / 0.2);
-  --accent-success: oklch(0.48 0.14 150);
-  --accent-danger: oklch(0.48 0.22 25);
-  --accent-warning: oklch(0.58 0.14 75);
-  --accent-info: oklch(0.48 0.10 240);
+  --accent-primary: oklch(0.52 0.12 150);      /* sage green */
+  --accent-primary-hover: oklch(0.46 0.12 150);
+  --accent-record: oklch(0.52 0.20 25);
+  --accent-record-glow: oklch(0.52 0.20 25 / 0.20);
+  --accent-success: oklch(0.52 0.12 150);
+  --accent-danger: oklch(0.50 0.20 25);
+  --accent-warning: oklch(0.62 0.12 85);
+  --accent-info: oklch(0.52 0.10 230);
 
-  --shadow-sm: 0 1px 3px oklch(0.5 0.01 55 / 0.08);
-  --shadow-md: 0 4px 12px oklch(0.5 0.01 55 / 0.10);
-  --shadow-lg: 0 8px 32px oklch(0.5 0.01 55 / 0.12);
+  --shadow-sm: 0 1px 2px oklch(0.5 0.01 75 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.5 0.01 75 / 0.08), 0 1px 3px oklch(0.5 0.01 75 / 0.04);
+  --shadow-lg: 0 12px 28px oklch(0.5 0.01 75 / 0.10), 0 4px 10px oklch(0.5 0.01 75 / 0.06);
   --shadow-glow: 0 0 24px var(--accent-record-glow);
 
   color-scheme: light;
@@ -137,9 +148,9 @@ html, body {
   margin: 0;
   padding: 0;
   background-color: var(--bg-base);
-  background-image: var(--noise);
-  background-repeat: repeat;
-  background-size: 256px 256px;
+  background-image: var(--bg-gradient, none), var(--noise);
+  background-repeat: no-repeat, repeat;
+  background-size: 100% 100%, 256px 256px;
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: 16px;
@@ -203,19 +214,53 @@ html, body {
 .font-mono { font-family: var(--font-mono); }
 
 /* ═══════════════════════════════════════════════════════
-   KEYFRAMES
+   KEYFRAMES & ANIMATION UTILITIES
    ═══════════════════════════════════════════════════════ */
 @keyframes breathe {
-  0%, 100% { box-shadow: 0 0 20px oklch(0.62 0.24 25 / 0.3); }
-  50% { box-shadow: 0 0 40px oklch(0.62 0.24 25 / 0.5); }
+  0%, 100% {
+    box-shadow: 0 0 16px var(--accent-record-glow), inset 0 0 12px var(--accent-record-glow);
+    border-color: var(--accent-record);
+  }
+  50% {
+    box-shadow: 0 0 32px var(--accent-record-glow), inset 0 0 20px var(--accent-record-glow);
+    border-color: var(--accent-danger);
+  }
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.92); }
 }
 
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+@keyframes success-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
+.animate-breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.animate-shake {
+  animation: shake 0.4s ease-in-out;
+}
+
+.animate-success-pop {
+  animation: success-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }

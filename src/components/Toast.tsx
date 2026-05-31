@@ -41,17 +41,18 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
         border: `var(--border-width) solid ${borderColors[toast.type]}`,
         background: "var(--bg-surface)",
         boxShadow: "var(--shadow-md)",
+        borderRadius: "var(--radius-sm)",
       }}
     >
       <motion.div
         className="w-2 h-2 shrink-0"
-        style={{ background: dotColors[toast.type] }}
+        style={{ background: dotColors[toast.type], borderRadius: "var(--radius-full)" }}
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
         transition={{ delay: 0.1, type: "spring", stiffness: 500, damping: 20 }}
       />
-      <span className="font-mono text-xs flex-1" style={{ color: "var(--text-primary)", letterSpacing: "0.02em" }}>
-        {toast.message.toUpperCase()}
+      <span className="font-mono text-xs flex-1 font-bold" style={{ color: "var(--text-primary)", letterSpacing: "0.02em" }}>
+        {toast.message}
       </span>
       {toast.action && (
         <motion.button
@@ -59,9 +60,9 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
             toast.action!.onClick();
             onClose();
           }}
-          className="font-mono text-xs font-bold whitespace-nowrap cursor-pointer"
-          style={{ color: "var(--accent-info)" }}
-          whileHover={{ scale: 1.05 }}
+          className="font-mono text-xs font-bold whitespace-nowrap cursor-pointer px-2 py-0.5"
+          style={{ color: "var(--accent-info)", border: "var(--border-thin) solid var(--accent-info)", borderRadius: "var(--radius-xs)" }}
+          whileHover={{ scale: 1.05, background: "oklch(from var(--accent-info) l c h / 0.1)" }}
           whileTap={{ scale: 0.95 }}
         >
           {toast.action.label.toUpperCase()}
@@ -69,7 +70,7 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
       )}
       <motion.button
         onClick={onClose}
-        className="font-mono text-xs cursor-pointer ml-1"
+        className="font-mono text-sm cursor-pointer ml-1 font-semibold"
         style={{ color: "var(--text-muted)" }}
         whileHover={{ color: "var(--text-primary)", scale: 1.2 }}
         whileTap={{ scale: 0.9 }}

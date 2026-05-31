@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod history;
 mod postprocess;
+mod region;
 mod tray;
 
 use tracing_subscriber::EnvFilter;
@@ -35,6 +36,10 @@ pub fn run() {
             commands::get_recording_status,
             commands::get_recording_history,
             commands::clear_recording_history,
+            commands::set_capture_region,
+            commands::get_capture_region,
+            commands::clear_capture_region,
+            commands::get_windows,
             commands::open_path,
         ])
         .setup(|app| {
