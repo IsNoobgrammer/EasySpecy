@@ -8,6 +8,7 @@ export interface AppConfig {
   resolution_height: number;
   fps: number;
   audio_enabled: boolean;
+  audio_source: "mic" | "system" | "both";
   audio_sample_rate: number;
   audio_device: string;
   webcam_enabled: boolean;
@@ -45,10 +46,12 @@ export interface Toast {
   action?: { label: string; onClick: () => void };
 }
 
+type RecordingPhase = "idle" | "recording" | "encoding";
+
 interface AppState {
   config: AppConfig | null;
   configLoaded: boolean;
-  isRecording: boolean;
+  recordingPhase: RecordingPhase;
   isPaused: boolean;
   recordingStartTime: number | null;
   lastRecording: RecordingResult | null;
@@ -75,7 +78,7 @@ interface AppState {
 export const useStore = create<AppState>((set, get) => ({
   config: null,
   configLoaded: false,
-  isRecording: false,
+  recordingPhase: "idle",
   isPaused: false,
   recordingStartTime: null,
   lastRecording: null,
@@ -103,7 +106,6 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const config = await invoke<AppConfig>("get_config");
       set({ config, configLoaded: true });
-      // Auto-register hotkeys after config loads
       if (!get().hotkeysRegistered) {
         await get().registerHotkeys();
       }
@@ -117,7 +119,6 @@ export const useStore = create<AppState>((set, get) => ({
       get().addToast("Saving...", "info");
       await invoke("save_config", { config });
       set({ config });
-      // Re-register hotkeys if they changed
       await get().unregisterHotkeys();
       await get().registerHotkeys();
       get().addToast("Settings saved!", "success");
@@ -134,12 +135,12 @@ export const useStore = create<AppState>((set, get) => ({
       const stopKey = config.hotkey_stop.toLowerCase().replace(/\s/g, "");
 
       await register(startKey, (event) => {
-        if (event.state === "Pressed" && !get().isRecording) {
+        if (event.state === "Pressed" && get().recordingPhase === "idle") {
           get().startRecording();
         }
       });
       await register(stopKey, (event) => {
-        if (event.state === "Pressed" && get().isRecording) {
+        if (event.state === "Pressed" && get().recordingPhase === "recording") {
           get().stopRecording();
         }
       });
@@ -153,10 +154,8 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const { config } = get();
       if (config) {
-        const startKey = config.hotkey_start.toLowerCase().replace(/\s/g, "");
-        const stopKey = config.hotkey_stop.toLowerCase().replace(/\s/g, "");
-        await unregister(startKey).catch(() => {});
-        await unregister(stopKey).catch(() => {});
+        await unregister(config.hotkey_start.toLowerCase().replace(/\s/g, "")).catch(() => {});
+        await unregister(config.hotkey_stop.toLowerCase().replace(/\s/g, "")).catch(() => {});
       }
       set({ hotkeysRegistered: false });
     } catch {}
@@ -165,9 +164,9 @@ export const useStore = create<AppState>((set, get) => ({
   startRecording: async () => {
     const { addToast } = get();
     try {
-      addToast("Recording...", "success");
       await invoke("start_recording", { outputPath: null });
-      set({ isRecording: true, isPaused: false, recordingStartTime: Date.now() });
+      set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      addToast("Recording started", "success");
     } catch (e) {
       addToast(`Start failed: ${e}`, "error");
     }
@@ -176,28 +175,34 @@ export const useStore = create<AppState>((set, get) => ({
   stopRecording: async () => {
     const { addToast, copyToClipboard } = get();
     try {
-      addToast("Encoding...", "info");
+      // Immediately show encoding state
+      set({ recordingPhase: "encoding" });
+      addToast("Encoding video...", "info");
+
       const result = await invoke<RecordingResult>("stop_recording");
+
       set({
-        isRecording: false,
+        recordingPhase: "idle",
         isPaused: false,
         recordingStartTime: null,
         lastRecording: result,
       });
+
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
       const audioLabel = result.has_audio ? "+audio" : "video-only";
+
       addToast(
         `Saved! ${dur}s, ${sizeMB}MB (${audioLabel})`,
         "success",
         { label: "Open file", onClick: () => get().openPath(result.output_path) }
       );
-      // Copy path to clipboard
+
       if (get().config?.copy_path_on_save) {
         await copyToClipboard(result.output_path);
       }
     } catch (e) {
-      set({ isRecording: false, isPaused: false, recordingStartTime: null });
+      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null });
       addToast(`Stop failed: ${e}`, "error");
     }
   },

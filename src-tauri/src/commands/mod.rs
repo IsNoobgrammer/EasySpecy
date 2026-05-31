@@ -45,7 +45,10 @@ pub fn start_recording(output_path: Option<String>) -> Result<(), String> {
     let path = output_path.unwrap_or_else(|| {
         let dir = &config.output_dir;
         let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-        format!("{}/recording_{}.mp4", dir, timestamp)
+        std::path::Path::new(dir)
+            .join(format!("recording_{}.mp4", timestamp))
+            .to_string_lossy()
+            .to_string()
     });
 
     capture::start_recording(RecordingConfig {

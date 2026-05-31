@@ -15,6 +15,7 @@ pub struct AppConfig {
 
     // Audio
     pub audio_enabled: bool,
+    pub audio_source: AudioSource,
     pub audio_sample_rate: u32,
     pub audio_device: String,
 
@@ -62,6 +63,13 @@ pub enum RecordingMode {
     Window,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AudioSource {
+    Mic,
+    System,
+    Both,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         let output_dir = dirs::video_dir()
@@ -79,6 +87,7 @@ impl Default for AppConfig {
             fps: 30,
 
             audio_enabled: true,
+            audio_source: AudioSource::Mic,
             audio_sample_rate: 44100,
             audio_device: "default".to_string(),
 
