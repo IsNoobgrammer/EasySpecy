@@ -2,6 +2,7 @@ mod audio;
 mod capture;
 mod commands;
 mod config;
+mod history;
 mod postprocess;
 mod tray;
 
@@ -23,6 +24,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
+            commands::update_config_field,
             commands::get_audio_devices,
             commands::get_screens,
             commands::get_version,
@@ -31,6 +33,8 @@ pub fn run() {
             commands::pause_recording_cmd,
             commands::resume_recording_cmd,
             commands::get_recording_status,
+            commands::get_recording_history,
+            commands::clear_recording_history,
             commands::open_path,
         ])
         .setup(|app| {

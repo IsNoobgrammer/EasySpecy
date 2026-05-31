@@ -27,6 +27,7 @@ cpal = "0.15"
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
 hound = "3.5"
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"

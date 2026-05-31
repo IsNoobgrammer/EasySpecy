@@ -1,8 +1,9 @@
-//! Tauri IPC commands — exposed to the React frontend via invoke()
+//! Tauri IPC commands
 
 use crate::capture;
 use crate::capture::RecordingConfig;
 use crate::config::AppConfig;
+use crate::history::{RecordingEntry, RecordingHistory};
 use cpal::traits::{DeviceTrait, HostTrait};
 
 #[tauri::command]
@@ -12,6 +13,47 @@ pub fn get_config() -> AppConfig {
 
 #[tauri::command]
 pub fn save_config(config: AppConfig) -> Result<(), String> {
+    config.save().map_err(|e| e.to_string())
+}
+
+/// Update a single config field by JSON key-value
+#[tauri::command]
+pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), String> {
+    let mut config = AppConfig::load();
+    match key.as_str() {
+        "resolution" => {
+            if let Some(v) = value.as_str() {
+                let parts: Vec<&str> = v.split('x').collect();
+                if parts.len() == 2 {
+                    config.resolution_width = parts[0].parse().unwrap_or(1920);
+                    config.resolution_height = parts[1].parse().unwrap_or(1080);
+                }
+            }
+        }
+        "fps" => config.fps = value.as_u64().unwrap_or(30) as u32,
+        "audio_enabled" => config.audio_enabled = value.as_bool().unwrap_or(true),
+        "audio_source" => {
+            config.audio_source = match value.as_str() {
+                Some("Mic") => crate::config::AudioSource::Mic,
+                Some("System") => crate::config::AudioSource::System,
+                Some("Both") => crate::config::AudioSource::Both,
+                _ => crate::config::AudioSource::Mic,
+            };
+        }
+        "audio_sample_rate" => config.audio_sample_rate = value.as_u64().unwrap_or(44100) as u32,
+        "recording_mode" => {
+            config.recording_mode = match value.as_str() {
+                Some("FullScreen") => crate::config::RecordingMode::FullScreen,
+                Some("Region") => crate::config::RecordingMode::Region,
+                Some("Window") => crate::config::RecordingMode::Window,
+                _ => crate::config::RecordingMode::FullScreen,
+            };
+        }
+        "auto_zoom_enabled" => config.auto_zoom_enabled = value.as_bool().unwrap_or(false),
+        "cursor_trail_enabled" => config.cursor_trail_enabled = value.as_bool().unwrap_or(false),
+        "webcam_enabled" => config.webcam_enabled = value.as_bool().unwrap_or(false),
+        _ => return Err(format!("Unknown config key: {}", key)),
+    }
     config.save().map_err(|e| e.to_string())
 }
 
@@ -61,7 +103,24 @@ pub fn start_recording(output_path: Option<String>) -> Result<(), String> {
 
 #[tauri::command]
 pub fn stop_recording() -> Result<capture::RecordingResult, String> {
-    capture::stop_recording()
+    let result = capture::stop_recording()?;
+
+    // Save to history
+    let config = AppConfig::load();
+    let entry = RecordingEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        output_path: result.output_path.clone(),
+        duration_secs: result.duration_secs,
+        file_size_bytes: result.file_size_bytes,
+        has_audio: result.has_audio,
+        resolution: format!("{}x{}", config.resolution_width, config.resolution_height),
+        fps: config.fps,
+        created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    };
+    let mut history = RecordingHistory::load();
+    history.add(entry);
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -81,6 +140,18 @@ pub fn get_recording_status() -> (bool, bool, u32) {
         capture::is_paused(),
         capture::frame_count(),
     )
+}
+
+#[tauri::command]
+pub fn get_recording_history() -> Vec<RecordingEntry> {
+    RecordingHistory::load().entries
+}
+
+#[tauri::command]
+pub fn clear_recording_history() -> Result<(), String> {
+    let mut history = RecordingHistory::load();
+    history.clear();
+    Ok(())
 }
 
 #[tauri::command]

@@ -8,7 +8,7 @@ export interface AppConfig {
   resolution_height: number;
   fps: number;
   audio_enabled: boolean;
-  audio_source: "mic" | "system" | "both";
+  audio_source: "Mic" | "System" | "Both";
   audio_sample_rate: number;
   audio_device: string;
   webcam_enabled: boolean;
@@ -39,6 +39,17 @@ export interface RecordingResult {
   has_audio: boolean;
 }
 
+export interface RecordingEntry {
+  id: string;
+  output_path: string;
+  duration_secs: number;
+  file_size_bytes: number;
+  has_audio: boolean;
+  resolution: string;
+  fps: number;
+  created_at: string;
+}
+
 export interface Toast {
   id: number;
   message: string;
@@ -55,6 +66,7 @@ interface AppState {
   isPaused: boolean;
   recordingStartTime: number | null;
   lastRecording: RecordingResult | null;
+  history: RecordingEntry[];
   audioDevices: string[];
   toasts: Toast[];
   toastId: number;
@@ -62,11 +74,14 @@ interface AppState {
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
+  updateField: (key: string, value: string | number | boolean) => Promise<void>;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
   pauseRecording: () => Promise<void>;
   resumeRecording: () => Promise<void>;
   loadAudioDevices: () => Promise<void>;
+  loadHistory: () => Promise<void>;
+  clearHistory: () => Promise<void>;
   registerHotkeys: () => Promise<void>;
   unregisterHotkeys: () => Promise<void>;
   addToast: (message: string, type: Toast["type"], action?: Toast["action"]) => void;
@@ -82,6 +97,7 @@ export const useStore = create<AppState>((set, get) => ({
   isPaused: false,
   recordingStartTime: null,
   lastRecording: null,
+  history: [],
   audioDevices: [],
   toasts: [],
   toastId: 0,
@@ -106,9 +122,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const config = await invoke<AppConfig>("get_config");
       set({ config, configLoaded: true });
-      if (!get().hotkeysRegistered) {
-        await get().registerHotkeys();
-      }
+      if (!get().hotkeysRegistered) await get().registerHotkeys();
     } catch (e) {
       get().addToast(`Config load failed: ${e}`, "error");
     }
@@ -116,14 +130,24 @@ export const useStore = create<AppState>((set, get) => ({
 
   saveConfig: async (config: AppConfig) => {
     try {
-      get().addToast("Saving...", "info");
       await invoke("save_config", { config });
       set({ config });
       await get().unregisterHotkeys();
       await get().registerHotkeys();
-      get().addToast("Settings saved!", "success");
     } catch (e) {
       get().addToast(`Save failed: ${e}`, "error");
+    }
+  },
+
+  updateField: async (key: string, value: string | number | boolean) => {
+    try {
+      await invoke("update_config_field", { key, value });
+      // Reload config to get updated state
+      const config = await invoke<AppConfig>("get_config");
+      set({ config });
+      get().addToast(`${key} updated`, "success");
+    } catch (e) {
+      get().addToast(`Update failed: ${e}`, "error");
     }
   },
 
@@ -133,16 +157,11 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const startKey = config.hotkey_start.toLowerCase().replace(/\s/g, "");
       const stopKey = config.hotkey_stop.toLowerCase().replace(/\s/g, "");
-
       await register(startKey, (event) => {
-        if (event.state === "Pressed" && get().recordingPhase === "idle") {
-          get().startRecording();
-        }
+        if (event.state === "Pressed" && get().recordingPhase === "idle") get().startRecording();
       });
       await register(stopKey, (event) => {
-        if (event.state === "Pressed" && get().recordingPhase === "recording") {
-          get().stopRecording();
-        }
+        if (event.state === "Pressed" && get().recordingPhase === "recording") get().stopRecording();
       });
       set({ hotkeysRegistered: true });
     } catch (e) {
@@ -162,48 +181,33 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   startRecording: async () => {
-    const { addToast } = get();
     try {
       await invoke("start_recording", { outputPath: null });
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
-      addToast("Recording started", "success");
+      get().addToast("Recording started", "success");
     } catch (e) {
-      addToast(`Start failed: ${e}`, "error");
+      get().addToast(`Start failed: ${e}`, "error");
     }
   },
 
   stopRecording: async () => {
-    const { addToast, copyToClipboard } = get();
     try {
-      // Immediately show encoding state
       set({ recordingPhase: "encoding" });
-      addToast("Encoding video...", "info");
-
+      get().addToast("Encoding...", "info");
       const result = await invoke<RecordingResult>("stop_recording");
-
-      set({
-        recordingPhase: "idle",
-        isPaused: false,
-        recordingStartTime: null,
-        lastRecording: result,
-      });
-
+      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, lastRecording: result });
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
-      const audioLabel = result.has_audio ? "+audio" : "video-only";
-
-      addToast(
-        `Saved! ${dur}s, ${sizeMB}MB (${audioLabel})`,
+      get().addToast(
+        `Saved! ${dur}s, ${sizeMB}MB`,
         "success",
-        { label: "Open file", onClick: () => get().openPath(result.output_path) }
+        { label: "Open", onClick: () => get().openPath(result.output_path) }
       );
-
-      if (get().config?.copy_path_on_save) {
-        await copyToClipboard(result.output_path);
-      }
+      if (get().config?.copy_path_on_save) await get().copyToClipboard(result.output_path);
+      await get().loadHistory();
     } catch (e) {
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null });
-      addToast(`Stop failed: ${e}`, "error");
+      get().addToast(`Stop failed: ${e}`, "error");
     }
   },
 
@@ -231,17 +235,26 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const devices = await invoke<string[]>("get_audio_devices");
       set({ audioDevices: devices });
-    } catch (e) {
-      console.error("Audio devices failed:", e);
-    }
+    } catch {}
+  },
+
+  loadHistory: async () => {
+    try {
+      const history = await invoke<RecordingEntry[]>("get_recording_history");
+      set({ history });
+    } catch {}
+  },
+
+  clearHistory: async () => {
+    try {
+      await invoke("clear_recording_history");
+      set({ history: [] });
+      get().addToast("History cleared", "info");
+    } catch {}
   },
 
   openPath: async (path: string) => {
-    try {
-      await invoke("open_path", { path });
-    } catch (e) {
-      get().addToast(`Open failed: ${e}`, "error");
-    }
+    try { await invoke("open_path", { path }); } catch (e) { get().addToast(`Open failed: ${e}`, "error"); }
   },
 
   copyToClipboard: async (text: string) => {
