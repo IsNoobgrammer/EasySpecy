@@ -320,6 +320,13 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
 
         <div className="flex items-center gap-3">
           {isRecording && <AudioMeter active={!isPaused} />}
+          {/* Status Indicator */}
+          {isIdle && (
+            <div className="flex items-center gap-2 px-3 py-1.5" style={{ border: "var(--border-thin) solid var(--border-default)", background: "var(--bg-surface)", borderRadius: "var(--radius-sm)" }}>
+              <span className="w-2 h-2 rounded-full" style={{ background: "var(--accent-primary)", boxShadow: "0 0 8px oklch(0.78 0.18 160 / 0.6)" }} />
+              <span className="font-mono uppercase" style={{ color: "var(--accent-primary)", fontSize: "0.6rem", letterSpacing: "0.08em", fontWeight: 700 }}>READY</span>
+            </div>
+          )}
           <motion.button
             onClick={toggleTheme}
             className="flex items-center justify-center cursor-pointer shadow-sm"
@@ -328,8 +335,8 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             whileTap={{ scale: 0.95 }}
             title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
           >
-            <motion.span key={theme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }} className="text-base">
-              {theme === "dark" ? "☀" : "●"}
+            <motion.span key={theme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }} className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              {theme === "dark" ? "light_mode" : "dark_mode"}
             </motion.span>
           </motion.button>
           <motion.button
@@ -340,7 +347,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             whileHover={{ scale: 1.02, y: -1, borderColor: "var(--border-strong)" }}
             whileTap={{ scale: 0.97 }}
           >
-            ⚙️ Config
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>settings</span> Config
           </motion.button>
         </div>
       </header>

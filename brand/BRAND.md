@@ -81,22 +81,63 @@ Pure `#000` is dead. Our darkest surface (`0d0f1a`) has a subtle indigo-violet t
 - Creates perceptible depth between surface layers
 - Aligns with the "precision instrument" feel (think: pro audio software, video editors)
 
+### Material Design Color Scheme (Generated via Google Design MCP)
+
+The following scheme was generated using Google's Design MCP API with our brand colors as seeds (`primary: #00e88a`, `secondary: #0d0f1a`, `tertiary: #f04040`), BRAND variant, dark theme:
+
+| Role | Hex | Usage |
+|------|-----|-------|
+| `surface` | `#09100b` | App background |
+| `surface_container` | `#151b16` | Cards, panels |
+| `surface_container_high` | `#1b211b` | Elevated surfaces |
+| `surface_container_highest` | `#212722` | Modals, dropdowns |
+| `on_surface` | `#e0e7de` | Primary text |
+| `on_surface_variant` | `#a6ada4` | Secondary text |
+| `outline` | `#707770` | Borders, dividers |
+| `outline_variant` | `#434a43` | Subtle borders |
+| `primary` | `#00e88a` | Primary actions, accent |
+| `on_primary` | `#004e2b` | Text on primary |
+| `primary_container` | `#00d880` | Primary backgrounds |
+| `tertiary` | `#ff5a55` | Danger, stop recording |
+| `tertiary_container` | `#dc3134` | Danger backgrounds |
+| `error` | `#fa5f59` | Error states |
+
+### High Contrast Variant (Accessibility)
+
+For users who need maximum contrast (generated at `contrastLevel: 1`):
+
+| Role | Standard | High Contrast |
+|------|----------|---------------|
+| `primary` | `#00e88a` | `#78ffae` |
+| `on_surface` | `#e0e7de` | `#ffffff` |
+| `outline` | `#707770` | `#b4bbb2` |
+| `on_surface_variant` | `#a6ada4` | `#e0e7de` |
+
 ### Light Mode (Secondary)
 
-EasySpecy is dark-first, but a light mode exists for accessibility:
+EasySpecy is dark-first, but a light mode exists for accessibility (generated via Design MCP, light theme):
 
-| Token | OKLCH | Hex |
-|-------|-------|-----|
-| `--brand-surface-base` | `oklch(0.98 0.005 265)` | `#f8f9fc` |
-| `--brand-surface-raised` | `oklch(1.0 0 0)` | `#ffffff` |
-| `--brand-accent` | `oklch(0.55 0.20 160)` | `#009960` |
-| `--brand-text-primary` | `oklch(0.15 0.015 265)` | `#141729` |
+| Token | Hex | Role |
+|-------|-----|------|
+| `surface` | `#f4fbf2` | App background |
+| `surface_container` | `#e9f0e6` | Cards, panels |
+| `on_surface` | `#2d342e` | Primary text |
+| `primary` | `#006e3e` | Primary actions |
+| `on_primary` | `#e7ffea` | Text on primary |
+| `tertiary` | `#bc1621` | Danger/stop |
+| `outline` | `#757d75` | Borders |
 
 ---
 
 ## 3. Typography
 
-### Type Stack
+### Type Stack (Validated via Google Design MCP)
+
+**Inter** — Our primary typeface. Designed specifically for computer screens by Rasmus Andersson. Variable font with optical size (14-32), weight (100-900), and italic axes. Tall x-height aids readability of mixed-case text. Contextual alternates, slashed zero, tabular numbers built in.
+
+**JetBrains Mono** — Our monospace companion. Trending #1 in monospace category. Designed for developers, with increased letter height and distinctive character forms for code readability.
+
+**Alternative consideration:** Geist / Geist Mono (trending, modern) or Space Grotesk / Space Mono (geometric, techy) if we ever want to differentiate further from the Inter-everywhere crowd.
 
 | Role | Font | Weight | Fallback |
 |------|------|--------|----------|
@@ -158,12 +199,39 @@ All spacing derives from a 4px base unit:
 
 ## 5. Iconography & Visual Language
 
-### Icon Style
+### Icon System: Material Symbols
 
-- **Stroke-based**, 1.5px weight at 24px size
-- **Rounded caps and joins** — matches border-radius language
-- **Consistent optical size** — icons sit within a 20px live area inside 24px bounding box
-- **Source**: Lucide icons (MIT, consistent, well-maintained)
+EasySpecy uses **Material Symbols** (variable font) for all UI icons. This provides:
+- Consistent visual language across platforms
+- Variable axes: FILL, weight, grade, optical size, roundness
+- Optimized loading via Google Fonts CSS API
+
+**Loading (Web):**
+```html
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols:FILL,ROND@0..1,100&icon_names=screen_record,capture,filter_tilt_shift,recenter" />
+```
+
+**Key Icons (from Design MCP search):**
+
+| Concept | Material Symbol | Usage |
+|---------|----------------|-------|
+| Screen recording | `screen_record` | Recording state, main action |
+| Screen capture | `capture` | Region select, screenshot |
+| Zoom/focus | `filter_tilt_shift` | Auto-zoom feature |
+| Recenter | `recenter` | Reset zoom, return to full view |
+
+**Icon Configuration:**
+- Default: `FILL=0, wght=400, GRAD=0, opsz=24, ROND=50`
+- Active/selected: `FILL=1` (filled state)
+- Dark mode: `GRAD=-25` (reduce glare)
+- Touch targets: `opsz=48` for mobile
+
+### Icon Style Rules
+
+- **Variable weight**: Match icon weight to adjacent text weight
+- **Rounded corners**: `ROND=100` to match our border-radius language
+- **Fill for state**: Unfilled = inactive, Filled = active/selected
+- **Consistent optical size**: 24px for toolbar, 20px for inline, 48px for touch
 
 ### Visual Metaphors
 

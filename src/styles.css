@@ -62,81 +62,96 @@
 }
 
 /* ═══════════════════════════════════════════════════════
-   DARK THEME — Matte Charcoal with warm tint
-   No pure black. Surfaces have subtle noise texture.
+   DARK THEME — Obsidian Deep (Stitch + Brand aligned)
+   Material Design 3 color roles with OKLCH precision.
+   Generated via Google Design MCP (primary: #00e88a)
    ═══════════════════════════════════════════════════════ */
 [data-theme="dark"] {
-  --bg-base: oklch(0.11 0.012 260);       /* deep slate-indigo space black */
-  --bg-surface: oklch(0.15 0.016 260);    /* elevated space surface */
-  --bg-elevated: oklch(0.18 0.020 260);   /* cards, popovers */
-  --bg-overlay: oklch(0.10 0.015 260 / 0.92);
+  /* ─── Surface Hierarchy (Material Design 3) ─── */
+  --bg-base: oklch(0.11 0.012 260);           /* #0d0f1a — deepest layer */
+  --bg-surface: oklch(0.15 0.016 260);        /* #151b16 — cards, panels */
+  --bg-elevated: oklch(0.18 0.020 260);       /* #1b211b — modals, dropdowns */
+  --bg-overlay: oklch(0.10 0.015 260 / 0.92); /* backdrop overlay */
+  --bg-surface-container: oklch(0.14 0.014 260); /* #151b16 — container surfaces */
+  --bg-surface-high: oklch(0.17 0.018 260);   /* #1d1f2b — elevated containers */
 
-  --text-primary: oklch(0.92 0.008 260);  /* ice white */
-  --text-secondary: oklch(0.76 0.012 260); /* cool silver */
-  --text-muted: oklch(0.52 0.015 260);     /* space gray */
+  /* ─── Text Hierarchy ─── */
+  --text-primary: oklch(0.93 0.006 260);      /* #e1e1f2 — headings, primary */
+  --text-secondary: oklch(0.76 0.012 260);    /* #bacbbc — body, descriptions */
+  --text-muted: oklch(0.52 0.015 260);        /* #849587 — labels, captions */
 
-  --border-default: oklch(0.20 0.02 260);
-  --border-strong: oklch(0.26 0.03 260);
-  --border-focus: oklch(0.74 0.14 165);    /* emerald-mint glow */
+  /* ─── Borders ─── */
+  --border-default: oklch(0.22 0.018 260);    /* #3b4a3f — subtle dividers */
+  --border-strong: oklch(0.28 0.025 260);     /* #434a43 — emphasized borders */
+  --border-focus: oklch(0.74 0.14 165);       /* emerald-mint focus ring */
 
-  /* Primary = emerald-mint */
-  --accent-primary: oklch(0.74 0.14 165);      /* glowing emerald-mint */
-  --accent-primary-hover: oklch(0.80 0.14 165);
+  /* ─── Primary Accent (Emerald-Mint) ─── */
+  --accent-primary: oklch(0.78 0.18 160);     /* #00e88a — primary actions */
+  --accent-primary-hover: oklch(0.83 0.16 160); /* #33f0a3 — hover state */
+  --accent-primary-container: oklch(0.78 0.18 160 / 0.12); /* subtle bg tint */
 
-  /* Record = distinct warm red */
-  --accent-record: oklch(0.64 0.20 25);
-  --accent-record-glow: oklch(0.64 0.20 25 / 0.35);
+  /* ─── Recording State (Coral Red) ─── */
+  --accent-record: oklch(0.64 0.20 25);       /* #f04040 — active recording */
+  --accent-record-glow: oklch(0.64 0.20 25 / 0.35); /* pulsing glow */
 
-  /* Semantic colors */
-  --accent-success: oklch(0.74 0.14 165);     /* glowing emerald-mint */
-  --accent-danger: oklch(0.64 0.20 25);
-  --accent-warning: oklch(0.80 0.12 85);      /* warm amber */
-  --accent-info: oklch(0.70 0.10 230);        /* sleek space blue */
+  /* ─── Semantic Colors ─── */
+  --accent-success: oklch(0.78 0.18 160);     /* same as primary — green = good */
+  --accent-danger: oklch(0.64 0.20 25);       /* coral red */
+  --accent-warning: oklch(0.80 0.14 85);      /* warm amber */
+  --accent-info: oklch(0.70 0.12 230);        /* sleek space blue */
 
-  /* Shadows — multi-layer soft shadows tinted with indigo-black */
-  --shadow-sm: 0 1px 2px oklch(0.06 0.01 260 / 0.5);
-  --shadow-md: 0 4px 12px oklch(0.06 0.01 260 / 0.6), 0 1px 3px oklch(0.06 0.01 260 / 0.3);
-  --shadow-lg: 0 12px 28px oklch(0.06 0.01 260 / 0.7), 0 4px 10px oklch(0.06 0.01 260 / 0.4);
+  /* ─── Shadows (indigo-tinted, multi-layer) ─── */
+  --shadow-sm: 0 1px 3px oklch(0.04 0.01 260 / 0.6);
+  --shadow-md: 0 4px 12px oklch(0.04 0.01 260 / 0.5), 0 1px 4px oklch(0.04 0.01 260 / 0.3);
+  --shadow-lg: 0 12px 32px oklch(0.04 0.01 260 / 0.6), 0 4px 12px oklch(0.04 0.01 260 / 0.35);
   --shadow-glow: 0 0 24px var(--accent-record-glow);
+  --shadow-accent: 0 0 20px oklch(0.78 0.18 160 / 0.1); /* subtle green ambient */
 
-  /* Background Glow Gradient (Aurora effect) */
-  --bg-gradient: radial-gradient(circle at 5% 5%, oklch(0.18 0.035 270 / 0.3) 0%, transparent 50%),
-                 radial-gradient(circle at 95% 95%, oklch(0.18 0.030 165 / 0.12) 0%, transparent 60%);
+  /* ─── Atmospheric Background (Aurora Blurs) ─── */
+  --bg-gradient: radial-gradient(ellipse at 5% 5%, oklch(0.20 0.04 270 / 0.25) 0%, transparent 45%),
+                 radial-gradient(ellipse at 95% 90%, oklch(0.18 0.035 165 / 0.10) 0%, transparent 50%);
 
   color-scheme: dark;
 }
 
 /* ═══════════════════════════════════════════════════════
    LIGHT THEME — Warm Parchment / Moonwhite
-   No pure white. Warm beige/cream surfaces.
+   Generated via Google Design MCP (light variant)
+   No pure white. Warm green-tinted surfaces.
    ═══════════════════════════════════════════════════════ */
 [data-theme="light"] {
-  --bg-base: oklch(0.95 0.012 75);       /* warm parchment */
-  --bg-surface: oklch(0.97 0.008 75);    /* moonwhite */
-  --bg-elevated: oklch(0.99 0.006 75);   /* brightest surface (not pure white) */
-  --bg-overlay: oklch(0.95 0.012 75 / 0.90);
+  --bg-base: oklch(0.97 0.008 150);         /* #f4fbf2 — warm green-white */
+  --bg-surface: oklch(0.99 0.005 150);      /* #ffffff-ish — cards */
+  --bg-elevated: oklch(1.0 0.003 150);      /* brightest surface */
+  --bg-overlay: oklch(0.97 0.008 150 / 0.90);
+  --bg-surface-container: oklch(0.96 0.006 150); /* container surfaces */
+  --bg-surface-high: oklch(0.94 0.008 150); /* elevated containers */
 
-  --text-primary: oklch(0.22 0.012 55);  /* warm dark (not pure black) */
-  --text-secondary: oklch(0.46 0.012 55);
-  --text-muted: oklch(0.62 0.008 55);
+  --text-primary: oklch(0.20 0.015 260);    /* #2d342e — deep dark */
+  --text-secondary: oklch(0.42 0.015 260);  /* #5a615a — body text */
+  --text-muted: oklch(0.58 0.010 260);      /* #757d75 — labels */
 
-  --border-default: oklch(0.86 0.012 75);
-  --border-strong: oklch(0.72 0.018 75);
-  --border-focus: oklch(0.52 0.12 150);
+  --border-default: oklch(0.88 0.010 150);  /* subtle green-gray */
+  --border-strong: oklch(0.75 0.015 150);   /* emphasized */
+  --border-focus: oklch(0.45 0.15 160);     /* dark emerald focus */
 
-  --accent-primary: oklch(0.52 0.12 150);      /* sage green */
-  --accent-primary-hover: oklch(0.46 0.12 150);
-  --accent-record: oklch(0.52 0.20 25);
-  --accent-record-glow: oklch(0.52 0.20 25 / 0.20);
-  --accent-success: oklch(0.52 0.12 150);
-  --accent-danger: oklch(0.50 0.20 25);
-  --accent-warning: oklch(0.62 0.12 85);
-  --accent-info: oklch(0.52 0.10 230);
+  --accent-primary: oklch(0.45 0.15 160);   /* #006e3e — dark emerald */
+  --accent-primary-hover: oklch(0.40 0.15 160);
+  --accent-primary-container: oklch(0.45 0.15 160 / 0.08);
+  --accent-record: oklch(0.52 0.22 25);     /* darker red for light mode */
+  --accent-record-glow: oklch(0.52 0.22 25 / 0.15);
+  --accent-success: oklch(0.45 0.15 160);
+  --accent-danger: oklch(0.50 0.22 25);
+  --accent-warning: oklch(0.60 0.14 85);
+  --accent-info: oklch(0.48 0.12 230);
 
-  --shadow-sm: 0 1px 2px oklch(0.5 0.01 75 / 0.06);
-  --shadow-md: 0 4px 12px oklch(0.5 0.01 75 / 0.08), 0 1px 3px oklch(0.5 0.01 75 / 0.04);
-  --shadow-lg: 0 12px 28px oklch(0.5 0.01 75 / 0.10), 0 4px 10px oklch(0.5 0.01 75 / 0.06);
+  --shadow-sm: 0 1px 3px oklch(0.5 0.01 150 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0.5 0.01 150 / 0.08), 0 1px 4px oklch(0.5 0.01 150 / 0.04);
+  --shadow-lg: 0 12px 32px oklch(0.5 0.01 150 / 0.10), 0 4px 12px oklch(0.5 0.01 150 / 0.05);
   --shadow-glow: 0 0 24px var(--accent-record-glow);
+  --shadow-accent: none;
+
+  --bg-gradient: none;
 
   color-scheme: light;
 }
@@ -212,6 +227,17 @@ html, body {
 
 /* ─── Utility ─── */
 .font-mono { font-family: var(--font-mono); }
+
+/* ─── Material Symbols ─── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24, 'ROND' 100;
+  font-size: 20px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.material-symbols-outlined.filled {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24, 'ROND' 100;
+}
 
 /* ═══════════════════════════════════════════════════════
    KEYFRAMES & ANIMATION UTILITIES

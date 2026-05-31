@@ -1,0 +1,364 @@
+﻿<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EasySpecy | Pro Screen Recorder</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #0d0f1a;
+            background-image: url("https://www.transparenttextures.com/patterns/stardust.png");
+            background-repeat: repeat;
+        }
+        .noise-surface {
+            position: relative;
+        }
+        .noise-surface::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            opacity: 0.03;
+            pointer-events: none;
+            background-image: url("https://www.transparenttextures.com/patterns/asfalt-dark.png");
+            z-index: 1;
+        }
+        .recording-pulse {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.05); opacity: 0.2; }
+            100% { transform: scale(1); opacity: 0.5; }
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-variant": "#323440",
+                    "surface-container-lowest": "#0c0e18",
+                    "primary": "#85ffb4",
+                    "surface-tint": "#00e387",
+                    "on-primary": "#00391e",
+                    "surface-bright": "#373845",
+                    "on-error-container": "#ffdad6",
+                    "tertiary-fixed-dim": "#ffb3ad",
+                    "background": "#11131e",
+                    "surface-dim": "#11131e",
+                    "surface-container-low": "#191b26",
+                    "on-secondary-fixed-variant": "#2f2ebe",
+                    "on-surface-variant": "#bacbbc",
+                    "surface": "#11131e",
+                    "error": "#ffb4ab",
+                    "tertiary-container": "#ffbab4",
+                    "outline-variant": "#3b4a3f",
+                    "primary-fixed": "#58ffa4",
+                    "inverse-on-surface": "#2e303c",
+                    "on-surface": "#e1e1f2",
+                    "on-background": "#e1e1f2",
+                    "error-container": "#93000a",
+                    "secondary-fixed-dim": "#c0c1ff",
+                    "inverse-primary": "#006d3e",
+                    "on-secondary-container": "#b0b2ff",
+                    "secondary-container": "#3131c0",
+                    "surface-container-highest": "#323440",
+                    "primary-container": "#00e88a",
+                    "tertiary": "#ffe0dd",
+                    "on-error": "#690005",
+                    "primary-fixed-dim": "#00e387",
+                    "on-secondary-fixed": "#07006c",
+                    "inverse-surface": "#e1e1f2",
+                    "surface-container-high": "#272935",
+                    "on-primary-fixed": "#00210f",
+                    "on-secondary": "#1000a9",
+                    "on-tertiary-fixed": "#410004",
+                    "on-primary-container": "#006338",
+                    "on-tertiary-container": "#ae0419",
+                    "tertiary-fixed": "#ffdad7",
+                    "on-primary-fixed-variant": "#00522d",
+                    "outline": "#849587",
+                    "on-tertiary-fixed-variant": "#930012",
+                    "on-tertiary": "#68000a",
+                    "secondary-fixed": "#e1e0ff",
+                    "secondary": "#c0c1ff",
+                    "surface-container": "#1d1f2b"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "xl": "32px",
+                    "sm": "8px",
+                    "md": "16px",
+                    "margin": "24px",
+                    "xs": "4px",
+                    "lg": "24px",
+                    "gutter": "16px"
+            },
+            "fontFamily": {
+                    "headline-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "body-md": ["Inter"],
+                    "label-mono": ["JetBrains Mono"],
+                    "micro-label": ["JetBrains Mono"],
+                    "headline-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "label-mono": ["13px", {"lineHeight": "16px", "fontWeight": "500"}],
+                    "micro-label": ["9px", {"lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700"}],
+                    "headline-lg": ["30px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+</head>
+<body class="text-on-surface antialiased flex h-screen overflow-hidden">
+<!-- Side Navigation Shell (from JSON) -->
+<aside class="flex flex-col py-lg w-[240px] h-full bg-surface-container-low border-r border-outline-variant z-10">
+<div class="px-md mb-xl">
+<div class="flex items-center gap-sm">
+<img alt="EasySpecy Logo" class="w-xl h-xl" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAABgCAYAAAA6lNMyAAAAgUlEQVR4AezSOwqDQBSF4X+uw5TpI2myjASSbCukCCGCuCc7LcQl2FkJLsDCt7bjFmZueeEU5+MIh/MPG8R7OOXR/u408YMmeVL/b8JsArScUesLo/U+B1GMw4lgNSBKWIYRpSsmSem7Xrh8C8JPTvjOuEblHnGK0C6Lr2+DuOWxAQAA//+C8EeqAAAABklEQVQDADAxGsE/rhSVAAAAAElFTkSuQmCC"/>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">EasySpecy</h1>
+<p class="font-micro-label text-micro-label text-on-surface-variant uppercase tracking-widest">PRO RECORDER</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 space-y-xs">
+<div class="px-md mb-sm">
+<button class="w-full bg-primary-container text-on-primary-container px-md py-sm font-label-mono text-label-mono rounded-lg flex items-center justify-center gap-sm hover:brightness-110 active:scale-95 transition-all">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">add_circle</span>
+                    NEW RECORDING
+                </button>
+</div>
+<!-- Library Tab (Active) -->
+<div class="bg-surface-variant text-primary border-l-4 border-primary px-md py-sm flex items-center gap-md cursor-pointer transition-all duration-150">
+<span class="material-symbols-outlined" data-icon="video_library">video_library</span>
+<span class="font-label-mono text-label-mono">Library</span>
+</div>
+<div class="text-on-surface-variant px-md py-sm flex items-center gap-md cursor-pointer hover:bg-surface-container-high hover:text-on-surface transition-all">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+<span class="font-label-mono text-label-mono">Presets</span>
+</div>
+<div class="text-on-surface-variant px-md py-sm flex items-center gap-md cursor-pointer hover:bg-surface-container-high hover:text-on-surface transition-all">
+<span class="material-symbols-outlined" data-icon="keyboard">keyboard</span>
+<span class="font-label-mono text-label-mono">Shortcuts</span>
+</div>
+<div class="text-on-surface-variant px-md py-sm flex items-center gap-md cursor-pointer hover:bg-surface-container-high hover:text-on-surface transition-all">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-mono text-label-mono">Settings</span>
+</div>
+</nav>
+<div class="mt-auto px-md pt-md border-t border-outline-variant/30">
+<div class="text-on-surface-variant px-md py-sm flex items-center gap-md cursor-pointer hover:bg-surface-container-high hover:text-on-surface transition-all">
+<span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+<span class="font-label-mono text-label-mono">Support</span>
+</div>
+</div>
+</aside>
+<div class="flex-1 flex flex-col relative overflow-hidden">
+<!-- Top Nav Shell (from JSON) -->
+<header class="flex justify-between items-center h-xl px-margin w-full bg-surface border-b border-outline-variant z-10">
+<div class="flex items-center gap-md">
+<span class="font-label-mono text-label-mono text-on-surface-variant">v1.0.0</span>
+<div class="h-xs w-px bg-outline-variant"></div>
+<div class="flex items-center gap-sm">
+<span class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(133,255,180,0.6)]"></span>
+<span class="font-label-mono text-label-mono text-primary uppercase">System Ready</span>
+</div>
+</div>
+<div class="flex items-center gap-md">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<div class="h-xs w-px bg-outline-variant mx-xs"></div>
+<div class="flex items-center gap-sm">
+<span class="font-label-mono text-label-mono text-on-surface">Admin</span>
+<span class="material-symbols-outlined text-primary" data-icon="account_circle" style="font-variation-settings: 'FILL' 1;">account_circle</span>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto p-xl noise-surface">
+<!-- Hero Record Section -->
+<section class="max-w-4xl mx-auto flex flex-col items-center justify-center mb-xl py-lg">
+<div class="relative group cursor-pointer active:scale-95 transition-transform duration-200" onclick="this.classList.toggle('is-recording')">
+<div class="w-[110px] h-[110px] rounded-full border-2 border-primary-container flex items-center justify-center bg-surface-container shadow-[0_0_20px_rgba(0,232,138,0.1)] relative z-10 transition-colors group-hover:bg-surface-container-high">
+<div class="w-xl h-xl bg-primary rounded-sm transition-all duration-300"></div>
+</div>
+<!-- Aesthetic Ring -->
+<div class="absolute inset-0 recording-pulse rounded-full border border-primary/30 -z-10"></div>
+</div>
+<div class="mt-md text-center">
+<h2 class="font-label-mono text-label-mono text-primary-fixed tracking-widest uppercase">Idle State</h2>
+<p class="font-micro-label text-micro-label text-on-surface-variant mt-xs tracking-[0.2em] font-bold">READY: CTRL+SHIFT+R</p>
+</div>
+<!-- Presets Grid -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-gutter w-full mt-xl">
+<div class="bg-surface-container border border-outline-variant p-md noise-surface hover:border-primary/50 transition-colors">
+<p class="font-micro-label text-micro-label text-on-surface-variant mb-xs">RESOLUTION</p>
+<p class="font-label-mono text-label-mono text-on-surface font-bold">1920X1080</p>
+</div>
+<div class="bg-surface-container border border-outline-variant p-md noise-surface hover:border-primary/50 transition-colors">
+<p class="font-micro-label text-micro-label text-on-surface-variant mb-xs">FRAME RATE</p>
+<p class="font-label-mono text-label-mono text-on-surface font-bold">30 FPS</p>
+</div>
+<div class="bg-surface-container border border-outline-variant p-md noise-surface hover:border-primary/50 transition-colors">
+<p class="font-micro-label text-micro-label text-on-surface-variant mb-xs">AUDIO SOURCE</p>
+<p class="font-label-mono text-label-mono text-on-surface font-bold">M+S MIX</p>
+</div>
+<div class="bg-surface-container border border-outline-variant p-md noise-surface hover:border-primary/50 transition-colors">
+<p class="font-micro-label text-micro-label text-on-surface-variant mb-xs">INPUT MODE</p>
+<p class="font-label-mono text-label-mono text-on-surface font-bold">FULL SCREEN</p>
+</div>
+</div>
+<!-- Chips -->
+<div class="flex gap-sm mt-lg">
+<span class="px-md py-xs bg-surface-container-highest border border-outline-variant rounded-full font-micro-label text-micro-label text-primary flex items-center gap-xs">
+<span class="w-1 h-1 rounded-full bg-primary"></span> AUTO-ZOOM
+                    </span>
+<span class="px-md py-xs bg-surface-container-highest border border-outline-variant rounded-full font-micro-label text-micro-label text-primary flex items-center gap-xs">
+<span class="w-1 h-1 rounded-full bg-primary"></span> CURSOR-FX
+                    </span>
+<span class="px-md py-xs bg-surface-container-highest border border-outline-variant rounded-full font-micro-label text-micro-label text-on-surface-variant flex items-center gap-xs grayscale opacity-60">
+<span class="w-1 h-1 rounded-full bg-on-surface-variant"></span> WEBCAM
+                    </span>
+</div>
+</section>
+<!-- Recording History Table -->
+<section class="max-w-4xl mx-auto w-full">
+<div class="flex justify-between items-end mb-md">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Recent Captures</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Manage your recent high-performance exports</p>
+</div>
+<button class="font-label-mono text-label-mono text-primary flex items-center gap-xs hover:underline">
+                        VIEW ALL <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</button>
+</div>
+<div class="bg-surface-container-low border border-outline-variant overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-high border-b border-outline-variant">
+<th class="p-md font-micro-label text-micro-label text-on-surface-variant uppercase">Name</th>
+<th class="p-md font-micro-label text-micro-label text-on-surface-variant uppercase">Timestamp</th>
+<th class="p-md font-micro-label text-micro-label text-on-surface-variant uppercase">Format</th>
+<th class="p-md font-micro-label text-micro-label text-on-surface-variant uppercase">Size</th>
+<th class="p-md font-micro-label text-micro-label text-on-surface-variant uppercase text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/30">
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="p-md font-label-mono text-label-mono text-primary">1080p_240315</td>
+<td class="p-md font-label-mono text-label-mono text-on-surface-variant">12:45 PM</td>
+<td class="p-md font-micro-label text-micro-label"><span class="bg-surface-variant px-xs py-0.5 rounded-sm">MP4</span></td>
+<td class="p-md font-label-mono text-label-mono text-on-surface-variant">1.2 GB</td>
+<td class="p-md text-right opacity-0 group-hover:opacity-100 transition-opacity">
+<div class="flex justify-end gap-sm">
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-lg">play_arrow</span></button>
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-lg">folder_open</span></button>
+<button class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-lg">delete</span></button>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-surface-container transition-colors group">
+<td class="p-md font-label-mono text-label-mono text-primary">4k_stream_test</td>
+<td class="p-md font-label-mono text-label-mono text-on-surface-variant">09:12 AM</td>
+<td class="p-md font-micro-label text-micro-label"><span class="bg-surface-variant px-xs py-0.5 rounded-sm">MKV</span></td>
+<td class="p-md font-label-mono text-label-mono text-on-surface-variant">4.8 GB</td>
+<td class="p-md text-right opacity-0 group-hover:opacity-100 transition-opacity">
+<div class="flex justify-end gap-sm">
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-lg">play_arrow</span></button>
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined text-lg">folder_open</span></button>
+<button class="text-on-surface-variant hover:text-error"><span class="material-symbols-outlined text-lg">delete</span></button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+<!-- Footer Shell -->
+<footer class="bg-surface-container-low border-t border-outline-variant px-margin py-sm flex justify-between items-center z-10">
+<div class="flex items-center gap-md">
+<div class="flex flex-col">
+<span class="font-micro-label text-micro-label text-on-surface-variant uppercase mb-xs">STORAGE PATH</span>
+<span class="font-label-mono text-label-mono text-on-surface flex items-center gap-xs">
+<span class="material-symbols-outlined text-sm">folder</span>
+                        /Users/admin/Recordings/
+                    </span>
+</div>
+<div class="h-xl w-px bg-outline-variant mx-md"></div>
+<div class="flex flex-col">
+<span class="font-micro-label text-micro-label text-on-surface-variant uppercase mb-xs">ENCODER</span>
+<span class="font-label-mono text-label-mono text-on-surface">NVENC H.264 (HEVC)</span>
+</div>
+</div>
+<div class="flex items-center gap-xl">
+<div class="text-right">
+<span class="font-micro-label text-micro-label text-on-surface-variant uppercase mb-xs">TOTAL CAPTURES</span>
+<p class="font-label-mono text-label-mono text-primary font-bold">12 RECORDINGS</p>
+</div>
+<div class="bg-surface-container-highest px-md py-sm border border-outline-variant rounded-sm flex items-center gap-sm">
+<div class="w-16 h-1 bg-outline-variant rounded-full overflow-hidden">
+<div class="w-3/4 h-full bg-primary"></div>
+</div>
+<span class="font-micro-label text-micro-label text-on-surface">64% DISK</span>
+</div>
+</div>
+</footer>
+</div>
+<!-- Background Atmospheric Effect -->
+<div class="fixed inset-0 pointer-events-none z-0">
+<div class="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full"></div>
+<div class="absolute bottom-[-10%] left-[-10%] w-[30%] h-[30%] bg-secondary/5 blur-[100px] rounded-full"></div>
+</div>
+<script>
+        // Micro-interaction for the record button toggle
+        document.querySelector('.group').addEventListener('click', function() {
+            const innerSquare = this.querySelector('.bg-primary');
+            const statusLabel = document.querySelector('.text-primary-fixed');
+            const pulse = document.querySelector('.recording-pulse');
+            
+            if (this.dataset.recording === 'true') {
+                this.dataset.recording = 'false';
+                innerSquare.classList.remove('rounded-full', 'w-md', 'h-md', 'bg-error');
+                innerSquare.classList.add('rounded-sm', 'w-xl', 'h-xl', 'bg-primary');
+                statusLabel.textContent = 'IDLE STATE';
+                statusLabel.classList.remove('text-error');
+                statusLabel.classList.add('text-primary-fixed');
+                pulse.style.display = 'block';
+            } else {
+                this.dataset.recording = 'true';
+                innerSquare.classList.remove('rounded-sm', 'w-xl', 'h-xl', 'bg-primary');
+                innerSquare.classList.add('rounded-full', 'w-md', 'h-md', 'bg-error');
+                statusLabel.textContent = 'REC â¢ 00:00:00';
+                statusLabel.classList.add('text-error');
+                statusLabel.classList.remove('text-primary-fixed');
+                pulse.style.display = 'block';
+            }
+        });
+    </script>
+</body></html>

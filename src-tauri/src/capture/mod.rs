@@ -1,7 +1,9 @@
 //! Screen capture module — real implementation using windows-capture
 //! Saves directly to MP4 via the built-in VideoEncoder, then merges audio via FFmpeg
+//! Supports region capture by cropping via FFmpeg post-processing
 
 use crate::audio::AudioCapture;
+use crate::region;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -156,11 +158,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
 
     tracing::info!(
         "Capture: {}x{} @ {}fps, audio={}, sample_rate={}",
-        width,
-        height,
-        config.fps,
-        config.enable_audio,
-        config.audio_sample_rate
+        width, height, config.fps, config.enable_audio, config.audio_sample_rate
     );
 
     let settings = Settings::new(
@@ -186,7 +184,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// Stop recording, merge audio+video if needed
+/// Stop recording, merge audio+video if needed, crop if region is set
 pub fn stop_recording() -> Result<RecordingResult, String> {
     if !RECORDING_ACTIVE.load(Ordering::Relaxed) {
         return Err("No recording in progress".to_string());
@@ -221,26 +219,41 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
     let duration = start.map(|s| s.elapsed().as_secs_f64()).unwrap_or(0.0);
     let has_audio = audio_path.is_some();
 
-    // Merge video + audio if we have audio
+    // Check if region capture is set
+    let region = region::get_region();
+
+    // Step 1: If region is set, crop video to region
+    let processed_video = if let Some(ref r) = region {
+        let cropped_path = std::env::temp_dir()
+            .join("easyspecy")
+            .join("video_cropped.mp4")
+            .to_string_lossy()
+            .to_string();
+        crop_video(&video_path, &cropped_path, r)?;
+        let _ = std::fs::remove_file(&video_path);
+        cropped_path
+    } else {
+        video_path
+    };
+
+    // Step 2: Merge video + audio if we have audio
     if has_audio {
         let audio_file = audio_path.unwrap();
         if std::path::Path::new(&audio_file).exists() {
-            merge_audio_video(&video_path, &audio_file, &output_path)?;
-            let _ = std::fs::remove_file(&video_path);
+            merge_audio_video(&processed_video, &audio_file, &output_path)?;
+            let _ = std::fs::remove_file(&processed_video);
             let _ = std::fs::remove_file(&audio_file);
         } else {
-            // No audio recorded, just use video
-            std::fs::rename(&video_path, &output_path)
-                .or_else(|_| std::fs::copy(&video_path, &output_path).map(|_| ()))
+            std::fs::rename(&processed_video, &output_path)
+                .or_else(|_| std::fs::copy(&processed_video, &output_path).map(|_| ()))
                 .map_err(|e| e.to_string())?;
         }
     } else {
-        // No audio, just move video
-        if video_path != output_path {
-            std::fs::rename(&video_path, &output_path)
-                .or_else(|_| std::fs::copy(&video_path, &output_path).map(|_| ()))
+        if processed_video != output_path {
+            std::fs::rename(&processed_video, &output_path)
+                .or_else(|_| std::fs::copy(&processed_video, &output_path).map(|_| ()))
                 .map_err(|e| e.to_string())?;
-            let _ = std::fs::remove_file(&video_path);
+            let _ = std::fs::remove_file(&processed_video);
         }
     }
 
@@ -258,6 +271,46 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         file_size_bytes: file_size,
         has_audio,
     })
+}
+
+/// Crop video to region using FFmpeg crop filter
+fn crop_video(input: &str, output: &str, region: &region::CaptureRegion) -> Result<(), String> {
+    let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
+
+    tracing::info!(
+        "Crop: {}x{}+{},{} -> {}",
+        region.width, region.height, region.x, region.y, output
+    );
+
+    let crop_filter = format!(
+        "crop={}:{}:{}:{}",
+        region.width, region.height, region.x, region.y
+    );
+
+    let status = std::process::Command::new(&ffmpeg)
+        .args([
+            "-y",
+            "-i",
+            input,
+            "-vf",
+            &crop_filter,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "23",
+            output,
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .status()
+        .map_err(|e| format!("FFmpeg crop error: {}", e))?;
+
+    if !status.success() {
+        return Err("FFmpeg crop failed".to_string());
+    }
+    Ok(())
 }
 
 fn merge_audio_video(video: &str, audio: &str, output: &str) -> Result<(), String> {

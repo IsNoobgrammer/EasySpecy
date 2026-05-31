@@ -1,0 +1,574 @@
+﻿<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EasySpecy - Settings</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface": "#11131e",
+                    "outline-variant": "#3b4a3f",
+                    "inverse-on-surface": "#2e303c",
+                    "tertiary-fixed-dim": "#ffb3ad",
+                    "surface-container-lowest": "#0c0e18",
+                    "secondary-container": "#3131c0",
+                    "on-surface-variant": "#bacbbc",
+                    "surface-container-high": "#272935",
+                    "on-tertiary-fixed-variant": "#930012",
+                    "surface-container-low": "#191b26",
+                    "secondary-fixed-dim": "#c0c1ff",
+                    "primary": "#85ffb4",
+                    "on-tertiary": "#68000a",
+                    "secondary-fixed": "#e1e0ff",
+                    "surface-container": "#1d1f2b",
+                    "surface-bright": "#373845",
+                    "primary-fixed-dim": "#00e387",
+                    "primary-container": "#00e88a",
+                    "outline": "#849587",
+                    "on-primary-fixed-variant": "#00522d",
+                    "tertiary-container": "#ffbab4",
+                    "surface-container-highest": "#323440",
+                    "on-secondary-fixed-variant": "#2f2ebe",
+                    "on-secondary": "#1000a9",
+                    "surface-dim": "#11131e",
+                    "on-secondary-container": "#b0b2ff",
+                    "surface-variant": "#323440",
+                    "error-container": "#93000a",
+                    "on-surface": "#e1e1f2",
+                    "surface-tint": "#00e387",
+                    "on-secondary-fixed": "#07006c",
+                    "on-error": "#690005",
+                    "error": "#ffb4ab",
+                    "inverse-surface": "#e1e1f2",
+                    "tertiary": "#ffe0dd",
+                    "on-primary": "#00391e",
+                    "tertiary-fixed": "#ffdad7",
+                    "inverse-primary": "#006d3e",
+                    "primary-fixed": "#58ffa4",
+                    "secondary": "#c0c1ff",
+                    "on-primary-fixed": "#00210f",
+                    "on-background": "#e1e1f2",
+                    "on-tertiary-fixed": "#410004",
+                    "on-primary-container": "#006338",
+                    "background": "#11131e",
+                    "on-tertiary-container": "#ae0419",
+                    "on-error-container": "#ffdad6"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "xl": "32px",
+                    "sm": "8px",
+                    "margin": "24px",
+                    "unit": "4px",
+                    "md": "16px",
+                    "lg": "24px",
+                    "gutter": "16px",
+                    "xs": "4px"
+            },
+            "fontFamily": {
+                    "label-mono": ["JetBrains Mono"],
+                    "body-md": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "micro-label": ["JetBrains Mono"],
+                    "headline-md": ["Inter"],
+                    "headline-lg-mobile": ["Inter"]
+            },
+            "fontSize": {
+                    "label-mono": ["13px", { "lineHeight": "16px", "fontWeight": "500" }],
+                    "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "headline-lg": ["30px", { "lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                    "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                    "micro-label": ["9px", { "lineHeight": "12px", "letterSpacing": "0.08em", "fontWeight": "700" }],
+                    "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                    "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #0d0f1a;
+            color: #e1e1f2;
+            overflow-x: hidden;
+            background-image: radial-gradient(circle at 50% 50%, rgba(0, 232, 138, 0.02) 0%, transparent 80%);
+        }
+
+        .noise-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            opacity: 0.02;
+            z-index: 9999;
+            background-image: url("https://www.transparenttextures.com/patterns/carbon-fibre.png");
+        }
+
+        .setting-card {
+            background-color: #151828;
+            border: 2px solid #2d314d;
+            border-radius: 10px;
+            transition: border-color 0.2s ease;
+        }
+
+        .setting-card:hover {
+            border-color: #3b4a3f;
+        }
+
+        .custom-toggle {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+
+        .custom-toggle input { opacity: 0; width: 0; height: 0; }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #272935;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px; width: 18px;
+            left: 3px; bottom: 3px;
+            background-color: #e1e1f2;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider { background-color: #00e88a; }
+        input:checked + .slider:before { transform: translateX(20px); background-color: #00391e; }
+
+        .segmented-control {
+            background-color: #090b14;
+            padding: 4px;
+            border-radius: 999px;
+            display: flex;
+            gap: 4px;
+        }
+
+        .segmented-item {
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: #bacbbc;
+        }
+
+        .segmented-item.active {
+            background-color: #00e88a;
+            color: #00391e;
+            font-weight: 700;
+        }
+
+        .custom-select {
+            background-color: #090b14;
+            border: 1px solid #2d314d;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 6px 12px;
+            border-radius: 4px;
+            color: #e1e1f2;
+            outline: none;
+        }
+
+        .custom-select:focus {
+            border-color: #00e88a;
+        }
+
+        .hotkey-input {
+            background-color: #090b14;
+            border: 1px solid #2d314d;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 8px 12px;
+            border-radius: 4px;
+            width: 140px;
+            text-align: center;
+            color: #00e88a;
+            font-weight: 700;
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #0d0f1a;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #272935;
+            border-radius: 10px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #3b4a3f;
+        }
+    </style>
+</head>
+<body class="font-body-md text-body-md antialiased h-screen flex flex-col">
+<div class="noise-overlay"></div>
+<!-- Header -->
+<header class="sticky top-0 z-50 bg-surface/80 backdrop-blur-md border-b border-outline-variant h-xl flex items-center px-margin justify-between">
+<div class="flex items-center gap-sm cursor-pointer hover:text-primary transition-colors group">
+<span class="material-symbols-outlined text-body-lg">arrow_back</span>
+<span class="font-label-mono text-label-mono">Back to Dashboard</span>
+</div>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-on-surface uppercase tracking-widest">Settings</h1>
+<div class="flex items-center gap-md">
+<button class="p-xs hover:bg-surface-container-high rounded-full transition-colors" id="theme-toggle">
+<span class="material-symbols-outlined text-primary">dark_mode</span>
+</button>
+<div class="flex items-center gap-xs">
+<div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-[18px]">account_circle</span>
+</div>
+</div>
+</div>
+</header>
+<!-- Content Area -->
+<main class="flex-1 overflow-y-auto custom-scroll pb-32">
+<div class="max-w-3xl mx-auto px-margin py-xl space-y-lg">
+<!-- Video Settings -->
+<section class="setting-card p-lg">
+<div class="flex items-center gap-sm pb-md border-b border-outline-variant/30 mb-md">
+<span class="material-symbols-outlined text-primary">videocam</span>
+<h2 class="font-headline-md text-[18px] font-bold">VIDEO</h2>
+</div>
+<div class="space-y-lg">
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Resolution</p>
+<p class="text-xs text-on-surface-variant">Base canvas size for recording</p>
+</div>
+<select class="custom-select">
+<option>480p (SD)</option>
+<option>720p (HD)</option>
+<option selected="">1080p (FHD)</option>
+<option>2160p (4K)</option>
+</select>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Frame Rate (FPS)</p>
+<p class="text-xs text-on-surface-variant">Smoothness of the video output</p>
+</div>
+<div class="segmented-control">
+<div class="segmented-item">24</div>
+<div class="segmented-item">30</div>
+<div class="segmented-item active">60</div>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Capture Mode</p>
+<p class="text-xs text-on-surface-variant">Optimize for performance or quality</p>
+</div>
+<select class="custom-select">
+<option>Standard</option>
+<option>Performance</option>
+<option>Studio Quality</option>
+</select>
+</div>
+</div>
+</section>
+<!-- Audio Settings -->
+<section class="setting-card p-lg">
+<div class="flex items-center gap-sm pb-md border-b border-outline-variant/30 mb-md">
+<span class="material-symbols-outlined text-primary">mic</span>
+<h2 class="font-headline-md text-[18px] font-bold">AUDIO</h2>
+</div>
+<div class="space-y-lg">
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Enable Audio</p>
+<p class="text-xs text-on-surface-variant">Toggle all sound capture</p>
+</div>
+<label class="custom-toggle">
+<input checked="" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Audio Source</p>
+</div>
+<div class="segmented-control">
+<div class="segmented-item">Mic</div>
+<div class="segmented-item">System</div>
+<div class="segmented-item active">Both</div>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Sample Rate</p>
+</div>
+<select class="custom-select">
+<option>44.1 kHz</option>
+<option selected="">48 kHz</option>
+<option>96 kHz</option>
+</select>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Recording Device</p>
+</div>
+<select class="custom-select min-w-[200px]">
+<option>Default System Device</option>
+<option>HyperX QuadCast S</option>
+<option>Focusrite Scarlett 2i2</option>
+</select>
+</div>
+</div>
+</section>
+<!-- Auto-Zoom -->
+<section class="setting-card p-lg">
+<div class="flex items-center justify-between pb-md border-b border-outline-variant/30 mb-md">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary">zoom_in</span>
+<h2 class="font-headline-md text-[18px] font-bold">AUTO-ZOOM</h2>
+</div>
+<span class="px-sm py-xs bg-primary-container/10 text-primary-fixed-dim border border-primary/20 rounded-full font-micro-label text-micro-label uppercase">Post-processing</span>
+</div>
+<div class="space-y-lg">
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Enable Smart Zoom</p>
+<p class="text-xs text-on-surface-variant">Automatically zoom into mouse clicks</p>
+</div>
+<label class="custom-toggle">
+<input checked="" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Zoom Level</p>
+</div>
+<div class="segmented-control">
+<div class="segmented-item">1.5x</div>
+<div class="segmented-item active">2x</div>
+<div class="segmented-item">2.5x</div>
+<div class="segmented-item">3x</div>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Hold Duration</p>
+</div>
+<select class="custom-select">
+<option>500ms</option>
+<option selected="">1000ms</option>
+<option>1500ms</option>
+</select>
+</div>
+</div>
+</section>
+<!-- Cursor Effects -->
+<section class="setting-card p-lg">
+<div class="flex items-center justify-between pb-md border-b border-outline-variant/30 mb-md">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary">mouse</span>
+<h2 class="font-headline-md text-[18px] font-bold">CURSOR EFFECTS</h2>
+</div>
+<span class="px-sm py-xs bg-primary-container/10 text-primary-fixed-dim border border-primary/20 rounded-full font-micro-label text-micro-label uppercase">Post-processing</span>
+</div>
+<div class="space-y-lg">
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Movement Trail</p>
+<p class="text-xs text-on-surface-variant">Render a trailing effect behind cursor</p>
+</div>
+<label class="custom-toggle">
+<input type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Trail Color</p>
+</div>
+<div class="flex items-center gap-md">
+<span class="text-xs font-label-mono text-on-surface-variant uppercase">#00E88A</span>
+<div class="w-8 h-8 rounded-full bg-primary ring-2 ring-offset-2 ring-offset-surface ring-outline-variant cursor-pointer"></div>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Cursor Size</p>
+</div>
+<div class="segmented-control">
+<div class="segmented-item active">S</div>
+<div class="segmented-item">M</div>
+<div class="segmented-item">L</div>
+<div class="segmented-item">XL</div>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Motion Smoothing</p>
+</div>
+<label class="custom-toggle">
+<input checked="" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+</div>
+</section>
+<!-- Webcam -->
+<section class="setting-card p-lg">
+<div class="flex items-center gap-sm pb-md border-b border-outline-variant/30 mb-md">
+<span class="material-symbols-outlined text-primary">photo_camera</span>
+<h2 class="font-headline-md text-[18px] font-bold">WEBCAM Overlay</h2>
+</div>
+<div class="space-y-lg">
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Show Webcam</p>
+</div>
+<label class="custom-toggle">
+<input type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Position</p>
+</div>
+<div class="segmented-control">
+<div class="segmented-item">TL</div>
+<div class="segmented-item">TR</div>
+<div class="segmented-item">BL</div>
+<div class="segmented-item active">BR</div>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Overlay Size</p>
+</div>
+<select class="custom-select">
+<option>Small (10%)</option>
+<option selected="">Medium (20%)</option>
+<option>Large (30%)</option>
+</select>
+</div>
+</div>
+</section>
+<!-- Hotkeys -->
+<section class="setting-card p-lg">
+<div class="flex items-center gap-sm pb-md border-b border-outline-variant/30 mb-md">
+<span class="material-symbols-outlined text-primary">keyboard</span>
+<h2 class="font-headline-md text-[18px] font-bold">HOTKEYS</h2>
+</div>
+<div class="space-y-lg">
+<div class="flex justify-between items-center">
+<p class="font-label-mono text-label-mono text-on-surface">Start Recording</p>
+<input class="hotkey-input" readonly="" type="text" value="CTRL + R"/>
+</div>
+<div class="flex justify-between items-center">
+<p class="font-label-mono text-label-mono text-on-surface">Stop Recording</p>
+<input class="hotkey-input" readonly="" type="text" value="CTRL + Q"/>
+</div>
+<div class="flex justify-between items-center">
+<p class="font-label-mono text-label-mono text-on-surface">Pause / Resume</p>
+<input class="hotkey-input" readonly="" type="text" value="CTRL + P"/>
+</div>
+</div>
+</section>
+<!-- General -->
+<section class="setting-card p-lg">
+<div class="flex items-center gap-sm pb-md border-b border-outline-variant/30 mb-md">
+<span class="material-symbols-outlined text-primary">settings</span>
+<h2 class="font-headline-md text-[18px] font-bold">GENERAL</h2>
+</div>
+<div class="space-y-lg">
+<div class="flex justify-between items-center">
+<div class="flex-1 mr-xl">
+<p class="font-label-mono text-label-mono text-on-surface">Output Directory</p>
+<div class="mt-sm flex items-center bg-surface-container-lowest border border-outline-variant p-xs rounded-lg">
+<span class="text-xs font-label-mono px-sm text-on-surface-variant flex-1 truncate">C:/Users/Admin/Videos/EasySpecy</span>
+<button class="p-xs hover:bg-surface-variant transition-colors rounded">
+<span class="material-symbols-outlined text-[16px]">folder_open</span>
+</button>
+</div>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Minimize to Tray</p>
+<p class="text-xs text-on-surface-variant">Hide app when recording starts</p>
+</div>
+<label class="custom-toggle">
+<input checked="" type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-mono text-label-mono text-on-surface">Copy Path on Save</p>
+<p class="text-xs text-on-surface-variant">Auto-copy file path to clipboard</p>
+</div>
+<label class="custom-toggle">
+<input type="checkbox"/>
+<span class="slider"></span>
+</label>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Footer -->
+<footer class="fixed bottom-0 left-0 w-full bg-surface-container/95 backdrop-blur-xl border-t border-outline-variant p-md flex justify-center z-50">
+<button class="max-w-3xl w-full bg-primary hover:bg-primary-fixed-dim active:scale-[0.98] transition-all py-md rounded-lg font-bold text-on-primary flex items-center justify-center gap-sm shadow-lg shadow-primary/10">
+<span class="material-symbols-outlined">save</span>
+            SAVE ALL SETTINGS
+        </button>
+</footer>
+<script>
+        // Micro-interactions for segmented controls
+        document.querySelectorAll('.segmented-control').forEach(container => {
+            container.addEventListener('click', (e) => {
+                if (e.target.classList.contains('segmented-item')) {
+                    container.querySelectorAll('.segmented-item').forEach(item => item.classList.remove('active'));
+                    e.target.classList.add('active');
+                    
+                    // Simple tactile feedback
+                    e.target.style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        e.target.style.transform = 'scale(1)';
+                    }, 100);
+                }
+            });
+        });
+
+        // Sticky header transition on scroll
+        const main = document.querySelector('main');
+        const header = document.querySelector('header');
+        main.addEventListener('scroll', () => {
+            if (main.scrollTop > 20) {
+                header.classList.add('shadow-xl');
+            } else {
+                header.classList.remove('shadow-xl');
+            }
+        });
+    </script>
+</body></html>
