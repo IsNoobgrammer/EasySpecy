@@ -377,15 +377,31 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
 
     set_encoding_progress(100, "Complete");
 
-    // ═══ Save cursor metadata for post-processing ═══
-    if let Some(meta) = crate::postprocess::finalize() {
+    // ═══ Save cursor metadata and apply effects ═══
+    let final_output = if let Some(meta) = crate::postprocess::finalize() {
+        // Save metadata
         if let Err(e) = crate::postprocess::save_metadata(&meta, &output_path) {
             tracing::warn!("Failed to save cursor metadata: {}", e);
         }
-    }
+
+        // Apply trail + click effects to the video
+        let effects_output = output_path.replace(".mp4", "_fx.mp4");
+        match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
+            Ok(effects_path) if effects_path != output_path => {
+                // Effects were applied — swap files
+                let _ = std::fs::remove_file(&output_path);
+                let _ = std::fs::rename(&effects_path, &output_path);
+                tracing::info!("Effects baked into final video");
+                output_path.clone()
+            }
+            _ => output_path.clone(),
+        }
+    } else {
+        output_path.clone()
+    };
 
     Ok(RecordingResult {
-        output_path,
+        output_path: final_output,
         duration_secs: duration,
         frame_count,
         file_size_bytes: file_size,
