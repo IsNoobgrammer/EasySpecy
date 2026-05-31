@@ -70,11 +70,11 @@
 
   --border-default: oklch(0.30 0.008 55);
   --border-strong: oklch(0.42 0.012 55);
-  --border-focus: oklch(0.68 0.14 30);
+  --border-focus: oklch(0.62 0.16 150);
 
-  /* Primary = warm terracotta (NOT red for idle state) */
-  --accent-primary: oklch(0.65 0.18 45);      /* warm terracotta/orange */
-  --accent-primary-hover: oklch(0.72 0.18 45);
+  /* Primary = sage green (ready/success) */
+  --accent-primary: oklch(0.62 0.16 150);      /* sage green — ready to record */
+  --accent-primary-hover: oklch(0.68 0.16 150);
 
   /* Record = distinct red (only when recording) */
   --accent-record: oklch(0.62 0.24 25);       /* warm red */
@@ -111,10 +111,10 @@
 
   --border-default: oklch(0.84 0.018 65);
   --border-strong: oklch(0.68 0.025 55);
-  --border-focus: oklch(0.52 0.18 45);
+  --border-focus: oklch(0.48 0.14 150);
 
-  --accent-primary: oklch(0.50 0.18 45);      /* terracotta */
-  --accent-primary-hover: oklch(0.44 0.18 45);
+  --accent-primary: oklch(0.48 0.14 150);      /* sage green */
+  --accent-primary-hover: oklch(0.42 0.14 150);
   --accent-record: oklch(0.50 0.22 25);
   --accent-record-glow: oklch(0.50 0.22 25 / 0.2);
   --accent-success: oklch(0.48 0.14 150);
