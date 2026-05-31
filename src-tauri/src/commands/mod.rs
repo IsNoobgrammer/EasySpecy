@@ -4,8 +4,9 @@ use crate::capture;
 use crate::capture::RecordingConfig;
 use crate::config::AppConfig;
 use crate::history::{RecordingEntry, RecordingHistory};
-use cpal::traits::{DeviceTrait, HostTrait};
 use crate::region;
+use cpal::traits::{DeviceTrait, HostTrait};
+use tauri::Manager;
 
 #[tauri::command]
 pub fn get_config() -> AppConfig {
@@ -17,7 +18,6 @@ pub fn save_config(config: AppConfig) -> Result<(), String> {
     config.save().map_err(|e| e.to_string())
 }
 
-/// Update a single config field by JSON key-value
 #[tauri::command]
 pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), String> {
     let mut config = AppConfig::load();
@@ -105,8 +105,6 @@ pub fn start_recording(output_path: Option<String>) -> Result<(), String> {
 #[tauri::command]
 pub fn stop_recording() -> Result<capture::RecordingResult, String> {
     let result = capture::stop_recording()?;
-
-    // Save to history
     let config = AppConfig::load();
     let entry = RecordingEntry {
         id: uuid::Uuid::new_v4().to_string(),
@@ -120,7 +118,6 @@ pub fn stop_recording() -> Result<capture::RecordingResult, String> {
     };
     let mut history = RecordingHistory::load();
     history.add(entry);
-
     Ok(result)
 }
 
@@ -156,6 +153,50 @@ pub fn clear_recording_history() -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_capture_region(x: i32, y: i32, width: i32, height: i32) {
+    region::set_region(region::CaptureRegion { x, y, width, height });
+}
+
+#[tauri::command]
+pub fn get_capture_region() -> Option<region::CaptureRegion> {
+    region::get_region()
+}
+
+#[tauri::command]
+pub fn clear_capture_region() {
+    region::clear_region();
+}
+
+#[tauri::command]
+pub fn get_windows() -> Vec<region::WindowInfo> {
+    region::get_windows()
+}
+
+/// Enter region selection mode: make window fullscreen and transparent
+#[tauri::command]
+pub fn enter_region_mode(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_fullscreen(true).map_err(|e| e.to_string())?;
+        window.set_always_on_top(true).map_err(|e| e.to_string())?;
+        window.set_decorations(false).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Exit region selection mode: restore window
+#[tauri::command]
+pub fn exit_region_mode(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_fullscreen(false).map_err(|e| e.to_string())?;
+        window.set_always_on_top(false).map_err(|e| e.to_string())?;
+        window.set_decorations(true).map_err(|e| e.to_string())?;
+        window.set_size(tauri::LogicalSize::new(900, 640)).map_err(|e| e.to_string())?;
+        window.center().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -179,24 +220,4 @@ pub fn open_path(path: String) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-#[tauri::command]
-pub fn set_capture_region(x: i32, y: i32, width: i32, height: i32) {
-    region::set_region(region::CaptureRegion { x, y, width, height });
-}
-
-#[tauri::command]
-pub fn get_capture_region() -> Option<region::CaptureRegion> {
-    region::get_region()
-}
-
-#[tauri::command]
-pub fn clear_capture_region() {
-    region::clear_region();
-}
-
-#[tauri::command]
-pub fn get_windows() -> Vec<region::WindowInfo> {
-    region::get_windows()
 }

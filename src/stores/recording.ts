@@ -191,11 +191,17 @@ export const useStore = create<AppState>((set, get) => ({
   setCaptureRegion: async (region) => {
     try {
       await invoke("set_capture_region", { x: region.x, y: region.y, width: region.width, height: region.height });
+      await invoke("exit_region_mode");
       set({ selectorMode: "none" });
-      get().addToast(`Region: ${region.width}×${region.height}`, "success");
-      // Auto-start recording after region selection
-      await get().startRecording();
-    } catch (e) { get().addToast(`Region failed: ${e}`, "error"); }
+      // Start recording with the selected region
+      await invoke("start_recording", { outputPath: null });
+      set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      get().addToast(`Recording region: ${region.width}×${region.height}`, "success");
+    } catch (e) {
+      await invoke("exit_region_mode").catch(() => {});
+      set({ selectorMode: "none" });
+      get().addToast(`Region failed: ${e}`, "error");
+    }
   },
 
   setCaptureWindow: async (window) => {
@@ -209,16 +215,23 @@ export const useStore = create<AppState>((set, get) => ({
 
   startRecording: async () => {
     const { config } = get();
-    // If Region mode, show selector first
+    // If Region mode, enter fullscreen region selection
     if (config?.recording_mode === "Region") {
-      set({ selectorMode: "region" });
+      try {
+        await invoke("enter_region_mode");
+        set({ selectorMode: "region" });
+        get().addToast("Drag to select area, Enter to confirm", "info");
+      } catch (e) {
+        get().addToast(`Region select failed: ${e}`, "error");
+      }
       return;
     }
-    // If Window mode, show window picker first
+    // If Window mode, show window picker
     if (config?.recording_mode === "Window") {
       set({ selectorMode: "window" });
       return;
     }
+    // FullScreen — start immediately
     try {
       await invoke("start_recording", { outputPath: null });
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });

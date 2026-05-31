@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+      cursor: crosshair;
+      background: transparent;
+      user-select: none;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    #overlay {
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.4);
+    }
+    #selection {
+      position: fixed;
+      border: 2px solid #3fb950;
+      background: transparent;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+      display: none;
+      z-index: 10;
+    }
+    #selection .handle {
+      position: absolute; width: 8px; height: 8px; background: #3fb950;
+    }
+    #selection .handle.tl { top: -4px; left: -4px; }
+    #selection .handle.tr { top: -4px; right: -4px; }
+    #selection .handle.bl { bottom: -4px; left: -4px; }
+    #selection .handle.br { bottom: -4px; right: -4px; }
+    #info {
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(22, 27, 34, 0.95); border: 1px solid #30363d;
+      padding: 12px 24px; z-index: 100;
+      font-size: 14px; color: #e6edf3;
+      font-family: "JetBrains Mono", monospace;
+      letter-spacing: 0.03em;
+    }
+    #info kbd {
+      background: #21262d; border: 1px solid #30363d;
+      padding: 2px 8px; font-size: 12px; color: #8b949e;
+    }
+    #size-label {
+      position: fixed; z-index: 20;
+      background: #3fb950; color: #0d1117;
+      padding: 4px 10px; font-size: 12px;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 600;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay"></div>
+  <div id="selection">
+    <div class="handle tl"></div>
+    <div class="handle tr"></div>
+    <div class="handle bl"></div>
+    <div class="handle br"></div>
+  </div>
+  <div id="info">Drag to select area · <kbd>Esc</kbd> to cancel · <kbd>Enter</kbd> to confirm</div>
+  <div id="size-label"></div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+
+    let startX = 0, startY = 0, endX = 0, endY = 0;
+    let selecting = false;
+    let confirmed = false;
+
+    const sel = document.getElementById("selection");
+    const sizeLabel = document.getElementById("size-label");
+    const info = document.getElementById("info");
+
+    document.addEventListener("mousedown", (e) => {
+      startX = e.screenX;
+      startY = e.screenY;
+      endX = e.screenX;
+      endY = e.screenY;
+      selecting = true;
+      sel.style.display = "block";
+      sizeLabel.style.display = "block";
+      updateSelection();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!selecting) return;
+      endX = e.screenX;
+      endY = e.screenY;
+      updateSelection();
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (!selecting) return;
+      selecting = false;
+      const rect = getRect();
+      if (rect.width > 30 && rect.height > 30) {
+        info.textContent = "Press Enter to confirm or Esc to cancel";
+      } else {
+        resetSelection();
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        invoke("close_region_window");
+      }
+      if (e.key === "Enter" && !selecting) {
+        const rect = getRect();
+        if (rect.width > 30 && rect.height > 30) {
+          confirmed = true;
+          invoke("set_capture_region", {
+            x: rect.x, y: rect.y,
+            width: rect.width, height: rect.height
+          });
+          invoke("close_region_window");
+          invoke("start_region_recording");
+        }
+      }
+    });
+
+    function getRect() {
+      const x = Math.min(startX, endX);
+      const y = Math.min(startY, endY);
+      const w = Math.abs(endX - startX);
+      const h = Math.abs(endY - startY);
+      return { x, y, width: w, height: h };
+    }
+
+    function updateSelection() {
+      const rect = getRect();
+      sel.style.left = rect.x + "px";
+      sel.style.top = rect.y + "px";
+      sel.style.width = rect.width + "px";
+      sel.style.height = rect.height + "px";
+      sizeLabel.textContent = rect.width + " × " + rect.height;
+      sizeLabel.style.left = rect.x + "px";
+      sizeLabel.style.top = (rect.y - 28) + "px";
+    }
+
+    function resetSelection() {
+      sel.style.display = "none";
+      sizeLabel.style.display = "none";
+      info.textContent = "Drag to select area · Esc to cancel";
+    }
+  </script>
+</body>
+</html>

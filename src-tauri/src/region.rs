@@ -1,5 +1,3 @@
-//! Region selection — captures click/drag coordinates for region recording
-
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -35,7 +33,6 @@ pub struct WindowInfo {
     pub hwnd: isize,
 }
 
-/// Get all visible windows for window capture
 #[cfg(target_os = "windows")]
 pub fn get_windows() -> Vec<WindowInfo> {
     use windows::core::BOOL;

@@ -40,6 +40,8 @@ pub fn run() {
             commands::get_capture_region,
             commands::clear_capture_region,
             commands::get_windows,
+            commands::enter_region_mode,
+            commands::exit_region_mode,
             commands::open_path,
         ])
         .setup(|app| {

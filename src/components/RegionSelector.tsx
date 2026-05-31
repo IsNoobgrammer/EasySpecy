@@ -52,8 +52,11 @@ export function RegionSelector({ onComplete, onCancel }: {
   }, [start, end, onComplete, onCancel]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        await invoke("exit_region_mode").catch(() => {});
+        onCancel();
+      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
