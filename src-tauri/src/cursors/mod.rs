@@ -35,9 +35,10 @@ pub struct CursorPackInfo {
 pub fn list_cursor_packs() -> Vec<CursorPackInfo> {
     let mut packs = vec![
         CursorPackInfo { id: "default".into(), name: "System Default".into(), description: "No change — uses your Windows cursor".into(), author: "System".into(), is_builtin: true },
-        CursorPackInfo { id: "macos".into(), name: "macOS Tahoe".into(), description: "Apple's latest cursor with shadow — clean and iconic".into(), author: "Community (MIT)".into(), is_builtin: true },
+        CursorPackInfo { id: "macos".into(), name: "macos".into(), description: "Apple's latest cursor with shadow — clean and iconic".into(), author: "Community (MIT)".into(), is_builtin: true },
         CursorPackInfo { id: "posy".into(), name: "Posy's Improved".into(), description: "The internet's favorite cursor — crisp black with white border".into(), author: "Michiel de Boer (CC0)".into(), is_builtin: true },
-        CursorPackInfo { id: "easyspecy".into(), name: "Specy's Glasses".into(), description: "Premium glassmorphic translucent cursor with brand green glow — our signature".into(), author: "EasySpecy".into(), is_builtin: true },
+        CursorPackInfo { id: "specy_classic".into(), name: "Specy Classic".into(), description: "The official EasySpecy look — clean capture layout with green accents".into(), author: "EasySpecy".into(), is_builtin: true },
+        CursorPackInfo { id: "easyspecy".into(), name: "Specy's Glasses".into(), description: "Neon Precision — glassmorphic body with glowing indicators and holographic rings".into(), author: "EasySpecy".into(), is_builtin: true },
     ];
     // Scan user custom packs
     if let Some(dir) = get_user_cursors_dir() {
@@ -64,7 +65,8 @@ pub fn apply_cursor_pack(pack_id: &str) -> Result<(), String> {
     if pack_id == "default" { return Ok(()); }
     let cursors = match pack_id {
         "macos" | "posy" => load_bundled_pack(pack_id)?,
-        "easyspecy" => generate_specy_glass()?,
+        "specy_classic" => generate_specy_classic()?,
+        "easyspecy" => generate_specy_glasses()?,
         id if id.starts_with("custom_") => load_custom_pack(&id[7..])?,
         _ => return Err(format!("Unknown pack: {}", pack_id)),
     };
@@ -155,26 +157,45 @@ fn load_custom_pack(name: &str) -> Result<HashMap<u32, Vec<u8>>, String> {
     Ok(m)
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SPECY GLASS — Glassmorphic cursor set
-// Design: translucent body, green inner glow, white edge highlight,
-// dark outline for universal contrast. Each type = distinct shape.
-// ═══════════════════════════════════════════════════════════════
+// ===============================================================
+// SPECY CLASSIC GENERATOR (Core Capture Layout)
+// ===============================================================
 
-fn generate_specy_glass() -> Result<HashMap<u32, Vec<u8>>, String> {
+fn generate_specy_classic() -> Result<HashMap<u32, Vec<u8>>, String> {
     let mut m = HashMap::new();
     let sz: u32 = 32;
-    m.insert(OCR_NORMAL, render_sdf_cursor(sz, 0, 0, sdf_arrow, standard_color_func));
-    m.insert(OCR_IBEAM, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_ibeam, standard_color_func));
-    m.insert(OCR_HAND, render_sdf_cursor(sz, 13, 4, sdf_hand, standard_color_func));
-    m.insert(OCR_CROSS, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_crosshair, standard_color_func));
-    m.insert(OCR_SIZEWE, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_resize_h, standard_color_func));
-    m.insert(OCR_SIZENS, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_resize_v, standard_color_func));
-    m.insert(OCR_SIZENWSE, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_resize_nwse, standard_color_func));
-    m.insert(OCR_SIZENESW, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_resize_nesw, standard_color_func));
-    m.insert(OCR_SIZEALL, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_move, standard_color_func));
-    m.insert(OCR_NO, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_forbidden, forbidden_color_func));
-    m.insert(OCR_WAIT, render_sdf_cursor(sz, sz / 2, sz / 2, sdf_hourglass, wait_color_func));
+    m.insert(OCR_NORMAL, render_sdf_cursor(sz, OCR_NORMAL, 0, 0, sdf_arrow_shape, classic_color_func));
+    m.insert(OCR_IBEAM, render_sdf_cursor(sz, OCR_IBEAM, sz / 2, sz / 2, sdf_ibeam_shape, classic_color_func));
+    m.insert(OCR_HAND, render_sdf_cursor(sz, OCR_HAND, 13, 4, sdf_hand_shape, classic_color_func));
+    m.insert(OCR_CROSS, render_sdf_cursor(sz, OCR_CROSS, sz / 2, sz / 2, sdf_crosshair_shape, classic_color_func));
+    m.insert(OCR_SIZEWE, render_sdf_cursor(sz, OCR_SIZEWE, sz / 2, sz / 2, sdf_resize_h_shape, classic_color_func));
+    m.insert(OCR_SIZENS, render_sdf_cursor(sz, OCR_SIZENS, sz / 2, sz / 2, sdf_resize_v_shape, classic_color_func));
+    m.insert(OCR_SIZENWSE, render_sdf_cursor(sz, OCR_SIZENWSE, sz / 2, sz / 2, sdf_resize_nwse_shape, classic_color_func));
+    m.insert(OCR_SIZENESW, render_sdf_cursor(sz, OCR_SIZENESW, sz / 2, sz / 2, sdf_resize_nesw_shape, classic_color_func));
+    m.insert(OCR_SIZEALL, render_sdf_cursor(sz, OCR_SIZEALL, sz / 2, sz / 2, sdf_move_shape, classic_color_func));
+    m.insert(OCR_NO, render_sdf_cursor(sz, OCR_NO, sz / 2, sz / 2, sdf_forbidden_shape, classic_color_func));
+    m.insert(OCR_WAIT, render_sdf_cursor(sz, OCR_WAIT, sz / 2, sz / 2, sdf_classic_wait_shape, classic_color_func));
+    Ok(m)
+}
+
+// ===============================================================
+// SPECY'S GLASSES GENERATOR (Neon Precision / Holographic Layout)
+// ===============================================================
+
+fn generate_specy_glasses() -> Result<HashMap<u32, Vec<u8>>, String> {
+    let mut m = HashMap::new();
+    let sz: u32 = 32;
+    m.insert(OCR_NORMAL, render_sdf_cursor(sz, OCR_NORMAL, 0, 0, sdf_arrow_shape, glasses_color_func));
+    m.insert(OCR_IBEAM, render_sdf_cursor(sz, OCR_IBEAM, sz / 2, sz / 2, sdf_ibeam_shape, glasses_color_func));
+    m.insert(OCR_HAND, render_sdf_cursor(sz, OCR_HAND, 13, 4, sdf_hand_shape, glasses_color_func));
+    m.insert(OCR_CROSS, render_sdf_cursor(sz, OCR_CROSS, sz / 2, sz / 2, sdf_crosshair_shape, glasses_color_func));
+    m.insert(OCR_SIZEWE, render_sdf_cursor(sz, OCR_SIZEWE, sz / 2, sz / 2, sdf_resize_h_shape, glasses_color_func));
+    m.insert(OCR_SIZENS, render_sdf_cursor(sz, OCR_SIZENS, sz / 2, sz / 2, sdf_resize_v_shape, glasses_color_func));
+    m.insert(OCR_SIZENWSE, render_sdf_cursor(sz, OCR_SIZENWSE, sz / 2, sz / 2, sdf_resize_nwse_shape, glasses_color_func));
+    m.insert(OCR_SIZENESW, render_sdf_cursor(sz, OCR_SIZENESW, sz / 2, sz / 2, sdf_resize_nesw_shape, glasses_color_func));
+    m.insert(OCR_SIZEALL, render_sdf_cursor(sz, OCR_SIZEALL, sz / 2, sz / 2, sdf_move_shape, glasses_color_func));
+    m.insert(OCR_NO, render_sdf_cursor(sz, OCR_NO, sz / 2, sz / 2, sdf_forbidden_shape, glasses_color_func));
+    m.insert(OCR_WAIT, render_sdf_cursor(sz, OCR_WAIT, sz / 2, sz / 2, sdf_glasses_wait_shape, glasses_color_func));
     Ok(m)
 }
 
@@ -224,26 +245,61 @@ fn sdf_capsule(p: (f32, f32), a: (f32, f32), b: (f32, f32), r: f32) -> f32 {
     sdf_segment(p, a, b) - r
 }
 
+fn sdf_bracket_corners(p: (f32, f32), min_x: f32, min_y: f32, max_x: f32, max_y: f32, len: f32, r: f32) -> f32 {
+    let tl = sdf_segment(p, (min_x, min_y), (min_x + len, min_y))
+        .min(sdf_segment(p, (min_x, min_y), (min_x, min_y + len))) - r;
+    let tr = sdf_segment(p, (max_x, min_y), (max_x - len, min_y))
+        .min(sdf_segment(p, (max_x, min_y), (max_x, min_y + len))) - r;
+    let bl = sdf_segment(p, (min_x, max_y), (min_x + len, max_y))
+        .min(sdf_segment(p, (min_x, max_y), (min_x, max_y - len))) - r;
+    let br = sdf_segment(p, (max_x, max_y), (max_x - len, max_y))
+        .min(sdf_segment(p, (max_x, max_y), (max_x, max_y - len))) - r;
+    
+    tl.min(tr).min(bl).min(br)
+}
+
+fn sdf_ibeam_brackets(p: (f32, f32), r: f32) -> f32 {
+    let tl = sdf_segment(p, (10.0, 5.0), (13.0, 5.0)).min(sdf_segment(p, (10.0, 5.0), (10.0, 8.0))) - r;
+    let tr = sdf_segment(p, (22.0, 5.0), (19.0, 5.0)).min(sdf_segment(p, (22.0, 5.0), (22.0, 8.0))) - r;
+    let bl = sdf_segment(p, (10.0, 27.0), (13.0, 27.0)).min(sdf_segment(p, (10.0, 27.0), (10.0, 24.0))) - r;
+    let br = sdf_segment(p, (22.0, 27.0), (19.0, 27.0)).min(sdf_segment(p, (22.0, 27.0), (22.0, 24.0))) - r;
+    tl.min(tr).min(bl).min(br)
+}
+
+fn sdf_dashed_circle(p: (f32, f32), center: (f32, f32), r: f32, thickness: f32) -> f32 {
+    let dist = sdf_circle(p, center, r);
+    let dx = p.0 - center.0;
+    let dy = p.1 - center.1;
+    let angle = dy.atan2(dx);
+    let degrees = angle.to_degrees() + 180.0;
+    let sector = degrees % 45.0;
+    if sector < 25.0 {
+        dist.abs() - thickness
+    } else {
+        100.0
+    }
+}
+
 // ===============================================================
 // SPECIFIC CURSOR SDF SHAPES
 // ===============================================================
 
-fn sdf_arrow(p: (f32, f32)) -> f32 {
+fn sdf_arrow_shape(p: (f32, f32)) -> f32 {
     let d_head1 = sdf_triangle(p, (6.0, 4.0), (20.0, 18.0), (13.0, 17.0));
     let d_head2 = sdf_triangle(p, (6.0, 4.0), (13.0, 17.0), (6.0, 20.0));
     let d_head = d_head1.min(d_head2);
     let d_stem = sdf_capsule(p, (11.0, 15.0), (17.5, 23.5), 1.4);
-    d_head.min(d_stem)
+    let d_brackets = sdf_bracket_corners(p, 18.0, 18.0, 28.0, 28.0, 2.5, 0.6);
+    d_head.min(d_stem).min(d_brackets)
 }
 
-fn sdf_ibeam(p: (f32, f32)) -> f32 {
-    let d1 = sdf_capsule(p, (16.0, 6.0), (16.0, 26.0), 1.2);
-    let d2 = sdf_capsule(p, (11.0, 6.0), (21.0, 6.0), 1.0);
-    let d3 = sdf_capsule(p, (11.0, 26.0), (21.0, 26.0), 1.0);
-    d1.min(d2).min(d3)
+fn sdf_ibeam_shape(p: (f32, f32)) -> f32 {
+    let d_stem = sdf_capsule(p, (16.0, 6.0), (16.0, 26.0), 1.2);
+    let d_brackets = sdf_ibeam_brackets(p, 0.7);
+    d_stem.min(d_brackets)
 }
 
-fn sdf_hand(p: (f32, f32)) -> f32 {
+fn sdf_hand_shape(p: (f32, f32)) -> f32 {
     let index = sdf_capsule(p, (13.0, 4.0), (13.0, 13.0), 1.8);
     let middle = sdf_capsule(p, (17.5, 9.0), (17.5, 17.0), 1.6);
     let ring = sdf_capsule(p, (21.5, 10.0), (21.5, 17.0), 1.6);
@@ -253,67 +309,66 @@ fn sdf_hand(p: (f32, f32)) -> f32 {
     index.min(middle).min(ring).min(pinky).min(thumb).min(palm)
 }
 
-fn sdf_crosshair(p: (f32, f32)) -> f32 {
-    let d_ring = (sdf_circle(p, (16.0, 16.0), 4.5)).abs() - 1.2;
-    let d_center = sdf_circle(p, (16.0, 16.0), 1.0);
-    let d_top = sdf_capsule(p, (16.0, 4.0), (16.0, 8.0), 0.8);
-    let d_bottom = sdf_capsule(p, (16.0, 24.0), (16.0, 28.0), 0.8);
-    let d_left = sdf_capsule(p, (4.0, 16.0), (8.0, 16.0), 0.8);
-    let d_right = sdf_capsule(p, (24.0, 16.0), (28.0, 16.0), 0.8);
-    d_ring.min(d_center).min(d_top).min(d_bottom).min(d_left).min(d_right)
+fn sdf_crosshair_shape(p: (f32, f32)) -> f32 {
+    sdf_bracket_corners(p, 5.0, 5.0, 27.0, 27.0, 5.0, 0.8)
 }
 
-fn sdf_resize_h(p: (f32, f32)) -> f32 {
+fn sdf_resize_h_shape(p: (f32, f32)) -> f32 {
     let d_line = sdf_capsule(p, (8.0, 16.0), (24.0, 16.0), 1.2);
     let d_arrow_l = sdf_triangle(p, (3.0, 16.0), (9.0, 11.0), (9.0, 21.0));
     let d_arrow_r = sdf_triangle(p, (29.0, 16.0), (23.0, 11.0), (23.0, 21.0));
     d_line.min(d_arrow_l).min(d_arrow_r)
 }
 
-fn sdf_resize_v(p: (f32, f32)) -> f32 {
+fn sdf_resize_v_shape(p: (f32, f32)) -> f32 {
     let d_line = sdf_capsule(p, (16.0, 8.0), (16.0, 24.0), 1.2);
     let d_arrow_t = sdf_triangle(p, (16.0, 3.0), (11.0, 9.0), (21.0, 9.0));
     let d_arrow_b = sdf_triangle(p, (16.0, 29.0), (11.0, 23.0), (21.0, 23.0));
     d_line.min(d_arrow_t).min(d_arrow_b)
 }
 
-fn sdf_resize_nwse(p: (f32, f32)) -> f32 {
+fn sdf_resize_nwse_shape(p: (f32, f32)) -> f32 {
     let d_line = sdf_capsule(p, (8.0, 8.0), (24.0, 24.0), 1.2);
     let d_arrow_tl = sdf_triangle(p, (4.0, 4.0), (11.0, 4.0), (4.0, 11.0));
     let d_arrow_br = sdf_triangle(p, (28.0, 28.0), (21.0, 28.0), (28.0, 21.0));
     d_line.min(d_arrow_tl).min(d_arrow_br)
 }
 
-fn sdf_resize_nesw(p: (f32, f32)) -> f32 {
+fn sdf_resize_nesw_shape(p: (f32, f32)) -> f32 {
     let d_line = sdf_capsule(p, (24.0, 8.0), (8.0, 24.0), 1.2);
     let d_arrow_tr = sdf_triangle(p, (28.0, 4.0), (21.0, 4.0), (28.0, 12.0));
     let d_arrow_bl = sdf_triangle(p, (4.0, 28.0), (4.0, 21.0), (12.0, 28.0));
     d_line.min(d_arrow_tr).min(d_arrow_bl)
 }
 
-fn sdf_move(p: (f32, f32)) -> f32 {
+fn sdf_move_shape(p: (f32, f32)) -> f32 {
     let d_vert = sdf_capsule(p, (16.0, 7.0), (16.0, 25.0), 1.0);
     let d_horiz = sdf_capsule(p, (7.0, 16.0), (25.0, 16.0), 1.0);
     let d_arrow_t = sdf_triangle(p, (16.0, 3.0), (12.0, 8.0), (20.0, 8.0));
     let d_arrow_b = sdf_triangle(p, (16.0, 29.0), (12.0, 24.0), (20.0, 24.0));
     let d_arrow_l = sdf_triangle(p, (3.0, 16.0), (8.0, 12.0), (8.0, 20.0));
     let d_arrow_r = sdf_triangle(p, (29.0, 16.0), (24.0, 12.0), (24.0, 20.0));
-    let d_hub = sdf_circle(p, (16.0, 16.0), 3.5);
+    let d_hub = sdf_circle(p, (16.0, 16.0), 3.0);
     d_vert.min(d_horiz).min(d_arrow_t).min(d_arrow_b).min(d_arrow_l).min(d_arrow_r).min(d_hub)
 }
 
-fn sdf_forbidden(p: (f32, f32)) -> f32 {
-    let d_ring = (sdf_circle(p, (16.0, 16.0), 10.0)).abs() - 1.8;
-    let d_slash = sdf_capsule(p, (9.0, 9.0), (23.0, 23.0), 1.5);
-    d_ring.min(d_slash)
+fn sdf_forbidden_shape(p: (f32, f32)) -> f32 {
+    let d_brackets = sdf_bracket_corners(p, 5.0, 5.0, 27.0, 27.0, 4.0, 0.8);
+    let d_ring = (sdf_circle(p, (16.0, 16.0), 7.0)).abs() - 1.2;
+    let d_slash = sdf_capsule(p, (11.5, 11.5), (20.5, 20.5), 1.0);
+    d_brackets.min(d_ring).min(d_slash)
 }
 
-fn sdf_hourglass(p: (f32, f32)) -> f32 {
-    let d_top = sdf_triangle(p, (16.0, 16.0), (7.0, 6.0), (25.0, 6.0));
-    let d_bottom = sdf_triangle(p, (16.0, 16.0), (7.0, 26.0), (25.0, 26.0));
-    let d_plate_t = sdf_capsule(p, (9.0, 5.0), (23.0, 5.0), 1.2);
-    let d_plate_b = sdf_capsule(p, (9.0, 27.0), (23.0, 27.0), 1.2);
-    d_top.min(d_bottom).min(d_plate_t).min(d_plate_b)
+fn sdf_classic_wait_shape(p: (f32, f32)) -> f32 {
+    let d_brackets = sdf_bracket_corners(p, 5.0, 5.0, 27.0, 27.0, 4.0, 0.8);
+    let d_circle = sdf_dashed_circle(p, (16.0, 16.0), 7.5, 1.0);
+    d_brackets.min(d_circle)
+}
+
+fn sdf_glasses_wait_shape(p: (f32, f32)) -> f32 {
+    let d_inner = (sdf_circle(p, (16.0, 16.0), 6.0)).abs() - 0.8;
+    let d_outer = sdf_dashed_circle(p, (16.0, 16.0), 9.5, 0.8);
+    d_inner.min(d_outer)
 }
 
 // ===============================================================
@@ -341,46 +396,126 @@ fn blend(base: (u8, u8, u8, u8), top: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
     )
 }
 
-fn standard_color_func(p: (f32, f32), d: f32) -> (u8, u8, u8, u8) {
+fn get_dot_center(id: u32) -> Option<(f32, f32)> {
+    match id {
+        OCR_NORMAL => Some((23.0, 23.0)),
+        OCR_HAND => Some((15.0, 19.0)),
+        OCR_CROSS | OCR_SIZEWE | OCR_SIZENS | OCR_SIZENWSE | OCR_SIZENESW | OCR_SIZEALL | OCR_WAIT => {
+            Some((16.0, 16.0))
+        }
+        _ => None,
+    }
+}
+
+fn classic_color_func(cursor_id: u32, p: (f32, f32), d: f32) -> (u8, u8, u8, u8) {
     let x = p.0;
     let y = p.1;
     
     let shape_opacity = (0.5 - d).clamp(0.0, 1.0);
-    if shape_opacity <= 0.0 {
-        let outline_dist = (d - 0.5).abs();
-        let outline_mask = (1.0 - outline_dist / 0.5).clamp(0.0, 1.0);
-        if outline_mask > 0.0 {
-            return (13, 15, 26, (245.0 * outline_mask) as u8);
-        }
-        return (0, 0, 0, 0);
-    }
     
-    let diag = x + y;
-    let hl = (1.0 - (diag - 18.0).abs() / 4.0).clamp(0.0, 1.0) * 0.45;
-    let body_r = (21.0 * (1.0 - hl) + 255.0 * hl) as u8;
-    let body_g = (24.0 * (1.0 - hl) + 255.0 * hl) as u8;
-    let body_b = (40.0 * (1.0 - hl) + 255.0 * hl) as u8;
-    let body_a = (140.0 + (255.0 - 140.0) * hl) as u8;
-    let mut color = (body_r, body_g, body_b, (body_a as f32 * shape_opacity) as u8);
-    
-    let border_dist = (d + 0.5).abs();
-    let border_mask = (1.0 - border_dist / 0.8).clamp(0.0, 1.0);
-    if border_mask > 0.0 {
-        let glow_color = (0, 232, 138, (255.0 * border_mask) as u8);
-        color = blend(color, glow_color);
-    }
-    
-    let edge_dist = d.abs();
-    let is_top_left = x < 15.0 && y < 15.0;
-    let edge_mask = if is_top_left {
-        (1.0 - edge_dist / 0.8).clamp(0.0, 1.0) * 0.65
+    let mut color = if shape_opacity <= 0.0 {
+        (0, 0, 0, 0)
     } else {
-        0.0
+        let body_color = (16, 18, 30, (215.0 * shape_opacity) as u8);
+        
+        let border_dist = (d + 0.5).abs();
+        let border_mask = (1.0 - border_dist / 0.6).clamp(0.0, 1.0);
+        let border_color = (255, 255, 255, (255.0 * border_mask) as u8);
+        
+        blend(body_color, border_color)
     };
-    if edge_mask > 0.0 {
-        let edge_color = (238, 240, 246, (255.0 * edge_mask) as u8);
-        color = blend(color, edge_color);
+    
+    let outline_dist = (d - 0.5).abs();
+    let outline_mask = (1.0 - outline_dist / 0.5).clamp(0.0, 1.0);
+    if outline_mask > 0.0 {
+        let out_color = (0, 0, 0, (240.0 * outline_mask) as u8);
+        color = blend(color, out_color);
     }
+    
+    if let Some(dot_c) = get_dot_center(cursor_id) {
+        let dx = x - dot_c.0;
+        let dy = y - dot_c.1;
+        let dist = (dx * dx + dy * dy).sqrt();
+        
+        let dot_radius = 2.2;
+        let dot_opacity = (0.5 - (dist - dot_radius)).clamp(0.0, 1.0);
+        if dot_opacity > 0.0 {
+            let core_opacity = (0.5 - (dist - 0.8)).clamp(0.0, 1.0);
+            let green_color = (0, 232, 138, (255.0 * dot_opacity) as u8);
+            let white_color = (255, 255, 255, (255.0 * core_opacity) as u8);
+            let dot_color = blend(green_color, white_color);
+            color = blend(color, dot_color);
+            
+            let outline_dist = (dist - dot_radius - 0.4).abs();
+            let outline_mask = (1.0 - outline_dist / 0.4).clamp(0.0, 1.0);
+            if outline_mask > 0.0 {
+                let dot_out = (0, 0, 0, (240.0 * outline_mask) as u8);
+                color = blend(color, dot_out);
+            }
+        }
+    }
+    
+    if cursor_id == OCR_NO {
+        let dist_to_center = ((x - 16.0) * (x - 16.0) + (y - 16.0) * (y - 16.0)).sqrt();
+        if dist_to_center < 12.0 && shape_opacity > 0.0 {
+            let border_dist = (d + 0.5).abs();
+            let border_mask = (1.0 - border_dist / 0.6).clamp(0.0, 1.0);
+            let red_border = (240, 64, 64, (255.0 * border_mask) as u8);
+            
+            let red_body = (50, 10, 10, (215.0 * shape_opacity) as u8);
+            color = blend(red_body, red_border);
+            
+            let outline_dist = (d - 0.5).abs();
+            let outline_mask = (1.0 - outline_dist / 0.5).clamp(0.0, 1.0);
+            if outline_mask > 0.0 {
+                let out_color = (0, 0, 0, (240.0 * outline_mask) as u8);
+                color = blend(color, out_color);
+            }
+        }
+    }
+    
+    color
+}
+
+fn glasses_color_func(cursor_id: u32, p: (f32, f32), d: f32) -> (u8, u8, u8, u8) {
+    let x = p.0;
+    let y = p.1;
+    
+    let shape_opacity = (0.5 - d).clamp(0.0, 1.0);
+    
+    let mut color = if shape_opacity <= 0.0 {
+        let glow_dist = d;
+        let glow_mask = (1.0 - glow_dist / 2.5).clamp(0.0, 1.0) * 0.35;
+        if glow_mask > 0.0 {
+            (0, 232, 138, (255.0 * glow_mask) as u8)
+        } else {
+            (0, 0, 0, 0)
+        }
+    } else {
+        let diag = x + y;
+        let hl = (1.0 - (diag - 18.0).abs() / 4.0).clamp(0.0, 1.0) * 0.5;
+        let body_r = (21.0 * (1.0 - hl) + 255.0 * hl) as u8;
+        let body_g = (24.0 * (1.0 - hl) + 255.0 * hl) as u8;
+        let body_b = (40.0 * (1.0 - hl) + 255.0 * hl) as u8;
+        let body_a = (100.0 + (255.0 - 100.0) * hl) as u8;
+        
+        let body_color = (body_r, body_g, body_b, (body_a as f32 * shape_opacity) as u8);
+        
+        let border_dist = (d + 0.5).abs();
+        let border_mask = (1.0 - border_dist / 0.6).clamp(0.0, 1.0);
+        let border_color = (0, 232, 138, (255.0 * border_mask) as u8);
+        
+        let edge_dist = d.abs();
+        let is_top_left = x < 15.0 && y < 15.0;
+        let edge_mask = if is_top_left {
+            (1.0 - edge_dist / 0.8).clamp(0.0, 1.0) * 0.5
+        } else {
+            0.0
+        };
+        let edge_color = (238, 240, 246, (255.0 * edge_mask) as u8);
+        
+        blend(blend(body_color, border_color), edge_color)
+    };
     
     let outline_dist = (d - 0.5).abs();
     let outline_mask = (1.0 - outline_dist / 0.5).clamp(0.0, 1.0);
@@ -389,63 +524,54 @@ fn standard_color_func(p: (f32, f32), d: f32) -> (u8, u8, u8, u8) {
         color = blend(color, out_color);
     }
     
-    color
-}
-
-fn forbidden_color_func(p: (f32, f32), d: f32) -> (u8, u8, u8, u8) {
-    let x = p.0;
-    let y = p.1;
-    
-    let shape_opacity = (0.5 - d).clamp(0.0, 1.0);
-    if shape_opacity <= 0.0 {
-        let outline_dist = (d - 0.5).abs();
-        let outline_mask = (1.0 - outline_dist / 0.5).clamp(0.0, 1.0);
-        if outline_mask > 0.0 {
-            return (40, 10, 10, (245.0 * outline_mask) as u8);
+    if let Some(dot_c) = get_dot_center(cursor_id) {
+        let dx = x - dot_c.0;
+        let dy = y - dot_c.1;
+        let dist = (dx * dx + dy * dy).sqrt();
+        
+        let dot_radius = 2.2;
+        let dot_opacity = (0.5 - (dist - dot_radius)).clamp(0.0, 1.0);
+        if dot_opacity > 0.0 {
+            let core_opacity = (0.5 - (dist - 1.0)).clamp(0.0, 1.0);
+            let green_color = (0, 232, 138, (255.0 * dot_opacity) as u8);
+            let white_color = (255, 255, 255, (255.0 * core_opacity) as u8);
+            let dot_color = blend(green_color, white_color);
+            color = blend(color, dot_color);
+            
+            let glow_dist = dist - dot_radius;
+            let glow_mask = (1.0 - glow_dist / 2.0).clamp(0.0, 1.0) * 0.4;
+            if glow_mask > 0.0 {
+                let dot_glow = (0, 232, 138, (255.0 * glow_mask) as u8);
+                color = blend(color, dot_glow);
+            }
         }
-        return (0, 0, 0, 0);
     }
     
-    let diag = x + y;
-    let hl = (1.0 - (diag - 18.0).abs() / 4.0).clamp(0.0, 1.0) * 0.45;
-    let body_r = (240.0 * (1.0 - hl) + 255.0 * hl) as u8;
-    let body_g = (64.0 * (1.0 - hl) + 255.0 * hl) as u8;
-    let body_b = (64.0 * (1.0 - hl) + 255.0 * hl) as u8;
-    let body_a = (145.0 + (255.0 - 145.0) * hl) as u8;
-    let mut color = (body_r, body_g, body_b, (body_a as f32 * shape_opacity) as u8);
-    
-    let border_dist = (d + 0.5).abs();
-    let border_mask = (1.0 - border_dist / 0.8).clamp(0.0, 1.0);
-    if border_mask > 0.0 {
-        let glow_color = (255, 110, 110, (255.0 * border_mask) as u8);
-        color = blend(color, glow_color);
-    }
-    
-    let outline_dist = (d - 0.5).abs();
-    let outline_mask = (1.0 - outline_dist / 0.5).clamp(0.0, 1.0);
-    if outline_mask > 0.0 {
-        let out_color = (40, 10, 10, (245.0 * outline_mask) as u8);
-        color = blend(color, out_color);
-    }
-    
-    color
-}
-
-fn wait_color_func(p: (f32, f32), d: f32) -> (u8, u8, u8, u8) {
-    let mut color = standard_color_func(p, d);
-    
-    let d_sand = sdf_triangle(p, (16.0, 19.5), (10.5, 25.5), (21.5, 25.5));
-    let sand_opacity = (0.5 - d_sand).clamp(0.0, 1.0);
-    if sand_opacity > 0.0 {
-        let sand_color = (0, 232, 138, (255.0 * sand_opacity) as u8);
-        color = blend(color, sand_color);
-    }
-    
-    let d_stream = sdf_capsule(p, (16.0, 13.0), (16.0, 19.0), 0.6);
-    let stream_opacity = (0.5 - d_stream).clamp(0.0, 1.0);
-    if stream_opacity > 0.0 {
-        let stream_color = (0, 232, 138, (200.0 * stream_opacity) as u8);
-        color = blend(color, stream_color);
+    if cursor_id == OCR_NO {
+        let dist_to_center = ((x - 16.0) * (x - 16.0) + (y - 16.0) * (y - 16.0)).sqrt();
+        if dist_to_center < 12.0 {
+            if shape_opacity <= 0.0 {
+                let glow_dist = d;
+                let glow_mask = (1.0 - glow_dist / 2.5).clamp(0.0, 1.0) * 0.35;
+                if glow_mask > 0.0 {
+                    color = (240, 64, 64, (255.0 * glow_mask) as u8);
+                }
+            } else {
+                let border_dist = (d + 0.5).abs();
+                let border_mask = (1.0 - border_dist / 0.6).clamp(0.0, 1.0);
+                let red_border = (240, 64, 64, (255.0 * border_mask) as u8);
+                
+                let red_body = (80, 15, 15, (100.0 * shape_opacity) as u8);
+                color = blend(red_body, red_border);
+            }
+            
+            let outline_dist = (d - 0.5).abs();
+            let outline_mask = (1.0 - outline_dist / 0.5).clamp(0.0, 1.0);
+            if outline_mask > 0.0 {
+                let out_color = (40, 10, 10, (245.0 * outline_mask) as u8);
+                color = blend(color, out_color);
+            }
+        }
     }
     
     color
@@ -453,10 +579,11 @@ fn wait_color_func(p: (f32, f32), d: f32) -> (u8, u8, u8, u8) {
 
 fn render_sdf_cursor(
     sz: u32,
+    cursor_id: u32,
     hx: u32,
     hy: u32,
     sdf_func: impl Fn((f32, f32)) -> f32,
-    color_func: impl Fn((f32, f32), f32) -> (u8, u8, u8, u8),
+    color_func: impl Fn(u32, (f32, f32), f32) -> (u8, u8, u8, u8),
 ) -> Vec<u8> {
     let mut px = vec![0u8; (sz * sz * 4) as usize];
     let s = sz as i32;
@@ -498,10 +625,10 @@ fn render_sdf_cursor(
             let d = sdf_func(p);
             
             let sh_val = shadow[(y * s + x) as usize];
-            let sh_alpha = (sh_val * 0.40 * 255.0) as u8;
+            let sh_alpha = (sh_val * 0.35 * 255.0) as u8;
             let mut pixel_color = (0, 0, 0, sh_alpha);
             
-            let fg_color = color_func(p, d);
+            let fg_color = color_func(cursor_id, p, d);
             pixel_color = blend(pixel_color, fg_color);
             
             set4(&mut px, s, x, y, pixel_color);
