@@ -1,9 +1,8 @@
-import { useEffect, useState, useRef } from "react";
+﻿import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
-import { useThemeStore } from "../lib/theme";
-import { RegionSelector, WindowPicker } from "./RegionSelector";
-import { invoke } from "@tauri-apps/api/core";
+import { RegionSelector } from "./RegionSelector";
+import { Icon } from "./Icon";
 
 function formatDuration(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -54,6 +53,7 @@ function PresetCard({
         background: "var(--bg-surface)",
         borderRadius: "var(--radius-md)",
         boxShadow: "var(--shadow-sm)",
+        zIndex: open ? 100 : 1,
       }}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
@@ -253,21 +253,20 @@ function AudioMeter({ active }: { active: boolean }) {
 }
 
 // ═══ MAIN DASHBOARD ═══
-export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings: () => void }) {
   const {
     config, recordingPhase, isPaused, recordingStartTime, lastRecording, history,
     startRecording, stopRecording, pauseRecording, resumeRecording,
-    openPath, updateField, loadHistory, clearHistory,
-    selectorMode, setCaptureRegion, setCaptureWindow, setSelectorMode,
+    openPath, updateField, loadHistory, clearHistory, loadEstimatedSize,
+    selectorMode, setCaptureRegion, setSelectorMode,
+    encodingProgress, encodingStage, estimatedMbPerMin,
   } = useStore();
 
-  const { theme, toggleTheme } = useThemeStore();
   const [elapsed, setElapsed] = useState("00:00:00");
-  const [version, setVersion] = useState("0.1.0");
 
   useEffect(() => {
-    invoke<string>("get_version").then(setVersion).catch(() => {});
     loadHistory();
+    loadEstimatedSize();
   }, []);
 
   useEffect(() => {
@@ -285,70 +284,50 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
   const audioValue = config?.audio_enabled
     ? config.audio_source === "Both" ? "M+S" : config.audio_source === "System" ? "SYS" : "MIC"
     : "OFF";
-  const modeValue = config?.recording_mode === "FullScreen" ? "FULL" : config?.recording_mode === "Region" ? "REGION" : "WINDOW";
+  const modeValue = config?.recording_mode === "FullScreen" ? "FULL" : "REGION";
+  const encoderValue = config?.video_encoder || "H265";
+  const qualityValue = config?.video_quality || "Medium";
 
   return (
     <div
       className="flex flex-col h-full relative"
       style={{
-        background: "var(--bg-base)",
-        borderLeft: isRecording ? isPaused ? "4px solid var(--accent-warning)" : "4px solid var(--accent-record)" : "4px solid transparent",
-        transition: "border-color var(--duration-normal) var(--ease-out-expo)",
+        background: "transparent",
+        borderLeft: isRecording ? isPaused ? "3px solid var(--accent-warning)" : "3px solid var(--accent-record)" : "none",
+        boxShadow: isRecording && !isPaused ? "inset 0 0 80px oklch(0.64 0.20 25 / 0.04)" : "none",
+        transition: "border-color var(--duration-normal) var(--ease-out-expo), box-shadow var(--duration-slow) var(--ease-out-expo)",
       }}
     >
-      {/* ═══ HEADER ═══ */}
-      <header className="flex items-center justify-between px-6 py-3" style={{ borderBottom: "var(--border-width) solid var(--border-default)" }}>
-        <div className="flex items-center gap-3">
-          <motion.div
-            className="flex items-center justify-center shadow-sm overflow-hidden"
-            style={{
-              width: 36, height: 36,
-              border: "var(--border-width) solid var(--border-strong)",
-              borderRadius: "var(--radius-sm)",
-              background: "var(--bg-surface)",
-            }}
-            whileHover={{ scale: 1.05, rotate: -2 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <img src="/logo.png" alt="EasySpecy Logo" className="w-full h-full object-cover" />
-          </motion.div>
-          <div className="flex flex-col">
-            <span className="text-sm font-bold tracking-wide" style={{ color: "var(--text-primary)" }}>EasySpecy</span>
-            <span className="font-mono text-[9px] uppercase font-bold" style={{ color: "var(--text-muted)", letterSpacing: "0.05em" }}>v{version}</span>
-          </div>
+      {/* ═══ RECORDING ATMOSPHERE (red aurora shift) ═══ */}
+      {isRecording && !isPaused && (
+        <div className="fixed inset-0 pointer-events-none z-0" style={{ opacity: 0.6 }}>
+          <div className="absolute rounded-full" style={{
+            top: "-10%", right: "-10%", width: "40%", height: "40%",
+            background: "oklch(0.64 0.20 25 / 0.04)",
+            filter: "blur(120px)",
+          }} />
         </div>
-
+      )}
+      {/* ═══ TOP BAR (minimal — nav is in sidebar) ═══ */}
+      <header className="flex items-center justify-between px-6 py-2.5" style={{ borderBottom: "var(--border-thin) solid var(--border-default)" }}>
         <div className="flex items-center gap-3">
-          {isRecording && <AudioMeter active={!isPaused} />}
-          {/* Status Indicator */}
-          {isIdle && (
+          {isRecording ? (
+            <div className="flex items-center gap-2 px-3 py-1.5" style={{ border: "var(--border-thin) solid var(--accent-record)", background: "oklch(0.64 0.20 25 / 0.08)", borderRadius: "var(--radius-sm)" }}>
+              <span className="w-2 h-2 rounded-full animate-pulse-dot" style={{ background: "var(--accent-record)", boxShadow: "0 0 8px oklch(0.64 0.20 25 / 0.6)" }} />
+              <span className="font-mono uppercase" style={{ color: "var(--accent-record)", fontSize: "0.6rem", letterSpacing: "0.08em", fontWeight: 700 }}>RECORDING</span>
+            </div>
+          ) : (
             <div className="flex items-center gap-2 px-3 py-1.5" style={{ border: "var(--border-thin) solid var(--border-default)", background: "var(--bg-surface)", borderRadius: "var(--radius-sm)" }}>
               <span className="w-2 h-2 rounded-full" style={{ background: "var(--accent-primary)", boxShadow: "0 0 8px oklch(0.78 0.18 160 / 0.6)" }} />
               <span className="font-mono uppercase" style={{ color: "var(--accent-primary)", fontSize: "0.6rem", letterSpacing: "0.08em", fontWeight: 700 }}>READY</span>
             </div>
           )}
-          <motion.button
-            onClick={toggleTheme}
-            className="flex items-center justify-center cursor-pointer shadow-sm"
-            style={{ width: 36, height: 36, border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)", borderRadius: "var(--radius-sm)" }}
-            whileHover={{ scale: 1.05, borderColor: "var(--border-strong)" }}
-            whileTap={{ scale: 0.95 }}
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-          >
-            <motion.span key={theme} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }} className="material-symbols-outlined" style={{ fontSize: 18 }}>
-              {theme === "dark" ? "light_mode" : "dark_mode"}
-            </motion.span>
-          </motion.button>
-          <motion.button
-            onClick={onOpenSettings}
-            disabled={isRecording || isEncoding}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-mono uppercase font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-            style={{ border: "var(--border-width) solid var(--border-default)", background: "var(--bg-surface)", color: "var(--text-secondary)", borderRadius: "var(--radius-sm)", letterSpacing: "0.05em" }}
-            whileHover={{ scale: 1.02, y: -1, borderColor: "var(--border-strong)" }}
-            whileTap={{ scale: 0.97 }}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>settings</span> Config
-          </motion.button>
+          <span className="font-mono" style={{ color: "var(--text-muted)", fontSize: "0.55rem" }}>
+            {config?.resolution_width}×{config?.resolution_height} · {config?.fps}fps
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {isRecording && <AudioMeter active={!isPaused} />}
         </div>
       </header>
 
@@ -404,10 +383,22 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
                 <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }} className="w-4 h-4 border-2 border-t-transparent rounded-full" style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }} />
                 <span className="font-mono text-xs font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>Encoding Video</span>
               </div>
-              <div className="w-full h-1 overflow-hidden" style={{ background: "var(--bg-elevated)", borderRadius: "var(--radius-full)" }}>
-                <motion.div className="h-full w-1/3" style={{ background: "var(--accent-info)", borderRadius: "var(--radius-full)" }} animate={{ x: ["-100%", "300%"] }} transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }} />
+              <div className="w-full h-1.5 overflow-hidden" style={{ background: "var(--bg-elevated)", borderRadius: "var(--radius-full)" }}>
+                <motion.div
+                  className="h-full"
+                  style={{ background: "var(--accent-info)", borderRadius: "var(--radius-full)", width: `${encodingProgress}%` }}
+                  animate={{ width: `${encodingProgress}%` }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                />
               </div>
-              <span className="font-mono text-[9px] font-bold" style={{ color: "var(--text-muted)" }}>MERGING VIDEO + AUDIO STREAMS</span>
+              <div className="flex items-center justify-between w-full">
+                <span className="font-mono text-[9px] font-bold" style={{ color: "var(--text-muted)" }}>
+                  {encodingStage || "Processing..."}
+                </span>
+                <span className="font-mono text-[9px] font-bold" style={{ color: "var(--accent-info)" }}>
+                  {encodingProgress}%
+                </span>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -493,10 +484,11 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
 
         {/* ═══ INLINE PRESET CARDS ═══ */}
         <motion.div
-          className="grid grid-cols-4 gap-3 w-full max-w-xl"
+          className="grid grid-cols-3 gap-3 w-full max-w-xl overflow-visible"
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: isRecording ? 0.5 : 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+          style={{ pointerEvents: isRecording ? "none" : "auto" }}
         >
           <PresetCard
             label="Resolution" value={resValue} index={0} disabled={isRecording}
@@ -505,7 +497,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
               { label: "720P (1280×720)", value: "1280×720" },
               { label: "1080P (1920×1080)", value: "1920×1080" },
             ]}
-            onSelect={(v) => updateField("resolution", v.replace("×", "x"))}
+            onSelect={(v) => { updateField("resolution", v.replace("×", "x")); loadEstimatedSize(); }}
           />
           <PresetCard
             label="Frame Rate" value={fpsValue} index={1} disabled={isRecording}
@@ -514,14 +506,14 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
               { label: "30 FPS", value: "30" },
               { label: "60 FPS", value: "60" },
             ]}
-            onSelect={(v) => updateField("fps", Number(v))}
+            onSelect={(v) => { updateField("fps", Number(v)); loadEstimatedSize(); }}
           />
           <PresetCard
             label="Audio" value={audioValue} index={2} disabled={isRecording}
             options={[
               { label: "MICROPHONE", value: "Mic" },
               { label: "SYSTEM AUDIO", value: "System" },
-              { label: "BOTH", value: "Both" },
+              { label: "BOTH (MIC+SYS)", value: "Both" },
               { label: "OFF", value: "Off" },
             ]}
             onSelect={(v) => {
@@ -531,18 +523,55 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
                 updateField("audio_enabled", true);
                 updateField("audio_source", v);
               }
+              loadEstimatedSize();
             }}
           />
           <PresetCard
-            label="Mode" value={modeValue} index={3} disabled={isRecording}
+            label="Encoder" value={encoderValue} index={3} disabled={isRecording}
+            options={[
+              { label: "AV1 — Best compression", value: "AV1" },
+              { label: "AV1 NVENC — GPU (RTX 40+)", value: "AV1_NVENC" },
+              { label: "H.265 — Great compression", value: "H265" },
+              { label: "H.265 NVENC — GPU", value: "H265_NVENC" },
+              { label: "H.264 — Fast, universal", value: "H264" },
+              { label: "H.264 NVENC — GPU", value: "H264_NVENC" },
+              { label: "VP9 — Web-friendly", value: "VP9" },
+            ]}
+            onSelect={(v) => { updateField("video_encoder", v); loadEstimatedSize(); }}
+          />
+          <PresetCard
+            label="Quality" value={qualityValue} index={4} disabled={isRecording}
+            options={[
+              { label: "INSANE (~1 MB/min, AV1)", value: "Insane" },
+              { label: "LOW (~3 MB/min)", value: "Low" },
+              { label: "MEDIUM (~5 MB/min)", value: "Medium" },
+              { label: "HIGH (~12 MB/min)", value: "High" },
+              { label: "ULTRA (~25 MB/min)", value: "Ultra" },
+            ]}
+            onSelect={(v) => { updateField("video_quality", v); loadEstimatedSize(); }}
+          />
+          <PresetCard
+            label="Mode" value={modeValue} index={5} disabled={isRecording}
             options={[
               { label: "FULLSCREEN", value: "FullScreen" },
               { label: "REGION SELECT", value: "Region" },
-              { label: "WINDOW", value: "Window" },
             ]}
             onSelect={(v) => updateField("recording_mode", v)}
           />
         </motion.div>
+
+        {/* Estimated file size */}
+        {isIdle && estimatedMbPerMin > 0 && (
+          <motion.div
+            className="font-mono text-[10px] px-3 py-1.5"
+            style={{ color: "var(--text-muted)", border: "var(--border-thin) solid var(--border-default)", borderRadius: "var(--radius-sm)", background: "var(--bg-surface)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            ~{estimatedMbPerMin.toFixed(1)} MB/min · {config?.video_encoder} · {config?.video_quality}
+          </motion.div>
+        )}
 
         {/* Feature Badges */}
         <motion.div className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
@@ -573,12 +602,20 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           style={{ color: "var(--text-muted)" }}
           whileHover={{ color: "var(--accent-info)", x: 2 }}
         >
-          <span>→</span>
+          <Icon name="folder_open" size={14} />
           <span>{normalizePath(config?.output_dir || "~/Videos/EasySpecy")}</span>
         </motion.button>
-        <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
-          {history.length} recordings
-        </span>
+        <div className="flex items-center gap-4">
+          {isRecording && (
+            <span className="font-mono text-xs" style={{ color: "var(--accent-record)" }}>
+              <span className="uppercase" style={{ fontSize: "0.55rem", letterSpacing: "0.08em" }}>SESSION </span>
+              ~{Math.round((Date.now() - (recordingStartTime || Date.now())) / 1000 * 0.15)}MB
+            </span>
+          )}
+          <span className="font-mono text-xs font-bold" style={{ color: "var(--accent-primary)" }}>
+            {history.length} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>recordings</span>
+          </span>
+        </div>
       </footer>
 
       {/* ═══ REGION SELECTOR OVERLAY ═══ */}
@@ -587,16 +624,6 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           <RegionSelector
             onComplete={(region) => setCaptureRegion(region)}
             onCancel={() => setSelectorMode("none")}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* ═══ WINDOW PICKER OVERLAY ═══ */}
-      <AnimatePresence>
-        {selectorMode === "window" && (
-          <WindowPicker
-            onSelect={(window) => setCaptureWindow(window)}
-            onClose={() => setSelectorMode("none")}
           />
         )}
       </AnimatePresence>

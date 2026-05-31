@@ -7,6 +7,9 @@ export interface AppConfig {
   resolution_width: number;
   resolution_height: number;
   fps: number;
+  video_encoder: "H264" | "H265" | "AV1" | "AV1_NVENC" | "H264_NVENC" | "H265_NVENC" | "VP9";
+  video_bitrate_kbps: number;
+  video_quality: "Low" | "Medium" | "High" | "Ultra" | "Insane" | "Custom";
   audio_enabled: boolean;
   audio_source: "Mic" | "System" | "Both";
   audio_sample_rate: number;
@@ -23,12 +26,15 @@ export interface AppConfig {
   cursor_trail_size: number;
   cursor_smoothing: boolean;
   cursor_size_multiplier: number;
+  cursor_pack: string;
+  trail_style: string;
+  click_effect: string;
   hotkey_start: string;
   hotkey_stop: string;
   hotkey_pause: string;
   minimize_to_tray: boolean;
   copy_path_on_save: boolean;
-  recording_mode: "FullScreen" | "Region" | "Window";
+  recording_mode: "FullScreen" | "Region";
 }
 
 export interface RecordingResult {
@@ -64,17 +70,8 @@ export interface CaptureRegion {
   height: number;
 }
 
-export interface WindowInfo {
-  title: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  hwnd: number;
-}
-
 type RecordingPhase = "idle" | "recording" | "encoding";
-type SelectorMode = "none" | "region" | "window";
+type SelectorMode = "none" | "region";
 
 interface AppState {
   config: AppConfig | null;
@@ -89,6 +86,9 @@ interface AppState {
   toastId: number;
   hotkeysRegistered: boolean;
   selectorMode: SelectorMode;
+  encodingProgress: number;
+  encodingStage: string;
+  estimatedMbPerMin: number;
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
@@ -104,11 +104,12 @@ interface AppState {
   unregisterHotkeys: () => Promise<void>;
   setSelectorMode: (mode: SelectorMode) => void;
   setCaptureRegion: (region: CaptureRegion) => Promise<void>;
-  setCaptureWindow: (window: WindowInfo) => Promise<void>;
   addToast: (message: string, type: Toast["type"], action?: Toast["action"]) => void;
   removeToast: (id: number) => void;
   openPath: (path: string) => Promise<void>;
   copyToClipboard: (text: string) => Promise<void>;
+  pollEncodingProgress: () => Promise<void>;
+  loadEstimatedSize: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -124,6 +125,9 @@ export const useStore = create<AppState>((set, get) => ({
   toastId: 0,
   hotkeysRegistered: false,
   selectorMode: "none",
+  encodingProgress: 0,
+  encodingStage: "",
+  estimatedMbPerMin: 0,
 
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
@@ -193,24 +197,19 @@ export const useStore = create<AppState>((set, get) => ({
       await invoke("set_capture_region", { x: region.x, y: region.y, width: region.width, height: region.height });
       await invoke("exit_region_mode");
       set({ selectorMode: "none" });
-      // Start recording with the selected region
+      // Start recording and WAIT for capture to be armed
+      get().addToast("Initializing capture...", "info");
       await invoke("start_recording", { outputPath: null });
+      // Only now is capture truly active
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       get().addToast(`Recording region: ${region.width}×${region.height}`, "success");
+      // Create fullscreen effects overlay
+      invoke("create_effects_overlay").catch(() => {});
     } catch (e) {
       await invoke("exit_region_mode").catch(() => {});
       set({ selectorMode: "none" });
       get().addToast(`Region failed: ${e}`, "error");
     }
-  },
-
-  setCaptureWindow: async (window) => {
-    try {
-      await invoke("set_capture_region", { x: window.x, y: window.y, width: window.width, height: window.height });
-      set({ selectorMode: "none" });
-      get().addToast(`Window: ${window.title.substring(0, 30)}`, "success");
-      await get().startRecording();
-    } catch (e) { get().addToast(`Window select failed: ${e}`, "error"); }
   },
 
   startRecording: async () => {
@@ -220,31 +219,42 @@ export const useStore = create<AppState>((set, get) => ({
       try {
         await invoke("enter_region_mode");
         set({ selectorMode: "region" });
-        get().addToast("Drag to select area, Enter to confirm", "info");
+        get().addToast("Drag to select area", "info");
       } catch (e) {
         get().addToast(`Region select failed: ${e}`, "error");
       }
       return;
     }
-    // If Window mode, show window picker
-    if (config?.recording_mode === "Window") {
-      set({ selectorMode: "window" });
-      return;
-    }
-    // FullScreen — start immediately
+    // FullScreen — start and WAIT for capture to be armed
     try {
+      get().addToast("Initializing capture...", "info");
+      // This now blocks until the first video frame is captured
+      // and audio is armed — guaranteeing perfect sync
       await invoke("start_recording", { outputPath: null });
+      // Only NOW do we start the timer — capture is truly active
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       get().addToast("Recording started", "success");
+      // Create fullscreen effects overlay
+      invoke("create_effects_overlay").catch(() => {});
     } catch (e) { get().addToast(`Start failed: ${e}`, "error"); }
   },
 
   stopRecording: async () => {
     try {
-      set({ recordingPhase: "encoding" });
-      get().addToast("Encoding...", "info");
+      set({ recordingPhase: "encoding", encodingProgress: 0, encodingStage: "Stopping capture..." });
+      // Destroy effects overlay immediately
+      invoke("destroy_effects_overlay").catch(() => {});
+      // Start polling encoding progress
+      const progressInterval = setInterval(async () => {
+        try {
+          const [progress, stage] = await invoke<[number, string]>("get_encoding_progress");
+          set({ encodingProgress: progress, encodingStage: stage });
+        } catch {}
+      }, 200);
+
       const result = await invoke<RecordingResult>("stop_recording");
-      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, lastRecording: result });
+      clearInterval(progressInterval);
+      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, lastRecording: result, encodingProgress: 100, encodingStage: "Done" });
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
       get().addToast(`Saved! ${dur}s, ${sizeMB}MB`, "success", { label: "Open", onClick: () => get().openPath(result.output_path) });
@@ -289,5 +299,19 @@ export const useStore = create<AppState>((set, get) => ({
 
   copyToClipboard: async (text: string) => {
     try { await navigator.clipboard.writeText(text); get().addToast("Path copied!", "info"); } catch {}
+  },
+
+  pollEncodingProgress: async () => {
+    try {
+      const [progress, stage] = await invoke<[number, string]>("get_encoding_progress");
+      set({ encodingProgress: progress, encodingStage: stage });
+    } catch {}
+  },
+
+  loadEstimatedSize: async () => {
+    try {
+      const [mbPerMin] = await invoke<[number, number, string]>("get_estimated_size");
+      set({ estimatedMbPerMin: mbPerMin });
+    } catch {}
   },
 }));

@@ -11,6 +11,12 @@ export default defineConfig(async () => ({
 
   // Vite options tailored for Tauri development
   clearScreen: false,
+
+  // Expose Tauri IPC to overlay windows
+  build: {
+    target: "esnext",
+    minify: "esbuild",
+  },
   server: {
     port: 1420,
     strictPort: true,

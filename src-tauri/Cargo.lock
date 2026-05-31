@@ -1039,10 +1039,13 @@ name = "easyspecy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "cpal",
+ "crc32fast",
  "dirs",
  "hound",
+ "miniz_oxide",
  "pipewire",
  "screencapturekit",
  "serde",

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EasySpecy Effects Overlay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="fx"></canvas>
+  <script type="module">
+    // Inline the effects engine (minimal version for the overlay window)
+    function hexToRgb(hex) {
+      const h = hex.replace("#", "");
+      return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
+    }
+    function rgba(hex, alpha) {
+      const [r, g, b] = hexToRgb(hex);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+    function hslToStr(h, s, l, a) {
+      return `hsla(${h},${s}%,${l}%,${a})`;
+    }
+
+    // ── Trail Renderer ──
+    class TrailRenderer {
+      constructor() { this.points = []; this.style = "glow"; this.color = "#00e88a"; this.time = 0; }
+      addPoint(x, y) {
+        const last = this.points[this.points.length - 1];
+        if (last && Math.hypot(x - last.x, y - last.y) < 2) return;
+        this.points.push({ x, y, age: 0, hue: Math.random() * 60 - 30 });
+        if (this.points.length > 60) this.points.shift();
+      }
+      update() {
+        this.time++;
+        this.points = this.points.filter(p => { p.age++; return p.age < 45; });
+      }
+      draw(ctx, w, h) {
+        if (this.style === "none" || this.points.length === 0) return;
+        const drawFn = {
+          glow: () => this.drawGlow(ctx),
+          particles: () => this.drawParticles(ctx),
+          ribbon: () => this.drawRibbon(ctx),
+          dots: () => this.drawDots(ctx),
+          aurora: () => this.drawAurora(ctx),
+        }[this.style];
+        if (drawFn) drawFn();
+      }
+      drawGlow(ctx) {
+        const pts = this.points;
+        if (pts.length < 2) return;
+        ctx.save();
+        ctx.lineCap = "round"; ctx.lineJoin = "round";
+        for (let pass = 0; pass < 3; pass++) {
+          const widths = [20, 10, 4]; const alphas = [0.06, 0.12, 0.8];
+          ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            const p0 = pts[i-1], p1 = pts[i];
+            ctx.quadraticCurveTo(p0.x, p0.y, (p0.x+p1.x)/2, (p0.y+p1.y)/2);
+          }
+          ctx.lineTo(pts[pts.length-1].x, pts[pts.length-1].y);
+          ctx.strokeStyle = rgba(this.color, alphas[pass]);
+          ctx.lineWidth = widths[pass]; ctx.stroke();
+        }
+        const head = pts[pts.length-1];
+        const ha = Math.max(0, 1 - head.age/20);
+        const grad = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 18);
+        grad.addColorStop(0, rgba(this.color, 0.6*ha));
+        grad.addColorStop(0.4, rgba(this.color, 0.2*ha));
+        grad.addColorStop(1, rgba(this.color, 0));
+        ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(head.x, head.y, 18, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+      drawParticles(ctx) {
+        const pts = this.points; ctx.save();
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i]; const lr = 1 - p.age/45; if (lr <= 0) continue;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 2+lr*3, 0, Math.PI*2);
+          ctx.fillStyle = rgba(this.color, lr*0.9); ctx.fill();
+          for (let s = 0; s < Math.floor(lr*4); s++) {
+            const a = (this.time*0.1+i*0.7+s*1.8)%(Math.PI*2);
+            const d = 4+Math.random()*8*lr;
+            ctx.beginPath(); ctx.arc(p.x+Math.cos(a)*d, p.y+Math.sin(a)*d, 0.5+Math.random()*1.5, 0, Math.PI*2);
+            ctx.fillStyle = rgba(this.color, lr*0.4*Math.random()); ctx.fill();
+          }
+        }
+        if (pts.length > 0) {
+          const head = pts[pts.length-1];
+          for (let i = 0; i < 8; i++) {
+            const a = (this.time*0.03+i*0.785)%(Math.PI*2);
+            const d = 10+Math.sin(this.time*0.05+i)*8;
+            ctx.beginPath(); ctx.arc(head.x+Math.cos(a)*d, head.y+Math.sin(a)*d, 1+Math.sin(this.time*0.08+i*2)*0.5, 0, Math.PI*2);
+            ctx.fillStyle = rgba(this.color, 0.3+Math.sin(this.time*0.1+i)*0.2); ctx.fill();
+          }
+        }
+        ctx.restore();
+      }
+      drawRibbon(ctx) {
+        const pts = this.points; if (pts.length < 3) return; ctx.save();
+        for (let pass = 0; pass < 2; pass++) {
+          const bw = pass===0?12:5, al = pass===0?0.08:0.3;
+          ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length-1; i++) {
+            const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[Math.min(pts.length-1,i+1)],p3=pts[Math.min(pts.length-1,i+2)];
+            ctx.bezierCurveTo(p1.x+(p2.x-p0.x)/6, p1.y+(p2.y-p0.y)/6, p2.x-(p3.x-p1.x)/6, p2.y-(p3.y-p1.y)/6, p2.x, p2.y);
+          }
+          ctx.strokeStyle=rgba(this.color,al); ctx.lineWidth=bw; ctx.lineCap="round"; ctx.lineJoin="round"; ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length-1; i++) {
+          const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[Math.min(pts.length-1,i+1)],p3=pts[Math.min(pts.length-1,i+2)];
+          ctx.bezierCurveTo(p1.x+(p2.x-p0.x)/6, p1.y+(p2.y-p0.y)/6, p2.x-(p3.x-p1.x)/6, p2.y-(p3.y-p1.y)/6, p2.x, p2.y);
+        }
+        ctx.strokeStyle=rgba(this.color,0.5); ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
+      }
+      drawDots(ctx) {
+        const pts = this.points; ctx.save();
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i]; const lr = 1-p.age/45; if (lr <= 0) continue;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 2+lr*4+2, 0, Math.PI*2);
+          ctx.fillStyle = rgba(this.color, lr*0.15); ctx.fill();
+          ctx.beginPath(); ctx.arc(p.x, p.y, 2+lr*4, 0, Math.PI*2);
+          ctx.fillStyle = rgba(this.color, lr*0.8); ctx.fill();
+          if (i < pts.length-1) {
+            const n = pts[i+1]; const nl = 1-n.age/45;
+            ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(n.x,n.y);
+            ctx.strokeStyle = rgba(this.color, Math.min(lr,nl)*0.2); ctx.lineWidth=1; ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+      drawAurora(ctx) {
+        const pts = this.points; if (pts.length < 3) return; ctx.save();
+        const bh = (this.time*2)%360;
+        for (let layer = 0; layer < 3; layer++) {
+          const off=layer*40, w=18-layer*5, la=0.08+layer*0.05;
+          ctx.beginPath();
+          for (let i = 0; i < pts.length; i++) {
+            const p=pts[i], lr=1-p.age/45;
+            const wave=Math.sin(this.time*0.03+i*0.2+layer)*6*lr;
+            const nx=p.x+wave, ny=p.y-w/2+Math.sin(this.time*0.02+i*0.15)*3;
+            if(i===0)ctx.moveTo(nx,ny); else ctx.lineTo(nx,ny);
+          }
+          for (let i=pts.length-1;i>=0;i--) {
+            const p=pts[i], lr=1-p.age/45;
+            const wave=Math.sin(this.time*0.03+i*0.2+layer+1)*6*lr;
+            ctx.lineTo(p.x+wave, p.y+w/2+Math.sin(this.time*0.02+i*0.15+2)*3);
+          }
+          ctx.closePath();
+          const hue=(bh+off)%360;
+          const grd=ctx.createLinearGradient(pts[0].x,pts[0].y,pts[pts.length-1].x,pts[pts.length-1].y);
+          grd.addColorStop(0,hslToStr(hue,80,60,0));
+          grd.addColorStop(0.3,hslToStr(hue+30,80,60,la));
+          grd.addColorStop(0.7,hslToStr(hue+60,80,60,la));
+          grd.addColorStop(1,hslToStr(hue+90,80,60,0));
+          ctx.fillStyle=grd; ctx.fill();
+        }
+        ctx.beginPath();
+        for (let i=0;i<pts.length;i++){if(i===0)ctx.moveTo(pts[i].x,pts[i].y);else ctx.lineTo(pts[i].x,pts[i].y);}
+        ctx.strokeStyle=rgba(this.color,0.4);ctx.lineWidth=2;ctx.lineCap="round";ctx.stroke();ctx.restore();
+      }
+    }
+
+    // ── Click Effect Renderer ──
+    class ClickEffectRenderer {
+      constructor() { this.clicks=[]; this.style="ripple"; this.color="#00e88a"; this.confetti=[]; }
+      addClick(x,y) {
+        this.clicks.push({x,y,age:0,color:this.color});
+        if(this.style==="confetti")this.spawnConfetti(x,y);
+      }
+      spawnConfetti(x,y) {
+        for(let i=0;i<24;i++){
+          const a=(Math.PI*2*i)/24+(Math.random()-0.5)*0.3;
+          const sp=2+Math.random()*4;
+          const colors=[this.color,"#ff4444","#4488ff","#ffcc00","#ff44cc","#44ffcc"];
+          this.confetti.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-2,age:0,maxAge:40+Math.random()*20,
+            color:colors[Math.floor(Math.random()*colors.length)],size:2+Math.random()*3,rot:Math.random()*Math.PI*2,rs:(Math.random()-0.5)*0.2});
+        }
+      }
+      update() {
+        this.clicks=this.clicks.filter(c=>{c.age++;return c.age<60;});
+        this.confetti=this.confetti.filter(p=>{p.age++;p.x+=p.vx;p.y+=p.vy;p.vy+=0.12;p.vx*=0.98;p.rot+=p.rs;return p.age<p.maxAge;});
+      }
+      draw(ctx) {
+        if(this.style==="none")return;
+        for(const c of this.clicks){
+          if(this.style==="ripple")this.drawRipple(ctx,c);
+          else if(this.style==="spotlight")this.drawSpotlight(ctx,c);
+          else if(this.style==="ring")this.drawRing(ctx,c);
+          else if(this.style==="pulse")this.drawPulse(ctx,c);
+        }
+        if(this.style==="confetti")this.drawConfetti(ctx);
+      }
+      drawRipple(ctx,c) {
+        const p=c.age/60; if(p>=1)return;
+        for(let i=0;i<3;i++){const rp=Math.min(1,(p-i*0.1)/0.7);if(rp<=0||rp>=1)continue;
+          ctx.beginPath();ctx.arc(c.x,c.y,rp*40,0,Math.PI*2);ctx.strokeStyle=rgba(c.color,(1-rp)*0.6);ctx.lineWidth=2.5-rp*2;ctx.stroke();}
+        if(p<0.15){const fa=(1-p/0.15)*0.8;const g=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,8);
+          g.addColorStop(0,rgba(c.color,fa));g.addColorStop(1,rgba(c.color,0));ctx.fillStyle=g;ctx.beginPath();ctx.arc(c.x,c.y,8,0,Math.PI*2);ctx.fill();}
+      }
+      drawSpotlight(ctx,c) {
+        const p=c.age/60; if(p>=1)return;
+        const r=8+p*35, a=(1-p)*0.5;
+        const g=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,r);
+        g.addColorStop(0,rgba(c.color,a*0.8));g.addColorStop(0.3,rgba(c.color,a*0.4));
+        g.addColorStop(0.7,rgba(c.color,a*0.1));g.addColorStop(1,rgba(c.color,0));
+        ctx.fillStyle=g;ctx.beginPath();ctx.arc(c.x,c.y,r,0,Math.PI*2);ctx.fill();
+        if(p<0.5){const la=(1-p*2)*0.4,ll=6+p*20;ctx.strokeStyle=rgba(c.color,la);ctx.lineWidth=1.5;
+          for(let a=0;a<4;a++){const an=(a*Math.PI)/4+p*0.5;ctx.beginPath();
+            ctx.moveTo(c.x+Math.cos(an)*3,c.y+Math.sin(an)*3);ctx.lineTo(c.x+Math.cos(an)*ll,c.y+Math.sin(an)*ll);ctx.stroke();}}
+      }
+      drawRing(ctx,c) {
+        const p=c.age/60; if(p>=1)return;
+        ctx.beginPath();ctx.arc(c.x,c.y,5+p*30,0,Math.PI*2);ctx.strokeStyle=rgba(c.color,(1-p)*0.7);ctx.lineWidth=3-p*2;ctx.stroke();
+        if(p<0.5){ctx.beginPath();ctx.arc(c.x,c.y,Math.max(0,15-p*20),0,Math.PI*2);ctx.strokeStyle=rgba(c.color,(1-p*2)*0.5);ctx.lineWidth=2;ctx.stroke();}
+        ctx.beginPath();ctx.arc(c.x,c.y,3*(1-p),0,Math.PI*2);ctx.fillStyle=rgba(c.color,(1-p)*0.9);ctx.fill();
+      }
+      drawPulse(ctx,c) {
+        const p=c.age/60; if(p>=1)return;
+        for(let i=0;i<4;i++){const ph=(p+i*0.15)%1;ctx.beginPath();ctx.arc(c.x,c.y,ph*25,0,Math.PI*2);
+          ctx.strokeStyle=rgba(c.color,(1-ph)*0.5);ctx.lineWidth=2;ctx.stroke();}
+        const pulse=Math.sin(p*Math.PI*6)*0.3+0.7;
+        const g=ctx.createRadialGradient(c.x,c.y,0,c.x,c.y,6);
+        g.addColorStop(0,rgba(c.color,pulse*(1-p)));g.addColorStop(1,rgba(c.color,0));
+        ctx.fillStyle=g;ctx.beginPath();ctx.arc(c.x,c.y,6,0,Math.PI*2);ctx.fill();
+      }
+      drawConfetti(ctx) {
+        for(const p of this.confetti){const lr=1-p.age/p.maxAge;ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot);
+          ctx.fillStyle=rgba(p.color,lr*0.9);ctx.fillRect(-p.size/2,-p.size/2,p.size,p.size*0.4);ctx.restore();}
+      }
+    }
+
+    // ── Main overlay logic ──
+    const canvas = document.getElementById("fx");
+    const ctx = canvas.getContext("2d");
+    const trail = new TrailRenderer();
+    const click = new ClickEffectRenderer();
+
+    // Resize
+    function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    resize();
+    window.addEventListener("resize", resize);
+
+    // Listen for config from Tauri
+    let config = { trail_style: "glow", click_effect: "ripple", color: "#00e88a" };
+
+    async function loadConfig() {
+      try {
+        const cfg = await window.__TAURI__.core.invoke("get_config");
+        config = {
+          trail_style: cfg.trail_style || "glow",
+          click_effect: cfg.click_effect || "ripple",
+          color: cfg.cursor_trail_color || "#00e88a",
+        };
+        trail.style = config.trail_style;
+        trail.color = config.color;
+        click.style = config.click_effect;
+        click.color = config.color;
+      } catch (e) {}
+    }
+    loadConfig();
+
+    // Track mouse
+    document.addEventListener("mousemove", (e) => { trail.addPoint(e.clientX, e.clientY); });
+    document.addEventListener("mousedown", (e) => { click.addClick(e.clientX, e.clientY); });
+
+    // Animation loop
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      trail.update();
+      trail.draw(ctx, canvas.width, canvas.height);
+      click.update();
+      click.draw(ctx);
+      requestAnimationFrame(animate);
+    }
+    animate();
+  </script>
+</body>
+</html>

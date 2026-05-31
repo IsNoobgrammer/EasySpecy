@@ -1,3 +1,4 @@
+﻿import { Icon } from "./Icon";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, Toast } from "../stores/recording";
 
@@ -23,10 +24,10 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
     error: "var(--accent-danger)",
   };
 
-  const dotColors = {
-    info: "var(--accent-info)",
-    success: "var(--accent-success)",
-    error: "var(--accent-danger)",
+  const icons = {
+    info: "info",
+    success: "check_circle",
+    error: "error",
   };
 
   return (
@@ -42,15 +43,10 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
         background: "var(--bg-surface)",
         boxShadow: "var(--shadow-md)",
         borderRadius: "var(--radius-sm)",
+        backdropFilter: "blur(8px)",
       }}
     >
-      <motion.div
-        className="w-2 h-2 shrink-0"
-        style={{ background: dotColors[toast.type], borderRadius: "var(--radius-full)" }}
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ delay: 0.1, type: "spring", stiffness: 500, damping: 20 }}
-      />
+      <Icon name={icons[toast.type]} size={16} style={{ color: borderColors[toast.type] }} />
       <span className="font-mono text-xs flex-1 font-bold" style={{ color: "var(--text-primary)", letterSpacing: "0.02em" }}>
         {toast.message}
       </span>
@@ -70,12 +66,12 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
       )}
       <motion.button
         onClick={onClose}
-        className="font-mono text-sm cursor-pointer ml-1 font-semibold"
+        className="cursor-pointer ml-1 flex items-center justify-center"
         style={{ color: "var(--text-muted)" }}
-        whileHover={{ color: "var(--text-primary)", scale: 1.2 }}
+        whileHover={{ color: "var(--text-primary)", scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
       >
-        ×
+        <Icon name="close" size={14} style={{  }} />
       </motion.button>
     </motion.div>
   );

@@ -1,3 +1,4 @@
+﻿import { Icon } from "./Icon";
 import { useState, useEffect, useId, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
@@ -43,8 +44,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
     <div className="flex flex-col h-full" style={{ background: "var(--bg-base)" }}>
       {/* ═══ HEADER ═══ */}
       <header
-        className="flex items-center justify-between px-6 py-3"
-        style={{ borderBottom: "var(--border-width) solid var(--border-default)" }}
+        className="flex items-center justify-between px-6 py-3 sticky top-0 z-50 backdrop-blur-md"
+        style={{ borderBottom: "var(--border-width) solid var(--border-default)", background: "oklch(from var(--bg-base) l c h / 0.85)" }}
       >
         <motion.button
           onClick={onBack}
@@ -53,19 +54,20 @@ export function Settings({ onBack }: { onBack: () => void }) {
           whileHover={{ x: -3, color: "var(--text-primary)" }}
           whileTap={{ scale: 0.95 }}
         >
-          ← Back
+          <Icon name="arrow_back" size={16} /> Back
         </motion.button>
-        <span className="font-mono text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        <span className="font-mono text-sm font-semibold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>
           Settings
         </span>
         <motion.button
           onClick={toggleTheme}
-          className="font-mono text-xs px-2 py-1 cursor-pointer"
-          style={{ border: "var(--border-thin) solid var(--border-default)", color: "var(--text-muted)" }}
-          whileHover={{ scale: 1.05 }}
+          className="font-mono text-xs px-2 py-1 cursor-pointer flex items-center gap-1.5"
+          style={{ border: "var(--border-thin) solid var(--border-default)", color: "var(--text-muted)", borderRadius: "var(--radius-sm)" }}
+          whileHover={{ scale: 1.05, borderColor: "var(--border-strong)" }}
           whileTap={{ scale: 0.95 }}
         >
-          {theme === "dark" ? "☀ Light" : "● Dark"}
+          <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} size={14} />
+          {theme === "dark" ? "Light" : "Dark"}
         </motion.button>
       </header>
 
@@ -74,7 +76,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
         <div className="max-w-xl mx-auto space-y-4">
 
           {/* ── Video Section ── */}
-          <Card title="Video" icon="🎬" index={0}>
+          <Card title="Video" icon="videocam" index={0}>
             <Row label="Resolution" desc="Output video dimensions">
               <Select
                 value={`${local.resolution_width}x${local.resolution_height}`}
@@ -100,14 +102,13 @@ export function Settings({ onBack }: { onBack: () => void }) {
                 options={[
                   { label: "Full Screen", value: "FullScreen" },
                   { label: "Region Select", value: "Region" },
-                  { label: "Specific Window", value: "Window" },
                 ]}
               />
             </Row>
           </Card>
 
           {/* ── Audio Section ── */}
-          <Card title="Audio" icon="🎤" index={1}>
+          <Card title="Audio" icon="mic" index={1}>
             <Row label="Record Audio" desc="Capture audio alongside video">
               <Toggle checked={local.audio_enabled} onChange={(v) => update("audio_enabled", v)} />
             </Row>
@@ -160,7 +161,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── Auto-Zoom Section ── */}
-          <Card title="Auto-Zoom" icon="🔍" index={2} badge="Post-processing">
+          <Card title="Auto-Zoom" icon="zoom_in" index={2} badge="Post-processing">
             <Row label="Enabled" desc="Zoom toward click positions after recording">
               <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
             </Row>
@@ -205,7 +206,10 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── Cursor Effects ── */}
-          <Card title="Cursor Effects" icon="✨" index={3} badge="Post-processing">
+          <Card title="Cursor Effects" icon="auto_fix_high" index={3} badge="Post-processing">
+            <Row label="Cursor Pack" desc="Replace cursor style during recording">
+              <CursorPackSelector value={local.cursor_pack || "default"} onChange={(v) => update("cursor_pack" as any, v)} />
+            </Row>
             <Row label="Trail Effect" desc="Glowing trail follows cursor path">
               <Toggle checked={local.cursor_trail_enabled} onChange={(v) => update("cursor_trail_enabled", v)} />
             </Row>
@@ -255,7 +259,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── Webcam ── */}
-          <Card title="Webcam" icon="📷" index={4}>
+          <Card title="Webcam" icon="videocam" index={4}>
             <Row label="Enabled" desc="Overlay webcam on recording">
               <Toggle checked={local.webcam_enabled} onChange={(v) => update("webcam_enabled", v)} />
             </Row>
@@ -300,7 +304,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── Hotkeys ── */}
-          <Card title="Hotkeys" icon="⌨️" index={5}>
+          <Card title="Hotkeys" icon="keyboard" index={5}>
             <Row label="Start Recording" desc="Keyboard shortcut to begin">
               <HotkeyRecorder value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} />
             </Row>
@@ -313,7 +317,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── General ── */}
-          <Card title="General" icon="⚙️" index={6}>
+          <Card title="General" icon="settings" index={6}>
             <Row label="Output Directory" desc="Where recordings are saved">
               <Input value={local.output_dir} onChange={(v) => update("output_dir", v)} />
             </Row>
@@ -331,18 +335,18 @@ export function Settings({ onBack }: { onBack: () => void }) {
       <div className="px-6 py-4" style={{ borderTop: "var(--border-width) solid var(--border-default)", background: "oklch(from var(--bg-base) l c h / 0.5)" }}>
         <motion.button
           onClick={handleSave}
-          className="w-full py-3 font-mono text-xs uppercase font-bold cursor-pointer shadow-md"
+          className="w-full py-3 font-mono text-xs uppercase font-bold cursor-pointer shadow-md flex items-center justify-center gap-2"
           style={{
-            border: `var(--border-width) solid ${saved ? "var(--accent-success)" : "var(--border-strong)"}`,
-            background: saved ? "var(--accent-success)" : "var(--accent-primary)",
-            color: saved ? "white" : "var(--bg-base)",
+            border: "none",
+            background: saved ? "var(--accent-success)" : "var(--accent-primary-container, #00e88a)",
+            color: saved ? "#fff" : "var(--on-primary, #00391e)",
             borderRadius: "var(--radius-sm)",
             letterSpacing: "0.05em",
           }}
           whileHover={{ scale: 1.01, y: -1, boxShadow: "var(--shadow-lg)", borderColor: "var(--border-strong)" }}
           whileTap={{ scale: 0.98 }}
         >
-          {saved ? "✓ Settings Saved Successfully" : "💾 Save Settings Configuration"}
+          {saved ? "✓ SAVED SUCCESSFULLY" : "SAVE SETTINGS"}
         </motion.button>
       </div>
     </div>
@@ -376,8 +380,8 @@ function Card({
         style={{ borderBottom: "var(--border-thin) solid var(--border-default)", background: "oklch(from var(--bg-surface) l c h / 0.3)" }}
       >
         <div className="flex items-center gap-2">
-          <span className="text-base">{icon}</span>
-          <span className="font-mono text-xs font-bold" style={{ color: "var(--text-primary)" }}>
+                    <Icon name={icon} size={18} style={{ color: "var(--accent-primary)" }} />
+          <span className="font-mono text-xs font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
             {title}
           </span>
         </div>
@@ -716,5 +720,94 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
       />
     </motion.button>
+  );
+}
+
+function CursorPackSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const packs = [
+    { id: "default", name: "System Default", desc: "No change", color: "#8b949e" },
+    { id: "macos", name: "macOS", desc: "Apple-style", color: "#ffffff" },
+    { id: "posy", name: "Posy's", desc: "Community fav", color: "#ffffff" },
+    { id: "neon_green", name: "Neon Green", desc: "Bright glow", color: "#00ff88" },
+    { id: "neon_pink", name: "Neon Pink", desc: "Hot pink", color: "#ff44cc" },
+    { id: "minimal_dot", name: "Minimal Dot", desc: "Clean circle", color: "#ffffff" },
+    { id: "crosshair", name: "Crosshair", desc: "Precision", color: "#ff4444" },
+    { id: "retro_pixel", name: "Retro Pixel", desc: "8-bit style", color: "#ffff00" },
+    { id: "glass_arrow", name: "Glass", desc: "Translucent", color: "#ccccff" },
+    { id: "easyspecy", name: "EasySpecy", desc: "Branded", color: "#00e88a" },
+  ];
+
+  const selected = packs.find(p => p.id === value) || packs[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <motion.button
+        onClick={() => setOpen(!open)}
+        className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[160px] flex items-center gap-2 outline-none"
+        style={{
+          border: `var(--border-width) solid ${open ? "var(--accent-primary)" : "var(--border-default)"}`,
+          background: "var(--bg-base)",
+          color: "var(--text-primary)",
+          borderRadius: "var(--radius-sm)",
+          boxShadow: "var(--shadow-sm)",
+        }}
+        whileTap={{ scale: 0.98 }}
+      >
+        <span className="w-3 h-3 rounded-full" style={{ background: selected.color, border: "1px solid rgba(255,255,255,0.2)" }} />
+        <span className="flex-1 text-left">{selected.name}</span>
+        <span style={{ fontSize: "0.5rem", color: "var(--text-muted)", transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▼</span>
+      </motion.button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-full mt-1 z-50 w-[220px] max-h-[280px] overflow-y-auto"
+            style={{
+              border: "var(--border-thin) solid var(--border-strong)",
+              background: "var(--bg-elevated)",
+              boxShadow: "var(--shadow-lg)",
+              borderRadius: "var(--radius-sm)",
+            }}
+          >
+            {packs.map((pack) => (
+              <motion.button
+                key={pack.id}
+                className="w-full px-3 py-2 flex items-center gap-2.5 cursor-pointer text-left"
+                style={{
+                  color: pack.id === value ? "var(--text-primary)" : "var(--text-secondary)",
+                  background: pack.id === value ? "var(--bg-surface)" : "transparent",
+                  borderBottom: "var(--border-thin) solid var(--border-default)",
+                }}
+                whileHover={{ background: "var(--bg-surface)", color: "var(--text-primary)" }}
+                onClick={() => { onChange(pack.id); setOpen(false); }}
+              >
+                <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: pack.color, border: "1px solid rgba(255,255,255,0.15)", boxShadow: `0 0 6px ${pack.color}40` }} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-[11px] font-semibold">{pack.name}</div>
+                  <div className="font-mono text-[9px]" style={{ color: "var(--text-muted)" }}>{pack.desc}</div>
+                </div>
+                {pack.id === value && <span style={{ color: "var(--accent-primary)", fontSize: "12px" }}>✓</span>}
+              </motion.button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

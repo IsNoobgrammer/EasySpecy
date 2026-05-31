@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Rust build artifacts
+src-tauri/target/
+target/
+brand/
+*.pdb
+
+# Scratch / temp scripts
+scratch/
+
+# Test binaries (standalone test harnesses, not unit tests)
+src-tauri/src/bin/
+src-tauri/resources/ffmpeg.exe

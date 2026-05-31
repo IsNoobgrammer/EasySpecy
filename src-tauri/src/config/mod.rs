@@ -12,6 +12,9 @@ pub struct AppConfig {
     pub resolution_width: u32,
     pub resolution_height: u32,
     pub fps: u32,
+    pub video_encoder: VideoEncoder,
+    pub video_bitrate_kbps: u32,
+    pub video_quality: VideoQuality,
 
     // Audio
     pub audio_enabled: bool,
@@ -36,6 +39,9 @@ pub struct AppConfig {
     pub cursor_trail_size: f32,
     pub cursor_smoothing: bool,
     pub cursor_size_multiplier: f32,
+    pub cursor_pack: String,
+    pub trail_style: String,
+    pub click_effect: String,
 
     // Hotkeys
     pub hotkey_start: String,
@@ -64,6 +70,28 @@ pub enum RecordingMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum VideoEncoder {
+    H264,        // libx264 — fast, universal compatibility
+    H265,        // libx265/hevc — 50% smaller, slower encode
+    AV1,         // libsvtav1 — best compression, 60-70% smaller than H264
+    AV1_NVENC,   // av1_nvenc — GPU-accelerated AV1 (Nvidia RTX 40xx)
+    H264_NVENC,  // h264_nvenc — GPU-accelerated H264 (any Nvidia GPU)
+    H265_NVENC,  // hevc_nvenc — GPU-accelerated H265 (Nvidia GTX 1650+)
+    VP9,         // libvpx-vp9 — good compression, web-friendly
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum VideoQuality {
+    Low,       // ~2 MB/min @ 1080p30 — max compression, visible artifacts
+    Medium,    // ~8 MB/min @ 1080p30 — good balance
+    High,      // ~20 MB/min @ 1080p30 — near-lossless
+    Ultra,     // ~40 MB/min @ 1080p30 — visually lossless
+    Insane,    // AV1 only: ~1 MB/min @ 1080p30 — extreme compression, still watchable
+    Custom,    // Use video_bitrate_kbps directly
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AudioSource {
     Mic,
     System,
@@ -85,6 +113,9 @@ impl Default for AppConfig {
             resolution_width: 1920,
             resolution_height: 1080,
             fps: 30,
+            video_encoder: VideoEncoder::AV1,
+            video_bitrate_kbps: 4000,
+            video_quality: VideoQuality::Medium,
 
             audio_enabled: true,
             audio_source: AudioSource::Mic,
@@ -105,6 +136,9 @@ impl Default for AppConfig {
             cursor_trail_size: 8.0,
             cursor_smoothing: true,
             cursor_size_multiplier: 1.5,
+            cursor_pack: "default".to_string(),
+            trail_style: "glow".to_string(),
+            click_effect: "ripple".to_string(),
 
             hotkey_start: "Ctrl+Shift+R".to_string(),
             hotkey_stop: "Ctrl+Shift+S".to_string(),
@@ -150,5 +184,158 @@ impl AppConfig {
         let content = toml::to_string_pretty(self)?;
         std::fs::write(&path, content)?;
         Ok(())
+    }
+
+    /// Get the effective bitrate in kbps based on quality preset
+    pub fn effective_bitrate_kbps(&self) -> u32 {
+        match self.video_quality {
+            VideoQuality::Custom => self.video_bitrate_kbps,
+            _ => {
+                // Base bitrate for 1080p30 — varies by encoder efficiency
+                let base = match (&self.video_encoder, &self.video_quality) {
+                    // AV1 is ~60-70% more efficient than H264 for screen content
+                    (VideoEncoder::AV1, VideoQuality::Insane) => 140,      // ~1 MB/min
+                    (VideoEncoder::AV1, VideoQuality::Low) => 400,         // ~3 MB/min
+                    (VideoEncoder::AV1, VideoQuality::Medium) => 1500,     // ~5 MB/min
+                    (VideoEncoder::AV1, VideoQuality::High) => 4000,       // ~12 MB/min
+                    (VideoEncoder::AV1, VideoQuality::Ultra) => 10000,     // ~25 MB/min
+                    (VideoEncoder::AV1_NVENC, VideoQuality::Insane) => 200,
+                    (VideoEncoder::AV1_NVENC, VideoQuality::Low) => 500,
+                    (VideoEncoder::AV1_NVENC, VideoQuality::Medium) => 2000,
+                    (VideoEncoder::AV1_NVENC, VideoQuality::High) => 5000,
+                    (VideoEncoder::AV1_NVENC, VideoQuality::Ultra) => 12000,
+                    // H265 is ~40-50% more efficient than H264
+                    (VideoEncoder::H265 | VideoEncoder::H265_NVENC, VideoQuality::Insane) => 500,
+                    (VideoEncoder::H265 | VideoEncoder::H265_NVENC, VideoQuality::Low) => 1000,
+                    (VideoEncoder::H265 | VideoEncoder::H265_NVENC, VideoQuality::Medium) => 4000,
+                    (VideoEncoder::H265 | VideoEncoder::H265_NVENC, VideoQuality::High) => 12000,
+                    (VideoEncoder::H265 | VideoEncoder::H265_NVENC, VideoQuality::Ultra) => 25000,
+                    // H264 baseline
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Insane) => 800,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Low) => 1500,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Medium) => 5000,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::High) => 15000,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Ultra) => 30000,
+                    // VP9 similar to H265
+                    (VideoEncoder::VP9, VideoQuality::Insane) => 400,
+                    (VideoEncoder::VP9, VideoQuality::Low) => 1000,
+                    (VideoEncoder::VP9, VideoQuality::Medium) => 3500,
+                    (VideoEncoder::VP9, VideoQuality::High) => 10000,
+                    (VideoEncoder::VP9, VideoQuality::Ultra) => 22000,
+                    (_, VideoQuality::Custom) => self.video_bitrate_kbps,
+                };
+                // Scale by resolution and fps
+                let res_factor = (self.resolution_width * self.resolution_height) as f64
+                    / (1920.0 * 1080.0);
+                let fps_factor = self.fps as f64 / 30.0;
+                (base as f64 * res_factor * fps_factor) as u32
+            }
+        }
+    }
+
+    /// Estimated file size per minute in MB
+    pub fn estimated_mb_per_minute(&self) -> f64 {
+        let video_kbps = self.effective_bitrate_kbps() as f64;
+        let audio_kbps = if self.audio_enabled { 192.0 } else { 0.0 };
+        let total_kbps = video_kbps + audio_kbps;
+        // kbps * 60s / 8 bits / 1024 = MB per minute
+        total_kbps * 60.0 / 8.0 / 1024.0
+    }
+
+    /// Get FFmpeg encoder name
+    pub fn ffmpeg_encoder(&self) -> &str {
+        match self.video_encoder {
+            VideoEncoder::H264 => "libx264",
+            VideoEncoder::H265 => "libx265",
+            VideoEncoder::AV1 => "libsvtav1",
+            VideoEncoder::AV1_NVENC => "av1_nvenc",
+            VideoEncoder::H264_NVENC => "h264_nvenc",
+            VideoEncoder::H265_NVENC => "hevc_nvenc",
+            VideoEncoder::VP9 => "libvpx-vp9",
+        }
+    }
+
+    /// Get FFmpeg CRF value for quality preset
+    pub fn ffmpeg_crf(&self) -> u32 {
+        match (&self.video_encoder, &self.video_quality) {
+            // SVT-AV1: CRF 0-63, lower = better. Screen content sweet spot: 20-35
+            (VideoEncoder::AV1, VideoQuality::Insane) => 42,
+            (VideoEncoder::AV1, VideoQuality::Low) => 38,
+            (VideoEncoder::AV1, VideoQuality::Medium) => 30,
+            (VideoEncoder::AV1, VideoQuality::High) => 23,
+            (VideoEncoder::AV1, VideoQuality::Ultra) => 18,
+            // NVENC AV1 uses QP (0-51)
+            (VideoEncoder::AV1_NVENC, VideoQuality::Insane) => 40,
+            (VideoEncoder::AV1_NVENC, VideoQuality::Low) => 35,
+            (VideoEncoder::AV1_NVENC, VideoQuality::Medium) => 28,
+            (VideoEncoder::AV1_NVENC, VideoQuality::High) => 22,
+            (VideoEncoder::AV1_NVENC, VideoQuality::Ultra) => 16,
+            // H264
+            (VideoEncoder::H264, VideoQuality::Insane) => 35,
+            (VideoEncoder::H264, VideoQuality::Low) => 32,
+            (VideoEncoder::H264, VideoQuality::Medium) => 23,
+            (VideoEncoder::H264, VideoQuality::High) => 18,
+            (VideoEncoder::H264, VideoQuality::Ultra) => 14,
+            // H265
+            (VideoEncoder::H265, VideoQuality::Insane) => 38,
+            (VideoEncoder::H265, VideoQuality::Low) => 34,
+            (VideoEncoder::H265, VideoQuality::Medium) => 26,
+            (VideoEncoder::H265, VideoQuality::High) => 20,
+            (VideoEncoder::H265, VideoQuality::Ultra) => 16,
+            // NVENC H264/H265 use QP
+            (VideoEncoder::H264_NVENC, VideoQuality::Insane) => 36,
+            (VideoEncoder::H264_NVENC, VideoQuality::Low) => 32,
+            (VideoEncoder::H264_NVENC, VideoQuality::Medium) => 24,
+            (VideoEncoder::H264_NVENC, VideoQuality::High) => 18,
+            (VideoEncoder::H264_NVENC, VideoQuality::Ultra) => 14,
+            (VideoEncoder::H265_NVENC, VideoQuality::Insane) => 38,
+            (VideoEncoder::H265_NVENC, VideoQuality::Low) => 34,
+            (VideoEncoder::H265_NVENC, VideoQuality::Medium) => 26,
+            (VideoEncoder::H265_NVENC, VideoQuality::High) => 20,
+            (VideoEncoder::H265_NVENC, VideoQuality::Ultra) => 16,
+            // VP9
+            (VideoEncoder::VP9, VideoQuality::Insane) => 42,
+            (VideoEncoder::VP9, VideoQuality::Low) => 38,
+            (VideoEncoder::VP9, VideoQuality::Medium) => 30,
+            (VideoEncoder::VP9, VideoQuality::High) => 24,
+            (VideoEncoder::VP9, VideoQuality::Ultra) => 18,
+            (_, VideoQuality::Custom) => 23,
+        }
+    }
+
+    /// Get additional FFmpeg args specific to the encoder
+    pub fn ffmpeg_extra_args(&self) -> Vec<String> {
+        match &self.video_encoder {
+            VideoEncoder::AV1 => {
+                // SVT-AV1 specific: preset 6 is good speed/quality balance for screen content
+                // tune=0 is default (PSNR), film-grain=0 for screen content
+                vec![
+                    "-preset".into(), "6".into(),
+                    "-svtav1-params".into(),
+                    "tune=0:film-grain=0:enable-overlays=1:scd=1".into(),
+                ]
+            }
+            VideoEncoder::AV1_NVENC => {
+                vec![
+                    "-preset".into(), "p4".into(),
+                    "-tune".into(), "hq".into(),
+                    "-multipass".into(), "fullres".into(),
+                ]
+            }
+            VideoEncoder::H264_NVENC | VideoEncoder::H265_NVENC => {
+                vec![
+                    "-preset".into(), "p4".into(),
+                    "-tune".into(), "hq".into(),
+                    "-rc".into(), "constqp".into(),
+                ]
+            }
+            VideoEncoder::H264 => vec!["-preset".into(), "fast".into()],
+            VideoEncoder::H265 => vec!["-preset".into(), "fast".into()],
+            VideoEncoder::VP9 => vec![
+                "-deadline".into(), "good".into(),
+                "-cpu-used".into(), "4".into(),
+                "-row-mt".into(), "1".into(),
+            ],
+        }
     }
 }

@@ -1,10 +1,12 @@
 mod audio;
-mod capture;
+pub mod capture;
 mod commands;
 mod config;
+pub mod cursors;
 mod history;
 mod postprocess;
 mod region;
+pub mod sync_verifier;
 mod tray;
 
 use tracing_subscriber::EnvFilter;
@@ -29,11 +31,16 @@ pub fn run() {
             commands::get_audio_devices,
             commands::get_screens,
             commands::get_version,
+            commands::get_estimated_size,
             commands::start_recording,
             commands::stop_recording,
             commands::pause_recording_cmd,
             commands::resume_recording_cmd,
             commands::get_recording_status,
+            commands::is_capture_ready,
+            commands::get_encoding_progress,
+            commands::get_estimated_size,
+            commands::detect_gpu_encoders,
             commands::get_recording_history,
             commands::clear_recording_history,
             commands::set_capture_region,
@@ -43,6 +50,11 @@ pub fn run() {
             commands::enter_region_mode,
             commands::exit_region_mode,
             commands::open_path,
+            commands::get_cursor_packs,
+            commands::apply_cursor_pack,
+            commands::restore_cursors,
+            commands::create_effects_overlay,
+            commands::destroy_effects_overlay,
         ])
         .setup(|app| {
             tray::setup_tray(app.handle())?;

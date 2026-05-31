@@ -14,6 +14,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "easyspecy"
 path = "src/main.rs"
 
+[[bin]]
+name = "sync_test"
+path = "src/bin/sync_test.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -32,10 +36,13 @@ dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
 hound = "3.5"
 uuid = { version = "1", features = ["v4"] }
+miniz_oxide = "0.8"
+base64 = "0.22"
+crc32fast = "1.4"
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = "0.2"
