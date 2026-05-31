@@ -31,7 +31,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           animate={{ opacity: [0.4, 1, 0.4] }}
           transition={{ duration: 1.5, repeat: Infinity }}
         >
-          LOADING CONFIG...
+          "Loading settings..."
         </motion.div>
       </div>
     );
@@ -68,7 +68,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </motion.button>
         </div>
         <span className="font-mono text-sm font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>
-          CONFIGURATION
+          "Configuration"
         </span>
         <motion.button
           onClick={toggleTheme}
@@ -89,12 +89,12 @@ export function Settings({ onBack }: { onBack: () => void }) {
         {/* Video */}
         <Section
           id="video"
-          title="VIDEO"
+          title="Video"
           expanded={expandedSections.has("video")}
           onToggle={() => toggleSection("video")}
           index={0}
         >
-          <Field label="RESOLUTION">
+          <Field label="Resolution">
             <Select
               value={`${local.resolution_width}x${local.resolution_height}`}
               onChange={(v) => { const [w, h] = v.split("x").map(Number); update("resolution_width", w); update("resolution_height", h); }}
@@ -105,11 +105,11 @@ export function Settings({ onBack }: { onBack: () => void }) {
               ]}
             />
           </Field>
-          <Field label="FRAME RATE">
+          <Field label="Frame Rate">
             <Select value={local.fps} onChange={(v) => update("fps", Number(v))}
               options={[{ label: "24 FPS", value: 24 }, { label: "30 FPS", value: 30 }, { label: "60 FPS", value: 60 }]} />
           </Field>
-          <Field label="MODE">
+          <Field label="Mode">
             <Select value={local.recording_mode} onChange={(v) => update("recording_mode", v as AppConfig["recording_mode"])}
               options={[{ label: "FULLSCREEN", value: "FullScreen" }, { label: "REGION", value: "Region" }, { label: "WINDOW", value: "Window" }]} />
           </Field>
@@ -118,12 +118,12 @@ export function Settings({ onBack }: { onBack: () => void }) {
         {/* Audio */}
         <Section
           id="audio"
-          title="AUDIO"
+          title="Audio"
           expanded={expandedSections.has("audio")}
           onToggle={() => toggleSection("audio")}
           index={1}
         >
-          <Field label="ENABLED">
+          <Field label="Enabled">
             <Toggle checked={local.audio_enabled} onChange={(v) => update("audio_enabled", v)} />
           </Field>
           {local.audio_enabled && (
@@ -134,15 +134,15 @@ export function Settings({ onBack }: { onBack: () => void }) {
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="space-y-3 overflow-hidden"
             >
-              <Field label="SOURCE">
+              <Field label="Source">
                 <Select value={local.audio_source} onChange={(v) => update("audio_source", v as AppConfig["audio_source"])}
-                  options={[{ label: "MIC", value: "Mic" }, { label: "SYSTEM", value: "System" }, { label: "BOTH", value: "Both" }]} />
+                  options={[{ label: "Mic", value: "Mic" }, { label: "System", value: "System" }, { label: "Both", value: "Both" }]} />
               </Field>
-              <Field label="SAMPLE RATE">
+              <Field label="Sample Rate">
                 <Select value={local.audio_sample_rate} onChange={(v) => update("audio_sample_rate", Number(v))}
                   options={[{ label: "22050 HZ", value: 22050 }, { label: "44100 HZ", value: 44100 }, { label: "48000 HZ", value: 48000 }]} />
               </Field>
-              <Field label="DEVICE">
+              <Field label="Device">
                 <Select value={local.audio_device} onChange={(v) => update("audio_device", v)}
                   options={[{ label: "DEFAULT", value: "default" }, ...audioDevices.map((d) => ({ label: d.toUpperCase(), value: d }))]} />
               </Field>
@@ -153,12 +153,12 @@ export function Settings({ onBack }: { onBack: () => void }) {
         {/* Auto-Zoom */}
         <Section
           id="zoom"
-          title="AUTO-ZOOM"
+          title="Auto-Zoom"
           expanded={expandedSections.has("zoom")}
           onToggle={() => toggleSection("zoom")}
           index={2}
         >
-          <Field label="ENABLED">
+          <Field label="Enabled">
             <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
           </Field>
           {local.auto_zoom_enabled && (
@@ -169,11 +169,11 @@ export function Settings({ onBack }: { onBack: () => void }) {
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="space-y-3 overflow-hidden"
             >
-              <Field label="ZOOM LEVEL">
+              <Field label="Zoom Level">
                 <Select value={local.zoom_level} onChange={(v) => update("zoom_level", Number(v))}
                   options={[{ label: "1.5×", value: 1.5 }, { label: "2×", value: 2 }, { label: "2.5×", value: 2.5 }, { label: "3×", value: 3 }]} />
               </Field>
-              <Field label="DWELL TIME">
+              <Field label="Dwell Time">
                 <Select value={local.zoom_dwell_ms} onChange={(v) => update("zoom_dwell_ms", Number(v))}
                   options={[{ label: "1S", value: 1000 }, { label: "1.5S", value: 1500 }, { label: "2S", value: 2000 }, { label: "3S", value: 3000 }]} />
               </Field>
@@ -187,12 +187,12 @@ export function Settings({ onBack }: { onBack: () => void }) {
         {/* Cursor Effects */}
         <Section
           id="cursor"
-          title="CURSOR EFFECTS"
+          title="Cursor Effects"
           expanded={expandedSections.has("cursor")}
           onToggle={() => toggleSection("cursor")}
           index={3}
         >
-          <Field label="TRAIL">
+          <Field label="Trail">
             <Toggle checked={local.cursor_trail_enabled} onChange={(v) => update("cursor_trail_enabled", v)} />
           </Field>
           {local.cursor_trail_enabled && (
@@ -203,7 +203,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="space-y-3 overflow-hidden"
             >
-              <Field label="COLOR">
+              <Field label="Color">
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
@@ -217,11 +217,11 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   </span>
                 </div>
               </Field>
-              <Field label="SIZE">
+              <Field label="Size">
                 <Select value={local.cursor_size_multiplier} onChange={(v) => update("cursor_size_multiplier", Number(v))}
                   options={[{ label: "1× NORMAL", value: 1 }, { label: "1.5×", value: 1.5 }, { label: "2×", value: 2 }, { label: "3×", value: 3 }]} />
               </Field>
-              <Field label="SMOOTHING">
+              <Field label="Smoothing">
                 <Toggle checked={local.cursor_smoothing} onChange={(v) => update("cursor_smoothing", v)} />
               </Field>
             </motion.div>
@@ -231,12 +231,12 @@ export function Settings({ onBack }: { onBack: () => void }) {
         {/* Webcam */}
         <Section
           id="webcam"
-          title="WEBCAM"
+          title="Webcam"
           expanded={expandedSections.has("webcam")}
           onToggle={() => toggleSection("webcam")}
           index={4}
         >
-          <Field label="ENABLED">
+          <Field label="Enabled">
             <Toggle checked={local.webcam_enabled} onChange={(v) => update("webcam_enabled", v)} />
           </Field>
           {local.webcam_enabled && (
@@ -247,11 +247,11 @@ export function Settings({ onBack }: { onBack: () => void }) {
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="space-y-3 overflow-hidden"
             >
-              <Field label="POSITION">
+              <Field label="Position">
                 <Select value={local.webcam_position} onChange={(v) => update("webcam_position", v as AppConfig["webcam_position"])}
                   options={[{ label: "TOP LEFT", value: "TopLeft" }, { label: "TOP RIGHT", value: "TopRight" }, { label: "BOTTOM LEFT", value: "BottomLeft" }, { label: "BOTTOM RIGHT", value: "BottomRight" }]} />
               </Field>
-              <Field label="SIZE">
+              <Field label="Size">
                 <Select value={local.webcam_size} onChange={(v) => update("webcam_size", Number(v))}
                   options={[{ label: "150PX", value: 150 }, { label: "200PX", value: 200 }, { label: "250PX", value: 250 }, { label: "300PX", value: 300 }]} />
               </Field>
@@ -262,27 +262,27 @@ export function Settings({ onBack }: { onBack: () => void }) {
         {/* Hotkeys */}
         <Section
           id="hotkeys"
-          title="HOTKEYS"
+          title="Hotkeys"
           expanded={expandedSections.has("hotkeys")}
           onToggle={() => toggleSection("hotkeys")}
           index={5}
         >
-          <Field label="START"><Input value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} /></Field>
-          <Field label="STOP"><Input value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} /></Field>
-          <Field label="PAUSE"><Input value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} /></Field>
+          <Field label="Start"><Input value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} /></Field>
+          <Field label="Stop"><Input value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} /></Field>
+          <Field label="Pause"><Input value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} /></Field>
         </Section>
 
         {/* General */}
         <Section
           id="general"
-          title="GENERAL"
+          title="General"
           expanded={expandedSections.has("general")}
           onToggle={() => toggleSection("general")}
           index={6}
         >
-          <Field label="OUTPUT DIR"><Input value={local.output_dir} onChange={(v) => update("output_dir", v)} /></Field>
-          <Field label="MINIMIZE TO TRAY"><Toggle checked={local.minimize_to_tray} onChange={(v) => update("minimize_to_tray", v)} /></Field>
-          <Field label="COPY PATH ON SAVE"><Toggle checked={local.copy_path_on_save} onChange={(v) => update("copy_path_on_save", v)} /></Field>
+          <Field label="Output Directory"><Input value={local.output_dir} onChange={(v) => update("output_dir", v)} /></Field>
+          <Field label="Minimize to Tray"><Toggle checked={local.minimize_to_tray} onChange={(v) => update("minimize_to_tray", v)} /></Field>
+          <Field label="Copy Path on Save"><Toggle checked={local.copy_path_on_save} onChange={(v) => update("copy_path_on_save", v)} /></Field>
         </Section>
       </div>
 
@@ -300,7 +300,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           whileHover={{ scale: 1.01, y: -1 }}
           whileTap={{ scale: 0.98 }}
         >
-          SAVE CONFIGURATION
+          "Save Settings"
         </motion.button>
       </div>
     </div>

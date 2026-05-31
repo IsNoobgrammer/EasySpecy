@@ -204,6 +204,14 @@ export const useStore = create<AppState>((set, get) => ({
         { label: "Open", onClick: () => get().openPath(result.output_path) }
       );
       if (get().config?.copy_path_on_save) await get().copyToClipboard(result.output_path);
+      // System notification
+      try {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("EasySpecy — Recording Saved", {
+            body: `${dur}s, ${sizeMB}MB — ${result.output_path}`,
+          });
+        }
+      } catch {}
       await get().loadHistory();
     } catch (e) {
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null });

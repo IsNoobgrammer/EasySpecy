@@ -244,7 +244,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
   const modeValue = config?.recording_mode === "FullScreen" ? "FULL" : config?.recording_mode === "Region" ? "REGION" : "WINDOW";
 
   const recordingBorder = isRecording
-    ? isPaused ? "3px solid var(--accent-warning)" : "3px solid var(--accent-danger)"
+    ? isPaused ? "3px solid var(--accent-warning)" : "3px solid var(--accent-record)"
     : "3px solid transparent";
 
   return (
@@ -263,7 +263,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             className="flex items-center justify-center font-mono text-sm font-bold"
             style={{
               width: 36, height: 36,
-              background: isRecording ? "var(--accent-danger)" : "var(--accent-primary)",
+              background: isRecording ? "var(--accent-record)" : "var(--accent-primary)",
               color: "white",
               border: "var(--border-width) solid var(--border-strong)",
               transition: "background var(--duration-normal) var(--ease-out-expo)",
@@ -318,11 +318,11 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
               exit={{ opacity: 0, y: -20, scale: 0.95 }}
               transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
               className="flex items-center gap-4 px-6 py-3"
-              style={{ border: `var(--border-width) solid ${isPaused ? "var(--accent-warning)" : "var(--accent-danger)"}`, background: "var(--bg-surface)" }}
+              style={{ border: `var(--border-width) solid ${isPaused ? "var(--accent-warning)" : "var(--accent-record)"}`, background: "var(--bg-surface)" }}
             >
               <motion.div
                 className="w-3 h-3"
-                style={{ background: isPaused ? "var(--accent-warning)" : "var(--accent-danger)", animation: isPaused ? "none" : "pulse-dot 1.5s ease-in-out infinite" }}
+                style={{ background: isPaused ? "var(--accent-warning)" : "var(--accent-record)", animation: isPaused ? "none" : "pulse-dot 1.5s ease-in-out infinite" }}
               />
               <span className="font-mono text-2xl font-bold tracking-widest" style={{ color: "var(--text-primary)" }}>{elapsed}</span>
               {isPaused && (
@@ -388,7 +388,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           className="relative flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             width: 120, height: 120,
-            border: `3px solid ${isRecording ? "var(--accent-danger)" : isEncoding ? "var(--accent-info)" : "var(--accent-primary)"}`,
+            border: `3px solid ${isRecording ? "var(--accent-record)" : isEncoding ? "var(--accent-info)" : "var(--accent-primary)"}`,
             background: "var(--bg-surface)",
             animation: isRecording ? "breathe 2s ease-in-out infinite" : "none",
           }}
@@ -398,7 +398,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
         >
           <AnimatePresence mode="wait">
             {isRecording ? (
-              <motion.div key="stop" initial={{ scale: 0, rotate: 90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: -90 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-8 h-8" style={{ background: "var(--accent-danger)" }} />
+              <motion.div key="stop" initial={{ scale: 0, rotate: 90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: -90 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-8 h-8" style={{ background: "var(--accent-record)" }} />
             ) : isEncoding ? (
               <motion.div key="encoding" animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-8 h-8 border-3 border-t-transparent rounded-full" style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }} />
             ) : (
@@ -432,7 +432,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
           transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
         >
           <PresetCard
-            label="RES" value={resValue} index={0} disabled={isRecording}
+            label="Resolution" value={resValue} index={0} disabled={isRecording}
             options={[
               { label: "480P (854×480)", value: "854×480" },
               { label: "720P (1280×720)", value: "1280×720" },
@@ -441,7 +441,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             onSelect={(v) => updateField("resolution", v.replace("×", "x"))}
           />
           <PresetCard
-            label="FPS" value={fpsValue} index={1} disabled={isRecording}
+            label="Frame Rate" value={fpsValue} index={1} disabled={isRecording}
             options={[
               { label: "24 FPS", value: "24" },
               { label: "30 FPS", value: "30" },
@@ -450,7 +450,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             onSelect={(v) => updateField("fps", Number(v))}
           />
           <PresetCard
-            label="AUDIO" value={audioValue} index={2} disabled={isRecording}
+            label="Audio" value={audioValue} index={2} disabled={isRecording}
             options={[
               { label: "MICROPHONE", value: "Mic" },
               { label: "SYSTEM AUDIO", value: "System" },
@@ -467,7 +467,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
             }}
           />
           <PresetCard
-            label="MODE" value={modeValue} index={3} disabled={isRecording}
+            label="Mode" value={modeValue} index={3} disabled={isRecording}
             options={[
               { label: "FULLSCREEN", value: "FullScreen" },
               { label: "REGION SELECT", value: "Region" },
