@@ -1,32 +1,199 @@
 @import "tailwindcss";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* ═══════════════════════════════════════════════════════
+   EASYSPECY DESIGN SYSTEM — Brutalist Professional
+   Two themes: Warm Dark (default) + Warm Light
+   ═══════════════════════════════════════════════════════ */
 
 :root {
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-card: #21262d;
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --border: #30363d;
-  --accent-green: #3fb950;
-  --accent-red: #f85149;
-  --accent-blue: #58a6ff;
+  /* ─── Spacing (4pt grid) ─── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ─── Typography ─── */
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", "Fira Code", monospace;
+
+  /* ─── Type Scale (1.25 ratio) ─── */
+  --text-xs: 0.64rem;
+  --text-sm: 0.8rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.563rem;
+  --text-2xl: 1.953rem;
+  --text-3xl: 2.441rem;
+
+  /* ─── Motion ─── */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-instant: 80ms;
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+
+  /* ─── Borders (Brutalist) ─── */
+  --border-width: 2px;
+  --border-thin: 1px;
 }
 
-body {
+/* ═══════════════════════════════════════════════════════
+   DARK THEME (Warm Charcoal — default)
+   Tinted toward warm amber/orange
+   ═══════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg-base: oklch(0.14 0.008 60);
+  --bg-surface: oklch(0.18 0.008 60);
+  --bg-elevated: oklch(0.22 0.008 60);
+  --bg-overlay: oklch(0.12 0.01 60 / 0.9);
+
+  --text-primary: oklch(0.93 0.01 60);
+  --text-secondary: oklch(0.65 0.01 60);
+  --text-muted: oklch(0.45 0.008 60);
+
+  --border-default: oklch(0.28 0.01 60);
+  --border-strong: oklch(0.40 0.015 60);
+  --border-focus: oklch(0.70 0.15 30);
+
+  --accent-primary: oklch(0.65 0.2 25);
+  --accent-primary-hover: oklch(0.72 0.2 25);
+  --accent-success: oklch(0.65 0.18 145);
+  --accent-danger: oklch(0.62 0.22 25);
+  --accent-warning: oklch(0.72 0.15 80);
+  --accent-info: oklch(0.65 0.12 250);
+
+  --shadow-sm: 0 1px 3px oklch(0 0 0 / 0.3);
+  --shadow-md: 0 4px 12px oklch(0 0 0 / 0.4);
+  --shadow-lg: 0 8px 32px oklch(0 0 0 / 0.5);
+  --shadow-glow: 0 0 24px oklch(0.65 0.2 25 / 0.3);
+
+  color-scheme: dark;
+}
+
+/* ═══════════════════════════════════════════════════════
+   LIGHT THEME (Warm Beige/Cream)
+   Tinted toward warm sand/parchment
+   ═══════════════════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg-base: oklch(0.96 0.012 80);
+  --bg-surface: oklch(0.98 0.008 80);
+  --bg-elevated: oklch(1.0 0.005 80);
+  --bg-overlay: oklch(0.96 0.012 80 / 0.92);
+
+  --text-primary: oklch(0.18 0.015 60);
+  --text-secondary: oklch(0.40 0.015 60);
+  --text-muted: oklch(0.58 0.01 60);
+
+  --border-default: oklch(0.82 0.02 70);
+  --border-strong: oklch(0.65 0.03 60);
+  --border-focus: oklch(0.50 0.18 25);
+
+  --accent-primary: oklch(0.52 0.2 25);
+  --accent-primary-hover: oklch(0.45 0.2 25);
+  --accent-success: oklch(0.50 0.16 145);
+  --accent-danger: oklch(0.50 0.22 25);
+  --accent-warning: oklch(0.60 0.15 80);
+  --accent-info: oklch(0.50 0.12 250);
+
+  --shadow-sm: 0 1px 3px oklch(0.3 0.02 60 / 0.1);
+  --shadow-md: 0 4px 12px oklch(0.3 0.02 60 / 0.12);
+  --shadow-lg: 0 8px 32px oklch(0.3 0.02 60 / 0.15);
+  --shadow-glow: 0 0 24px oklch(0.52 0.2 25 / 0.2);
+
+  color-scheme: light;
+}
+
+/* ═══════════════════════════════════════════════════════
+   BASE STYLES
+   ═══════════════════════════════════════════════════════ */
+html, body {
   margin: 0;
-  background-color: var(--bg-primary);
+  padding: 0;
+  background-color: var(--bg-base);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   user-select: none;
+  overflow: hidden;
 }
 
+/* ─── Scrollbar ─── */
 ::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-primary); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
 
-@keyframes progress {
-  0% { width: 10%; margin-left: 0; }
-  50% { width: 60%; margin-left: 20%; }
-  100% { width: 10%; margin-left: 90%; }
+/* ─── Focus Ring (Brutalist) ─── */
+*:focus-visible {
+  outline: var(--border-width) solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* ─── Selection ─── */
+::selection {
+  background: var(--accent-primary);
+  color: white;
+}
+
+/* ─── Reduced Motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   UTILITY CLASSES
+   ═══════════════════════════════════════════════════════ */
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.brutalist-border {
+  border: var(--border-width) solid var(--border-default);
+}
+
+.brutalist-border-strong {
+  border: var(--border-width) solid var(--border-strong);
+}
+
+/* ─── Keyframes ─── */
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 20px oklch(0.62 0.22 25 / 0.3); }
+  50% { box-shadow: 0 0 40px oklch(0.62 0.22 25 / 0.6); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }

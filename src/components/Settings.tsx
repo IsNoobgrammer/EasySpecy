@@ -1,9 +1,15 @@
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
+import { useThemeStore } from "../lib/theme";
 
 export function Settings({ onBack }: { onBack: () => void }) {
   const { config, saveConfig, loadAudioDevices, audioDevices } = useStore();
+  const { theme, toggleTheme } = useThemeStore();
   const [local, setLocal] = useState<AppConfig | null>(null);
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    new Set(["video", "audio"])
+  );
 
   useEffect(() => {
     if (config) setLocal({ ...config });
@@ -16,159 +22,370 @@ export function Settings({ onBack }: { onBack: () => void }) {
     onBack();
   };
 
-  if (!local) return <div className="flex items-center justify-center h-full bg-[#0d1117]"><div className="text-[#8b949e] text-sm">Loading...</div></div>;
+  if (!local) {
+    return (
+      <div className="flex items-center justify-center h-full" style={{ background: "var(--bg-base)" }}>
+        <motion.div
+          className="font-mono text-sm uppercase"
+          style={{ color: "var(--text-muted)", letterSpacing: "0.1em" }}
+          animate={{ opacity: [0.4, 1, 0.4] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+        >
+          LOADING CONFIG...
+        </motion.div>
+      </div>
+    );
+  }
 
   const update = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) =>
     setLocal((prev) => (prev ? { ...prev, [key]: value } : prev));
 
+  const toggleSection = (id: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
-    <div className="flex flex-col h-full bg-[#0d1117]">
+    <div className="flex flex-col h-full" style={{ background: "var(--bg-base)" }}>
       {/* Header */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-[#21262d]">
-        <button onClick={onBack} className="flex items-center gap-1 text-[#8b949e] hover:text-[#e6edf3] text-sm transition-colors">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-          Back
-        </button>
-        <span className="text-base font-semibold text-[#e6edf3]">Settings</span>
-      </div>
+      <header
+        className="flex items-center justify-between px-6 py-3"
+        style={{ borderBottom: "var(--border-width) solid var(--border-default)" }}
+      >
+        <div className="flex items-center gap-3">
+          <motion.button
+            onClick={onBack}
+            className="flex items-center gap-2 font-mono text-xs uppercase cursor-pointer"
+            style={{ color: "var(--text-secondary)", letterSpacing: "0.05em" }}
+            whileHover={{ x: -3, color: "var(--text-primary)" }}
+            whileTap={{ scale: 0.95 }}
+          >
+            ← BACK
+          </motion.button>
+        </div>
+        <span className="font-mono text-sm font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>
+          CONFIGURATION
+        </span>
+        <motion.button
+          onClick={toggleTheme}
+          className="font-mono text-xs px-2 py-1 cursor-pointer"
+          style={{
+            border: "var(--border-thin) solid var(--border-default)",
+            color: "var(--text-muted)",
+          }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+        >
+          {theme === "dark" ? "☀ LIGHT" : "● DARK"}
+        </motion.button>
+      </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
-        <Section title="Video" icon="🎬">
-          <Field label="Resolution">
-            <Select value={`${local.resolution_width}x${local.resolution_height}`}
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+        {/* Video */}
+        <Section
+          id="video"
+          title="VIDEO"
+          expanded={expandedSections.has("video")}
+          onToggle={() => toggleSection("video")}
+          index={0}
+        >
+          <Field label="RESOLUTION">
+            <Select
+              value={`${local.resolution_width}x${local.resolution_height}`}
               onChange={(v) => { const [w, h] = v.split("x").map(Number); update("resolution_width", w); update("resolution_height", h); }}
-              options={[{ label: "480p (854×480)", value: "854x480" }, { label: "720p (1280×720)", value: "1280x720" }, { label: "1080p (1920×1080)", value: "1920x1080" }]} />
+              options={[
+                { label: "480P (854×480)", value: "854x480" },
+                { label: "720P (1280×720)", value: "1280x720" },
+                { label: "1080P (1920×1080)", value: "1920x1080" },
+              ]}
+            />
           </Field>
-          <Field label="Frame Rate">
+          <Field label="FRAME RATE">
             <Select value={local.fps} onChange={(v) => update("fps", Number(v))}
-              options={[{ label: "24 fps", value: 24 }, { label: "30 fps", value: 30 }, { label: "60 fps", value: 60 }]} />
+              options={[{ label: "24 FPS", value: 24 }, { label: "30 FPS", value: 30 }, { label: "60 FPS", value: 60 }]} />
           </Field>
-          <Field label="Mode">
+          <Field label="MODE">
             <Select value={local.recording_mode} onChange={(v) => update("recording_mode", v as AppConfig["recording_mode"])}
-              options={[{ label: "Full Screen", value: "FullScreen" }, { label: "Region Select", value: "Region" }, { label: "Window", value: "Window" }]} />
+              options={[{ label: "FULLSCREEN", value: "FullScreen" }, { label: "REGION", value: "Region" }, { label: "WINDOW", value: "Window" }]} />
           </Field>
         </Section>
 
-        <Section title="Audio" icon="🎤">
-          <Field label="Enabled">
+        {/* Audio */}
+        <Section
+          id="audio"
+          title="AUDIO"
+          expanded={expandedSections.has("audio")}
+          onToggle={() => toggleSection("audio")}
+          index={1}
+        >
+          <Field label="ENABLED">
             <Toggle checked={local.audio_enabled} onChange={(v) => update("audio_enabled", v)} />
           </Field>
           {local.audio_enabled && (
-            <>
-              <Field label="Source">
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="space-y-3 overflow-hidden"
+            >
+              <Field label="SOURCE">
                 <Select value={local.audio_source} onChange={(v) => update("audio_source", v as AppConfig["audio_source"])}
-                  options={[{ label: "Microphone only", value: "Mic" }, { label: "System audio only", value: "System" }, { label: "Both (mic + system)", value: "Both" }]} />
+                  options={[{ label: "MIC", value: "Mic" }, { label: "SYSTEM", value: "System" }, { label: "BOTH", value: "Both" }]} />
               </Field>
-              <Field label="Sample Rate">
+              <Field label="SAMPLE RATE">
                 <Select value={local.audio_sample_rate} onChange={(v) => update("audio_sample_rate", Number(v))}
-                  options={[{ label: "22050 Hz", value: 22050 }, { label: "44100 Hz", value: 44100 }, { label: "48000 Hz", value: 48000 }]} />
+                  options={[{ label: "22050 HZ", value: 22050 }, { label: "44100 HZ", value: 44100 }, { label: "48000 HZ", value: 48000 }]} />
               </Field>
-              <Field label="Mic Device">
+              <Field label="DEVICE">
                 <Select value={local.audio_device} onChange={(v) => update("audio_device", v)}
-                  options={[{ label: "Default", value: "default" }, ...audioDevices.map((d) => ({ label: d, value: d }))]} />
+                  options={[{ label: "DEFAULT", value: "default" }, ...audioDevices.map((d) => ({ label: d.toUpperCase(), value: d }))]} />
               </Field>
-            </>
+            </motion.div>
           )}
         </Section>
 
-        <Section title="Auto-Zoom" icon="🔍">
-          <Field label="Enabled">
+        {/* Auto-Zoom */}
+        <Section
+          id="zoom"
+          title="AUTO-ZOOM"
+          expanded={expandedSections.has("zoom")}
+          onToggle={() => toggleSection("zoom")}
+          index={2}
+        >
+          <Field label="ENABLED">
             <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
           </Field>
           {local.auto_zoom_enabled && (
-            <>
-              <Field label="Zoom Level">
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="space-y-3 overflow-hidden"
+            >
+              <Field label="ZOOM LEVEL">
                 <Select value={local.zoom_level} onChange={(v) => update("zoom_level", Number(v))}
                   options={[{ label: "1.5×", value: 1.5 }, { label: "2×", value: 2 }, { label: "2.5×", value: 2.5 }, { label: "3×", value: 3 }]} />
               </Field>
-              <Field label="Dwell Time">
+              <Field label="DWELL TIME">
                 <Select value={local.zoom_dwell_ms} onChange={(v) => update("zoom_dwell_ms", Number(v))}
-                  options={[{ label: "1s", value: 1000 }, { label: "1.5s", value: 1500 }, { label: "2s", value: 2000 }, { label: "3s", value: 3000 }]} />
+                  options={[{ label: "1S", value: 1000 }, { label: "1.5S", value: 1500 }, { label: "2S", value: 2000 }, { label: "3S", value: 3000 }]} />
               </Field>
-              <div className="text-xs text-[#484f58] px-1">Zooms toward click positions during recording</div>
-            </>
+              <div className="font-mono text-xs px-1" style={{ color: "var(--text-muted)", fontSize: "0.6rem" }}>
+                ZOOMS TOWARD CLICK POSITIONS DURING RECORDING
+              </div>
+            </motion.div>
           )}
         </Section>
 
-        <Section title="Cursor Effects" icon="✨">
-          <Field label="Trail Enabled">
+        {/* Cursor Effects */}
+        <Section
+          id="cursor"
+          title="CURSOR EFFECTS"
+          expanded={expandedSections.has("cursor")}
+          onToggle={() => toggleSection("cursor")}
+          index={3}
+        >
+          <Field label="TRAIL">
             <Toggle checked={local.cursor_trail_enabled} onChange={(v) => update("cursor_trail_enabled", v)} />
           </Field>
           {local.cursor_trail_enabled && (
-            <>
-              <Field label="Trail Color">
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="space-y-3 overflow-hidden"
+            >
+              <Field label="COLOR">
                 <div className="flex items-center gap-2">
-                  <input type="color" value={local.cursor_trail_color} onChange={(e) => update("cursor_trail_color", e.target.value)}
-                    className="w-8 h-8 rounded border border-[#30363d] bg-transparent cursor-pointer" />
-                  <span className="text-xs text-[#8b949e] font-mono">{local.cursor_trail_color}</span>
+                  <input
+                    type="color"
+                    value={local.cursor_trail_color}
+                    onChange={(e) => update("cursor_trail_color", e.target.value)}
+                    className="w-8 h-8 cursor-pointer"
+                    style={{ border: "var(--border-width) solid var(--border-default)", background: "transparent" }}
+                  />
+                  <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+                    {local.cursor_trail_color.toUpperCase()}
+                  </span>
                 </div>
               </Field>
-              <Field label="Cursor Size">
+              <Field label="SIZE">
                 <Select value={local.cursor_size_multiplier} onChange={(v) => update("cursor_size_multiplier", Number(v))}
-                  options={[{ label: "1× (normal)", value: 1 }, { label: "1.5×", value: 1.5 }, { label: "2×", value: 2 }, { label: "3×", value: 3 }]} />
+                  options={[{ label: "1× NORMAL", value: 1 }, { label: "1.5×", value: 1.5 }, { label: "2×", value: 2 }, { label: "3×", value: 3 }]} />
               </Field>
-              <Field label="Smoothing">
+              <Field label="SMOOTHING">
                 <Toggle checked={local.cursor_smoothing} onChange={(v) => update("cursor_smoothing", v)} />
               </Field>
-            </>
+            </motion.div>
           )}
         </Section>
 
-        <Section title="Webcam" icon="📷">
-          <Field label="Enabled">
+        {/* Webcam */}
+        <Section
+          id="webcam"
+          title="WEBCAM"
+          expanded={expandedSections.has("webcam")}
+          onToggle={() => toggleSection("webcam")}
+          index={4}
+        >
+          <Field label="ENABLED">
             <Toggle checked={local.webcam_enabled} onChange={(v) => update("webcam_enabled", v)} />
           </Field>
           {local.webcam_enabled && (
-            <>
-              <Field label="Position">
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="space-y-3 overflow-hidden"
+            >
+              <Field label="POSITION">
                 <Select value={local.webcam_position} onChange={(v) => update("webcam_position", v as AppConfig["webcam_position"])}
-                  options={[{ label: "Top Left", value: "TopLeft" }, { label: "Top Right", value: "TopRight" }, { label: "Bottom Left", value: "BottomLeft" }, { label: "Bottom Right", value: "BottomRight" }]} />
+                  options={[{ label: "TOP LEFT", value: "TopLeft" }, { label: "TOP RIGHT", value: "TopRight" }, { label: "BOTTOM LEFT", value: "BottomLeft" }, { label: "BOTTOM RIGHT", value: "BottomRight" }]} />
               </Field>
-              <Field label="Size">
+              <Field label="SIZE">
                 <Select value={local.webcam_size} onChange={(v) => update("webcam_size", Number(v))}
-                  options={[{ label: "150px", value: 150 }, { label: "200px", value: 200 }, { label: "250px", value: 250 }, { label: "300px", value: 300 }]} />
+                  options={[{ label: "150PX", value: 150 }, { label: "200PX", value: 200 }, { label: "250PX", value: 250 }, { label: "300PX", value: 300 }]} />
               </Field>
-            </>
+            </motion.div>
           )}
         </Section>
 
-        <Section title="Hotkeys" icon="⌨️">
-          <Field label="Start"><Input value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} /></Field>
-          <Field label="Stop"><Input value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} /></Field>
-          <Field label="Pause"><Input value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} /></Field>
+        {/* Hotkeys */}
+        <Section
+          id="hotkeys"
+          title="HOTKEYS"
+          expanded={expandedSections.has("hotkeys")}
+          onToggle={() => toggleSection("hotkeys")}
+          index={5}
+        >
+          <Field label="START"><Input value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} /></Field>
+          <Field label="STOP"><Input value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} /></Field>
+          <Field label="PAUSE"><Input value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} /></Field>
         </Section>
 
-        <Section title="General" icon="⚙️">
-          <Field label="Output Dir"><Input value={local.output_dir} onChange={(v) => update("output_dir", v)} /></Field>
-          <Field label="Minimize to Tray"><Toggle checked={local.minimize_to_tray} onChange={(v) => update("minimize_to_tray", v)} /></Field>
-          <Field label="Copy Path on Save"><Toggle checked={local.copy_path_on_save} onChange={(v) => update("copy_path_on_save", v)} /></Field>
+        {/* General */}
+        <Section
+          id="general"
+          title="GENERAL"
+          expanded={expandedSections.has("general")}
+          onToggle={() => toggleSection("general")}
+          index={6}
+        >
+          <Field label="OUTPUT DIR"><Input value={local.output_dir} onChange={(v) => update("output_dir", v)} /></Field>
+          <Field label="MINIMIZE TO TRAY"><Toggle checked={local.minimize_to_tray} onChange={(v) => update("minimize_to_tray", v)} /></Field>
+          <Field label="COPY PATH ON SAVE"><Toggle checked={local.copy_path_on_save} onChange={(v) => update("copy_path_on_save", v)} /></Field>
         </Section>
       </div>
 
-      {/* Save */}
-      <div className="px-6 py-4 border-t border-[#21262d]">
-        <button onClick={handleSave} className="w-full py-2.5 rounded-md text-sm font-semibold bg-[#238636] hover:bg-[#2ea043] text-white transition-colors">
-          Save Settings
-        </button>
+      {/* Save Button */}
+      <div className="px-6 py-4" style={{ borderTop: "var(--border-width) solid var(--border-default)" }}>
+        <motion.button
+          onClick={handleSave}
+          className="w-full py-3 font-mono text-sm font-bold uppercase cursor-pointer"
+          style={{
+            border: "var(--border-width) solid var(--accent-primary)",
+            background: "var(--accent-primary)",
+            color: "white",
+            letterSpacing: "0.08em",
+          }}
+          whileHover={{ scale: 1.01, y: -1 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          SAVE CONFIGURATION
+        </motion.button>
       </div>
     </div>
   );
 }
 
-function Section({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
+/* ═══════════════════════════════════════════════════════
+   PRIMITIVES
+   ═══════════════════════════════════════════════════════ */
+
+function Section({
+  title,
+  expanded,
+  onToggle,
+  children,
+  index,
+}: {
+  id: string;
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+  index: number;
+}) {
   return (
-    <div className="bg-[#161b22] border border-[#21262d] rounded-lg p-4">
-      <h3 className="text-sm font-semibold text-[#e6edf3] mb-3 flex items-center gap-2"><span>{icon}</span> {title}</h3>
-      <div className="space-y-3">{children}</div>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.04, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        border: "var(--border-width) solid var(--border-default)",
+        background: "var(--bg-surface)",
+      }}
+    >
+      <motion.button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-4 py-3 cursor-pointer"
+        whileHover={{ backgroundColor: "var(--bg-elevated)" }}
+      >
+        <span
+          className="font-mono text-xs font-bold uppercase"
+          style={{ color: "var(--text-primary)", letterSpacing: "0.1em" }}
+        >
+          {title}
+        </span>
+        <motion.span
+          animate={{ rotate: expanded ? 90 : 0 }}
+          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          className="font-mono text-xs"
+          style={{ color: "var(--text-muted)" }}
+        >
+          →
+        </motion.span>
+      </motion.button>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div
+              className="px-4 pb-4 space-y-3"
+              style={{ borderTop: "var(--border-thin) solid var(--border-default)" }}
+            >
+              <div className="pt-3 space-y-3">{children}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between">
-      <label className="text-sm text-[#8b949e]">{label}</label>
+    <div className="flex items-center justify-between gap-4">
+      <label
+        className="font-mono text-xs uppercase shrink-0"
+        style={{ color: "var(--text-secondary)", letterSpacing: "0.05em", fontSize: "0.65rem" }}
+      >
+        {label}
+      </label>
       <div className="w-48">{children}</div>
     </div>
   );
@@ -176,25 +393,63 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function Select({ value, onChange, options }: { value: string | number; onChange: (v: string) => void; options: { label: string; value: string | number }[] }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
-      className="w-full px-2.5 py-1.5 text-sm bg-[#0d1117] border border-[#30363d] rounded-md text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] transition-colors">
-      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-2.5 py-1.5 font-mono text-xs cursor-pointer"
+      style={{
+        border: "var(--border-width) solid var(--border-default)",
+        background: "var(--bg-base)",
+        color: "var(--text-primary)",
+        letterSpacing: "0.02em",
+      }}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
     </select>
   );
 }
 
 function Input({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <input type="text" value={value} onChange={(e) => onChange(e.target.value)}
-      className="w-full px-2.5 py-1.5 text-sm bg-[#0d1117] border border-[#30363d] rounded-md text-[#e6edf3] focus:outline-none focus:border-[#58a6ff] transition-colors font-mono" />
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-2.5 py-1.5 font-mono text-xs"
+      style={{
+        border: "var(--border-width) solid var(--border-default)",
+        background: "var(--bg-base)",
+        color: "var(--text-primary)",
+      }}
+    />
   );
 }
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <button onClick={() => onChange(!checked)}
-      className={`w-10 h-5 rounded-full transition-colors duration-200 relative cursor-pointer ${checked ? "bg-[#238636]" : "bg-[#30363d]"}`}>
-      <div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform duration-200 shadow-sm ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
-    </button>
+    <motion.button
+      onClick={() => onChange(!checked)}
+      className="relative cursor-pointer"
+      style={{
+        width: 44,
+        height: 24,
+        border: `var(--border-width) solid ${checked ? "var(--accent-primary)" : "var(--border-default)"}`,
+        background: checked ? "var(--accent-primary)" : "var(--bg-base)",
+      }}
+      whileTap={{ scale: 0.95 }}
+    >
+      <motion.div
+        className="absolute top-0.5"
+        style={{
+          width: 18,
+          height: 18,
+          background: "white",
+        }}
+        animate={{ left: checked ? 22 : 2 }}
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      />
+    </motion.button>
   );
 }

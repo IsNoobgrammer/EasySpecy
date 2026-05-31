@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import { useStore } from "../stores/recording";
+import { useThemeStore } from "../lib/theme";
 import { invoke } from "@tauri-apps/api/core";
 
 function formatDuration(ms: number): string {
@@ -27,6 +29,7 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
     openPath,
   } = useStore();
 
+  const { theme, toggleTheme } = useThemeStore();
   const [elapsed, setElapsed] = useState("00:00:00");
   const [version, setVersion] = useState("0.1.0");
 
@@ -47,174 +50,417 @@ export function Dashboard({ onOpenSettings }: { onOpenSettings: () => void }) {
   const isIdle = recordingPhase === "idle";
 
   const resolutionLabel = config ? `${config.resolution_width}×${config.resolution_height}` : "1920×1080";
-  const fpsLabel = config ? `${config.fps} fps` : "30 fps";
+  const fpsLabel = config ? `${config.fps} FPS` : "30 FPS";
   const audioLabel = config?.audio_enabled
-    ? config.audio_source === "both" ? "Mic + System" : config.audio_source === "system" ? "System" : "Mic"
-    : "Off";
+    ? config.audio_source === "both" ? "MIC+SYS" : config.audio_source === "system" ? "SYSTEM" : "MIC"
+    : "OFF";
 
   return (
-    <div className="flex flex-col h-full bg-[#0d1117]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-[#21262d]">
+    <div
+      className="flex flex-col h-full relative"
+      style={{
+        background: "var(--bg-base)",
+        borderLeft: isRecording ? "3px solid var(--accent-danger)" : "3px solid transparent",
+        transition: "border-color var(--duration-normal) var(--ease-out-expo)",
+      }}
+    >
+      {/* ═══ HEADER ═══ */}
+      <header
+        className="flex items-center justify-between px-6 py-3"
+        style={{ borderBottom: "var(--border-width) solid var(--border-default)" }}
+      >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#3fb950] to-[#238636] flex items-center justify-center text-sm font-bold text-white shadow-md">ES</div>
-          <div>
-            <span className="text-base font-semibold text-[#e6edf3]">EasySpecy</span>
-            <span className="text-xs text-[#484f58] ml-2">v{version}</span>
+          {/* Logo — brutalist block */}
+          <motion.div
+            className="flex items-center justify-center font-mono text-sm font-bold"
+            style={{
+              width: 36,
+              height: 36,
+              background: "var(--accent-primary)",
+              color: "white",
+              border: "var(--border-width) solid var(--border-strong)",
+            }}
+            whileHover={{ scale: 1.05, rotate: -2 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            ES
+          </motion.div>
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+              EASYSPECY
+            </span>
+            <span className="font-mono text-xs" style={{ color: "var(--text-muted)", letterSpacing: "0.05em" }}>
+              V{version}
+            </span>
           </div>
         </div>
-        <button
-          onClick={onOpenSettings}
-          disabled={isRecording || isEncoding}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-[#8b949e] hover:text-[#e6edf3] bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          ⚙ Settings
-        </button>
-      </div>
 
-      {/* Main Content */}
+        <div className="flex items-center gap-2">
+          {/* Theme Toggle */}
+          <motion.button
+            onClick={toggleTheme}
+            className="flex items-center justify-center cursor-pointer"
+            style={{
+              width: 36,
+              height: 36,
+              border: "var(--border-width) solid var(--border-default)",
+              background: "var(--bg-surface)",
+              color: "var(--text-secondary)",
+            }}
+            whileHover={{ scale: 1.05, borderColor: "var(--border-strong)" }}
+            whileTap={{ scale: 0.95 }}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          >
+            <motion.span
+              key={theme}
+              initial={{ rotate: -90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className="text-base"
+            >
+              {theme === "dark" ? "☀" : "●"}
+            </motion.span>
+          </motion.button>
+
+          {/* Settings Button */}
+          <motion.button
+            onClick={onOpenSettings}
+            disabled={isRecording || isEncoding}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-mono uppercase cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              border: "var(--border-width) solid var(--border-default)",
+              background: "var(--bg-surface)",
+              color: "var(--text-secondary)",
+              letterSpacing: "0.05em",
+              fontSize: "var(--text-xs)",
+            }}
+            whileHover={{ scale: 1.02, y: -1 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            CONFIG
+          </motion.button>
+        </div>
+      </header>
+
+      {/* ═══ MAIN CONTENT ═══ */}
       <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
 
         {/* Recording Timer */}
-        {isRecording && (
-          <div className="flex items-center gap-3 px-5 py-2.5 rounded-lg bg-[#161b22] border border-[#30363d]">
-            <div className={`w-2.5 h-2.5 rounded-full ${isPaused ? "bg-[#d29922]" : "bg-[#f85149] animate-pulse"}`} />
-            <span className="font-mono text-2xl text-[#e6edf3] tracking-wider">{elapsed}</span>
-            {isPaused && <span className="text-xs text-[#d29922] font-medium ml-1">PAUSED</span>}
-          </div>
-        )}
+        <AnimatePresence>
+          {isRecording && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className="flex items-center gap-4 px-6 py-3"
+              style={{
+                border: "var(--border-width) solid var(--accent-danger)",
+                background: "var(--bg-surface)",
+              }}
+            >
+              <motion.div
+                className="w-3 h-3"
+                style={{
+                  background: isPaused ? "var(--accent-warning)" : "var(--accent-danger)",
+                  animation: isPaused ? "none" : "pulse-dot 1.5s ease-in-out infinite",
+                }}
+              />
+              <span
+                className="font-mono text-2xl font-bold tracking-widest"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {elapsed}
+              </span>
+              {isPaused && (
+                <motion.span
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="font-mono text-xs font-bold uppercase"
+                  style={{ color: "var(--accent-warning)", letterSpacing: "0.1em" }}
+                >
+                  PAUSED
+                </motion.span>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Encoding Progress */}
-        {isEncoding && (
-          <div className="flex flex-col items-center gap-3 px-8 py-5 rounded-lg bg-[#161b22] border border-[#30363d] min-w-[280px]">
-            <div className="flex items-center gap-3">
-              <svg className="animate-spin w-5 h-5 text-[#58a6ff]" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <span className="text-sm text-[#e6edf3] font-medium">Encoding video...</span>
-            </div>
-            <div className="w-full bg-[#21262d] rounded-full h-1.5 overflow-hidden">
-              <div className="h-full bg-[#58a6ff] rounded-full animate-[progress_2s_ease-in-out_infinite]" style={{
-                animation: "progress 2s ease-in-out infinite",
-                width: "60%",
-              }} />
-            </div>
-            <span className="text-xs text-[#484f58]">Merging video + audio, please wait...</span>
-          </div>
-        )}
+        <AnimatePresence>
+          {isEncoding && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+              className="flex flex-col items-center gap-3 px-8 py-5 min-w-[280px]"
+              style={{
+                border: "var(--border-width) solid var(--accent-info)",
+                background: "var(--bg-surface)",
+              }}
+            >
+              <div className="flex items-center gap-3">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                  className="w-4 h-4 border-2 border-t-transparent rounded-full"
+                  style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }}
+                />
+                <span className="font-mono text-sm uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>
+                  Encoding
+                </span>
+              </div>
+              <div className="w-full h-1 overflow-hidden" style={{ background: "var(--bg-elevated)" }}>
+                <motion.div
+                  className="h-full w-1/3"
+                  style={{ background: "var(--accent-info)" }}
+                  animate={{ x: ["-100%", "300%"] }}
+                  transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                />
+              </div>
+              <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+                MERGING VIDEO + AUDIO
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Last Recording */}
-        {lastRecording && isIdle && (
-          <div
-            className="flex items-center gap-4 px-5 py-3 rounded-lg bg-[#0d2818] border border-[#238636] cursor-pointer hover:bg-[#123322] transition-colors w-full max-w-md"
-            onClick={() => openPath(lastRecording.output_path)}
-          >
-            <div className="text-[#3fb950] text-lg">✓</div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm text-[#e6edf3] font-medium">
-                {lastRecording.duration_secs.toFixed(1)}s • {(lastRecording.file_size_bytes / 1_048_576).toFixed(1)}MB • {lastRecording.has_audio ? "video+audio" : "video only"}
+        <AnimatePresence>
+          {lastRecording && isIdle && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              onClick={() => openPath(lastRecording.output_path)}
+              className="flex items-center gap-4 px-5 py-3 cursor-pointer w-full max-w-md group"
+              style={{
+                border: "var(--border-width) solid var(--accent-success)",
+                background: "var(--bg-surface)",
+              }}
+            >
+              <motion.div
+                className="font-mono text-lg font-bold"
+                style={{ color: "var(--accent-success)" }}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.2, type: "spring", stiffness: 400, damping: 15 }}
+              >
+                ✓
+              </motion.div>
+              <div className="flex-1 min-w-0">
+                <div className="font-mono text-xs uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
+                  {lastRecording.duration_secs.toFixed(1)}s • {(lastRecording.file_size_bytes / 1_048_576).toFixed(1)}MB • {lastRecording.has_audio ? "VIDEO+AUDIO" : "VIDEO"}
+                </div>
+                <div className="text-xs truncate mt-1" style={{ color: "var(--text-muted)" }}>
+                  {normalizePath(lastRecording.output_path)}
+                </div>
               </div>
-              <div className="text-xs text-[#8b949e] truncate">{normalizePath(lastRecording.output_path)}</div>
-            </div>
-            <div className="text-xs text-[#58a6ff] whitespace-nowrap">Open →</div>
-          </div>
-        )}
+              <motion.span
+                className="font-mono text-xs font-bold uppercase"
+                style={{ color: "var(--accent-info)" }}
+                whileHover={{ x: 3 }}
+              >
+                OPEN →
+              </motion.span>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* Record Button */}
-        <button
+        {/* ═══ RECORD BUTTON ═══ */}
+        <motion.button
           onClick={isRecording ? stopRecording : isIdle ? startRecording : undefined}
           disabled={isEncoding}
-          className={`
-            group relative w-28 h-28 rounded-full flex items-center justify-center
-            transition-all duration-200 cursor-pointer shadow-lg disabled:opacity-50 disabled:cursor-not-allowed
-            ${isRecording
-              ? "bg-[#f85149] hover:bg-[#da3633] shadow-[0_0_30px_rgba(248,81,73,0.3)]"
-              : isEncoding
-                ? "bg-[#58a6ff]"
-                : "bg-[#3fb950] hover:bg-[#238636] shadow-[0_0_30px_rgba(63,185,80,0.3)] hover:scale-105"
-            }
-          `}
+          className="relative flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            width: 120,
+            height: 120,
+            border: `3px solid ${isRecording ? "var(--accent-danger)" : isEncoding ? "var(--accent-info)" : "var(--accent-primary)"}`,
+            background: "var(--bg-surface)",
+            animation: isRecording ? "breathe 2s ease-in-out infinite" : "none",
+          }}
+          whileHover={isIdle ? { scale: 1.06, y: -2 } : isRecording ? { scale: 1.03 } : {}}
+          whileTap={!isEncoding ? { scale: 0.94 } : {}}
+          transition={{ type: "spring", stiffness: 400, damping: 20 }}
         >
-          {isRecording ? (
-            <div className="w-7 h-7 rounded-sm bg-white" />
-          ) : isEncoding ? (
-            <svg className="animate-spin w-8 h-8 text-white" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          ) : (
-            <div className="w-7 h-7 rounded-full bg-white ml-1" />
-          )}
-        </button>
+          <AnimatePresence mode="wait">
+            {isRecording ? (
+              <motion.div
+                key="stop"
+                initial={{ scale: 0, rotate: 90 }}
+                animate={{ scale: 1, rotate: 0 }}
+                exit={{ scale: 0, rotate: -90 }}
+                transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                className="w-8 h-8"
+                style={{ background: "var(--accent-danger)" }}
+              />
+            ) : isEncoding ? (
+              <motion.div
+                key="encoding"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="w-8 h-8 border-3 border-t-transparent rounded-full"
+                style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }}
+              />
+            ) : (
+              <motion.div
+                key="record"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0 }}
+                transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                className="w-8 h-8 rounded-full"
+                style={{ background: "var(--accent-primary)" }}
+              />
+            )}
+          </AnimatePresence>
+        </motion.button>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-3">
+        <AnimatePresence>
           {isRecording && (
-            <button
-              onClick={isPaused ? resumeRecording : pauseRecording}
-              className="px-5 py-2 text-sm font-medium border border-[#30363d] rounded-md bg-[#21262d] hover:bg-[#30363d] text-[#e6edf3] transition-all"
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 12 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="flex items-center gap-3"
             >
-              {isPaused ? "▶ Resume" : "⏸ Pause"}
-            </button>
+              <motion.button
+                onClick={isPaused ? resumeRecording : pauseRecording}
+                className="px-5 py-2 font-mono text-xs uppercase cursor-pointer"
+                style={{
+                  border: "var(--border-width) solid var(--border-default)",
+                  background: "var(--bg-surface)",
+                  color: "var(--text-primary)",
+                  letterSpacing: "0.05em",
+                }}
+                whileHover={{ scale: 1.03, y: -1 }}
+                whileTap={{ scale: 0.96 }}
+              >
+                {isPaused ? "▶ RESUME" : "⏸ PAUSE"}
+              </motion.button>
+            </motion.div>
           )}
-        </div>
+        </AnimatePresence>
 
-        {/* Settings Summary Cards */}
-        <div className="grid grid-cols-4 gap-3 w-full max-w-xl mt-2">
-          <Card label="Resolution" value={resolutionLabel} />
-          <Card label="FPS" value={fpsLabel} />
-          <Card label="Audio" value={audioLabel} />
-          <Card label="Mode" value={config?.recording_mode || "FullScreen"} />
-        </div>
+        {/* ═══ STATUS GRID ═══ */}
+        <motion.div
+          className="grid grid-cols-4 gap-3 w-full max-w-xl mt-2"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <StatusCard label="RES" value={resolutionLabel} index={0} />
+          <StatusCard label="FPS" value={fpsLabel} index={1} />
+          <StatusCard label="AUDIO" value={audioLabel} index={2} />
+          <StatusCard label="MODE" value={config?.recording_mode?.toUpperCase() || "FULL"} index={3} />
+        </motion.div>
 
-        {/* Feature badges */}
-        <div className="flex items-center gap-2 text-xs text-[#484f58]">
-          {config?.auto_zoom_enabled && <Badge text="Auto-Zoom" color="blue" />}
-          {config?.cursor_trail_enabled && <Badge text="Cursor Trail" color="purple" />}
-          {config?.webcam_enabled && <Badge text="Webcam" color="green" />}
-        </div>
+        {/* Feature Badges */}
+        <motion.div
+          className="flex items-center gap-2"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+        >
+          {config?.auto_zoom_enabled && <Badge text="AUTO-ZOOM" />}
+          {config?.cursor_trail_enabled && <Badge text="CURSOR-FX" />}
+          {config?.webcam_enabled && <Badge text="WEBCAM" />}
+        </motion.div>
 
-        {/* Hotkey hint */}
+        {/* Hotkey Hint */}
         {isIdle && (
-          <div className="text-xs text-[#484f58]">
-            Press <kbd className="px-1.5 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-[#8b949e] font-mono text-xs">{config?.hotkey_start || "Ctrl+Shift+R"}</kbd> to record
-          </div>
+          <motion.div
+            className="font-mono text-xs"
+            style={{ color: "var(--text-muted)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+          >
+            <kbd
+              className="px-2 py-1 font-mono text-xs"
+              style={{
+                border: "var(--border-thin) solid var(--border-default)",
+                background: "var(--bg-surface)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {config?.hotkey_start || "Ctrl+Shift+R"}
+            </kbd>
+            <span className="ml-2">TO RECORD</span>
+          </motion.div>
         )}
       </div>
 
-      {/* Footer */}
-      <Footer outputDir={config?.output_dir || "~/Videos/EasySpecy"} />
+      {/* ═══ FOOTER ═══ */}
+      <footer
+        className="px-6 py-2.5 flex items-center justify-between"
+        style={{ borderTop: "var(--border-width) solid var(--border-default)" }}
+      >
+        <motion.button
+          onClick={() => openPath(config?.output_dir || "~/Videos/EasySpecy")}
+          className="font-mono text-xs cursor-pointer flex items-center gap-2"
+          style={{ color: "var(--text-muted)" }}
+          whileHover={{ color: "var(--accent-info)", x: 2 }}
+        >
+          <span>→</span>
+          <span>{normalizePath(config?.output_dir || "~/Videos/EasySpecy")}</span>
+        </motion.button>
+        <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
+          PHASE 1
+        </span>
+      </footer>
     </div>
   );
 }
 
-function Card({ label, value }: { label: string; value: string }) {
+/* ─── Status Card ─── */
+function StatusCard({ label, value, index }: { label: string; value: string; index: number }) {
   return (
-    <div className="text-center px-2 py-3 rounded-lg bg-[#161b22] border border-[#21262d]">
-      <div className="text-[10px] text-[#484f58] uppercase tracking-wider">{label}</div>
-      <div className="text-sm font-semibold text-[#e6edf3] mt-1">{value}</div>
-    </div>
+    <motion.div
+      className="text-center px-2 py-3"
+      style={{
+        border: "var(--border-width) solid var(--border-default)",
+        background: "var(--bg-surface)",
+      }}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.15 + index * 0.05, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      whileHover={{ y: -2, borderColor: "var(--border-strong)" }}
+    >
+      <div
+        className="font-mono text-xs uppercase"
+        style={{ color: "var(--text-muted)", letterSpacing: "0.1em", fontSize: "0.6rem" }}
+      >
+        {label}
+      </div>
+      <div
+        className="font-mono text-sm font-bold mt-1"
+        style={{ color: "var(--text-primary)" }}
+      >
+        {value}
+      </div>
+    </motion.div>
   );
 }
 
-function Badge({ text, color }: { text: string; color: string }) {
-  const colors: Record<string, string> = {
-    blue: "bg-[#1f3a5f] text-[#58a6ff]",
-    purple: "bg-[#2d1f5e] text-[#bc8cff]",
-    green: "bg-[#0d2818] text-[#3fb950]",
-  };
-  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${colors[color] || ""}`}>{text}</span>;
-}
-
-function Footer({ outputDir }: { outputDir: string }) {
-  const openPath = useStore((s) => s.openPath);
+/* ─── Badge ─── */
+function Badge({ text }: { text: string }) {
   return (
-    <div className="px-6 py-2.5 border-t border-[#21262d] text-xs text-[#484f58] flex items-center justify-between">
-      <button onClick={() => openPath(outputDir)} className="hover:text-[#58a6ff] transition-colors cursor-pointer flex items-center gap-1">
-        📁 {normalizePath(outputDir)}
-      </button>
-      <span>v{useStore.getState().config ? "1" : "?"} • Phase 1</span>
-    </div>
+    <motion.span
+      className="font-mono text-xs px-2 py-1"
+      style={{
+        border: "var(--border-thin) solid var(--border-default)",
+        color: "var(--text-secondary)",
+        letterSpacing: "0.05em",
+        fontSize: "0.6rem",
+      }}
+      whileHover={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)" }}
+    >
+      {text}
+    </motion.span>
   );
 }
