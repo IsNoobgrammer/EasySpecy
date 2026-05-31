@@ -235,7 +235,7 @@ fn build_trail_filters(meta: &RecordingMetadata, color: &str) -> Vec<String> {
         _ => 0.5,
     };
 
-    for (i, sample) in downsampled.iter().enumerate().step_by(step) {
+    for (_, sample) in downsampled.iter().enumerate().step_by(step) {
         let t_start = sample.timestamp_ms as f64 / 1000.0;
         // Each box stays visible for 0.8 seconds
         let t_end = t_start + 0.8;

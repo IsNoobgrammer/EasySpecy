@@ -218,8 +218,6 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
     RECORDING_ACTIVE.store(true, Ordering::SeqCst);
 
     // ═══ Spawn video capture thread ═══
-    // The capture API will call on_frame_arrived() when the first frame is ready.
-    // That's when we arm audio and set CAPTURE_READY = true.
     std::thread::Builder::new()
         .name("easyspecy-capture".to_string())
         .spawn(move || {
@@ -228,10 +226,66 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
             }
             RECORDING_ACTIVE.store(false, Ordering::SeqCst);
             CAPTURE_READY.store(false, Ordering::SeqCst);
-            // Clean up audio handle
             let _ = AUDIO_CAPTURE.lock().unwrap().take();
         })
         .map_err(|e| format!("Failed to spawn capture thread: {}", e))?;
+
+    // ═══ Spawn mouse tracking thread for cursor trail + click effects ═══
+    // Polls cursor position at ~60Hz and detects mouse clicks.
+    // Feeds data to postprocess module for FFmpeg effects.
+    std::thread::Builder::new()
+        .name("easyspecy-mouse".to_string())
+        .spawn(move || {
+            use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON, VK_MBUTTON};
+            use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+            let mut left_was_down = false;
+            let mut right_was_down = false;
+            let mut middle_was_down = false;
+
+            tracing::info!("Mouse tracking thread started");
+
+            // Wait until capture is armed (first video frame)
+            while !CAPTURE_ARMED.load(Ordering::SeqCst) {
+                if !RECORDING_ACTIVE.load(Ordering::SeqCst) {
+                    return; // Recording stopped before arming
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+
+            while RECORDING_ACTIVE.load(Ordering::SeqCst) {
+                // Get cursor position
+                let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+                if unsafe { GetCursorPos(&mut point).is_ok() } {
+                    crate::postprocess::record_cursor(point.x as f32, point.y as f32);
+                }
+
+                // Detect mouse button state changes (press = new click)
+                let left_down = unsafe { GetAsyncKeyState(VK_LBUTTON.0 as i32) } & 0x8000u16 as i16 != 0;
+                let right_down = unsafe { GetAsyncKeyState(VK_RBUTTON.0 as i32) } & 0x8000u16 as i16 != 0;
+                let middle_down = unsafe { GetAsyncKeyState(VK_MBUTTON.0 as i32) } & 0x8000u16 as i16 != 0;
+
+                if left_down && !left_was_down {
+                    crate::postprocess::record_click(point.x as f32, point.y as f32, "left");
+                }
+                if right_down && !right_was_down {
+                    crate::postprocess::record_click(point.x as f32, point.y as f32, "right");
+                }
+                if middle_down && !middle_was_down {
+                    crate::postprocess::record_click(point.x as f32, point.y as f32, "middle");
+                }
+
+                left_was_down = left_down;
+                right_was_down = right_down;
+                middle_was_down = middle_down;
+
+                // ~60Hz polling
+                std::thread::sleep(Duration::from_millis(16));
+            }
+
+            tracing::info!("Mouse tracking thread stopped");
+        })
+        .map_err(|e| format!("Failed to spawn mouse tracking thread: {}", e))?;
 
     Ok(())
 }
