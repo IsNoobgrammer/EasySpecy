@@ -61,6 +61,9 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
         "click_effect" => {
             config.click_effect = value.as_str().unwrap_or("ripple").to_string();
         }
+        "cursor_trail_color" => {
+            config.cursor_trail_color = value.as_str().unwrap_or("#00ff88").to_string();
+        }
         "video_encoder" => {
             config.video_encoder = match value.as_str() {
                 Some("H264") => crate::config::VideoEncoder::H264,
