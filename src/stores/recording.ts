@@ -203,8 +203,6 @@ export const useStore = create<AppState>((set, get) => ({
       // Only now is capture truly active
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       get().addToast(`Recording region: ${region.width}×${region.height}`, "success");
-      // Create fullscreen effects overlay
-      invoke("create_effects_overlay").catch(() => {});
     } catch (e) {
       await invoke("exit_region_mode").catch(() => {});
       set({ selectorMode: "none" });
@@ -234,16 +232,12 @@ export const useStore = create<AppState>((set, get) => ({
       // Only NOW do we start the timer — capture is truly active
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       get().addToast("Recording started", "success");
-      // Create fullscreen effects overlay
-      invoke("create_effects_overlay").catch(() => {});
     } catch (e) { get().addToast(`Start failed: ${e}`, "error"); }
   },
 
   stopRecording: async () => {
     try {
       set({ recordingPhase: "encoding", encodingProgress: 0, encodingStage: "Stopping capture..." });
-      // Destroy effects overlay immediately
-      invoke("destroy_effects_overlay").catch(() => {});
       // Start polling encoding progress
       const progressInterval = setInterval(async () => {
         try {

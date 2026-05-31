@@ -3,7 +3,6 @@ import { motion } from "motion/react";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
 import { Customization } from "./components/Customization";
-import { RecordingOverlay } from "./components/RecordingOverlay";
 import { ToastContainer } from "./components/Toast";
 import { Icon } from "./components/Icon";
 import { useStore } from "./stores/recording";
@@ -44,7 +43,6 @@ export default function App() {
   return (
     <div className="h-screen w-screen overflow-hidden flex" style={{ color: "var(--text-primary)" }}>
       <ToastContainer />
-      {isRecording && <RecordingOverlay />}
 
       {/* ═══ SIDEBAR — 240px, exact Stitch layout ═══ */}
       <aside className="flex flex-col py-6 w-[240px] h-full shrink-0 z-10" style={{ background: "var(--surface-container-low, #191b26)", borderRight: "1px solid var(--border-default)" }}>
