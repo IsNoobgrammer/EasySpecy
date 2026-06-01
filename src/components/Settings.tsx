@@ -3,12 +3,14 @@ import { useState, useEffect, useId, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
 import { useThemeStore } from "../lib/theme";
+import { WebcamPreview } from "./WebcamPreview";
 
 export function Settings({ onBack }: { onBack: () => void }) {
   const { config, saveConfig, loadAudioDevices, audioDevices } = useStore();
   const { theme, toggleTheme } = useThemeStore();
   const [local, setLocal] = useState<AppConfig | null>(null);
   const [saved, setSaved] = useState(false);
+  const [showWebcamPreview, setShowWebcamPreview] = useState(false);
 
   useEffect(() => {
     if (config) setLocal({ ...config });
@@ -287,16 +289,33 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   className="overflow-hidden"
                 >
                   <div className="space-y-3 pt-1">
-                    <Row label="Position" desc="Where to place webcam overlay">
+                    {/* Preview button */}
+                    <motion.button
+                      onClick={() => setShowWebcamPreview(true)}
+                      className="w-full py-2.5 font-mono text-xs uppercase font-semibold cursor-pointer flex items-center justify-center gap-2"
+                      style={{
+                        background: "var(--accent-primary-container, #00e88a)",
+                        color: "var(--on-primary, #00391e)",
+                        border: "none",
+                        borderRadius: "var(--radius-sm)",
+                        letterSpacing: "0.05em",
+                      }}
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <Icon name="open_in_new" size={14} />
+                      Open Preview & Position
+                    </motion.button>
+
+                    <Row label="Shape" desc="Webcam overlay shape">
                       <Segmented
-                        value={local.webcam_position}
+                        value={local.webcam_shape}
                         options={[
-                          { label: "TL", value: "TopLeft" },
-                          { label: "TR", value: "TopRight" },
-                          { label: "BL", value: "BottomLeft" },
-                          { label: "BR", value: "BottomRight" },
+                          { label: "Circle", value: "Circle" },
+                          { label: "Rounded", value: "Rounded" },
+                          { label: "Squircle", value: "Squircle" },
                         ]}
-                        onChange={(v) => update("webcam_position", v as AppConfig["webcam_position"])}
+                        onChange={(v) => update("webcam_shape", v as AppConfig["webcam_shape"])}
                       />
                     </Row>
                     <Row label="Size" desc="Webcam overlay dimensions">
@@ -311,11 +330,92 @@ export function Settings({ onBack }: { onBack: () => void }) {
                         ]}
                       />
                     </Row>
+                    <Row label="Border Width" desc="Overlay border thickness">
+                      <div className="flex items-center gap-2 w-full">
+                        <input
+                          type="range"
+                          min={0}
+                          max={8}
+                          value={local.webcam_border_width}
+                          onChange={(e) => update("webcam_border_width", Number(e.target.value))}
+                          className="flex-1"
+                          style={{ accentColor: "var(--accent-primary)" }}
+                        />
+                        <span className="font-mono w-4 text-right" style={{ fontSize: "0.65rem", color: "var(--accent-primary)" }}>
+                          {local.webcam_border_width}
+                        </span>
+                      </div>
+                    </Row>
+                    <Row label="Border Color" desc="Overlay border color">
+                      <div className="flex gap-1.5 flex-wrap">
+                        {["#00e88a","#3b82f6","#a855f7","#ec4899","#f97316","#06b6d4","#ffffff","#eab308"].map((c) => (
+                          <motion.button
+                            key={c}
+                            onClick={() => update("webcam_border_color", c)}
+                            className="w-6 h-6 cursor-pointer"
+                            style={{
+                              background: c,
+                              borderRadius: "50%",
+                              border: local.webcam_border_color === c ? "2px solid var(--text-primary)" : "1px solid var(--border-default)",
+                              boxShadow: local.webcam_border_color === c ? "0 0 0 2px var(--accent-primary)" : "none",
+                            }}
+                            whileHover={{ scale: 1.15 }}
+                            whileTap={{ scale: 0.9 }}
+                          />
+                        ))}
+                      </div>
+                    </Row>
+                    <Row label="Opacity" desc="Overlay transparency">
+                      <div className="flex items-center gap-2 w-full">
+                        <input
+                          type="range"
+                          min={30}
+                          max={100}
+                          value={Math.round(local.webcam_opacity * 100)}
+                          onChange={(e) => update("webcam_opacity", Number(e.target.value) / 100)}
+                          className="flex-1"
+                          style={{ accentColor: "var(--accent-primary)" }}
+                        />
+                        <span className="font-mono w-8 text-right" style={{ fontSize: "0.65rem", color: "var(--accent-primary)" }}>
+                          {Math.round(local.webcam_opacity * 100)}%
+                        </span>
+                      </div>
+                    </Row>
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
           </Card>
+
+          {/* Webcam Preview Overlay */}
+          <AnimatePresence>
+            {showWebcamPreview && local && (
+              <WebcamPreview
+                initial={{
+                  x: local.webcam_x,
+                  y: local.webcam_y,
+                  size: local.webcam_size,
+                  shape: local.webcam_shape.toLowerCase() as "circle" | "rounded" | "squircle",
+                  borderColor: local.webcam_border_color,
+                  borderWidth: local.webcam_border_width,
+                  opacity: local.webcam_opacity,
+                }}
+                recordingWidth={local.resolution_width}
+                recordingHeight={local.resolution_height}
+                onSave={(cfg) => {
+                  update("webcam_x", cfg.x);
+                  update("webcam_y", cfg.y);
+                  update("webcam_size", cfg.size);
+                  update("webcam_shape", cfg.shape.charAt(0).toUpperCase() + cfg.shape.slice(1) as AppConfig["webcam_shape"]);
+                  update("webcam_border_color", cfg.borderColor);
+                  update("webcam_border_width", cfg.borderWidth);
+                  update("webcam_opacity", cfg.opacity);
+                  setShowWebcamPreview(false);
+                }}
+                onCancel={() => setShowWebcamPreview(false)}
+              />
+            )}
+          </AnimatePresence>
 
           {/* ── Hotkeys ── */}
           <Card title="Hotkeys" icon="keyboard" index={5}>

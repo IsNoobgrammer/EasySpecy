@@ -22,6 +22,12 @@ export interface AppConfig {
   webcam_device: string;
   webcam_position: "TopLeft" | "TopRight" | "BottomLeft" | "BottomRight";
   webcam_size: number;
+  webcam_shape: "Circle" | "Rounded" | "Squircle";
+  webcam_border_color: string;
+  webcam_border_width: number;
+  webcam_opacity: number;
+  webcam_x: number;
+  webcam_y: number;
   auto_zoom_enabled: boolean;
   zoom_level: number;
   zoom_dwell_ms: number;

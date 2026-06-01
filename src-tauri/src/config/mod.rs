@@ -33,6 +33,12 @@ pub struct AppConfig {
     pub webcam_device: String,
     pub webcam_position: WebcamPosition,
     pub webcam_size: u32,
+    pub webcam_shape: WebcamShape,
+    pub webcam_border_color: String,
+    pub webcam_border_width: u32,
+    pub webcam_opacity: f32,
+    pub webcam_x: i32,
+    pub webcam_y: i32,
 
     // Auto-zoom
     pub auto_zoom_enabled: bool,
@@ -69,6 +75,13 @@ pub enum WebcamPosition {
     TopRight,
     BottomLeft,
     BottomRight,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum WebcamShape {
+    Circle,
+    Rounded,
+    Squircle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -140,6 +153,12 @@ impl Default for AppConfig {
             webcam_device: "default".to_string(),
             webcam_position: WebcamPosition::BottomRight,
             webcam_size: 200,
+            webcam_shape: WebcamShape::Circle,
+            webcam_border_color: "#00e88a".to_string(),
+            webcam_border_width: 3,
+            webcam_opacity: 1.0,
+            webcam_x: 1200,
+            webcam_y: 600,
 
             auto_zoom_enabled: false,
             zoom_level: 2.0,
