@@ -4,6 +4,7 @@
 //! On stop, metadata is fed to FFmpeg filter chains for baked-in effects.
 
 use serde::{Deserialize, Serialize};
+use rayon::prelude::*;
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -224,57 +225,106 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     use std::io::Write;
 
-    for frame_idx in 0..total_frames {
-        let frame_time_ms = frame_idx as f64 * ms_per_frame;
-        let mut frame_buf = vec![0u8; frame_size];
+    // ═══ PRE-COMPUTE PER-FRAME DATA ═══
+    // Compute trail segments and active clicks ONCE, then render in parallel.
+    // Eliminates per-frame binary search + segment building.
+    let pre_computed: Vec<(Vec<(f32, f32, f64)>, Vec<(f32, f32, f64)>)> = (0..total_frames)
+        .into_iter()
+        .map(|frame_idx| {
+            let frame_time_ms = frame_idx as f64 * ms_per_frame;
+            let head_idx = find_path_index_at_time(&smooth_path, frame_time_ms);
 
-        // Find HEAD position: where cursor is at this exact frame time
-        // Walk smooth_path to find the point closest to frame_time_ms
-        let head_idx = find_path_index_at_time(&smooth_path, frame_time_ms);
-
-        if head_idx > 0 {
-            // COMET: head = bright, tail = fading behind
-            // Collect points from head backwards for trail_duration_ms
-            let tail_start_time = (frame_time_ms - trail_duration_ms).max(0.0);
-            let tail_idx = find_path_index_at_time(&smooth_path, tail_start_time);
-
-            // Trail segment: from tail_idx to head_idx (ordered tail→head)
-            if head_idx > tail_idx {
-                let segment: Vec<(f32, f32, f64)> = (tail_idx..=head_idx)
-                    .map(|i| {
-                        let p = &smooth_path[i];
-                        // age: 1.0 at tail, 0.0 at head
-                        let age = if head_idx > tail_idx {
-                            1.0 - ((i - tail_idx) as f64 / (head_idx - tail_idx) as f64)
-                        } else {
-                            0.0
-                        };
-                        (p.0, p.1, age)
-                    })
-                    .collect();
-
-                if segment.len() >= 2 {
-                    render_smooth_trail(&mut frame_buf, width, height, &segment, color, &meta.trail_style);
+            // Trail segment
+            let segment: Vec<(f32, f32, f64)> = if head_idx > 0 {
+                let tail_start_time = (frame_time_ms - trail_duration_ms).max(0.0);
+                let tail_idx = find_path_index_at_time(&smooth_path, tail_start_time);
+                if head_idx > tail_idx {
+                    (tail_idx..=head_idx)
+                        .map(|i| {
+                            let p = &smooth_path[i];
+                            let age = 1.0 - ((i - tail_idx) as f64 / (head_idx - tail_idx) as f64);
+                            (p.0, p.1, age)
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
                 }
-            }
-        }
+            } else {
+                Vec::new()
+            };
 
-        // Click effects
-        for click in &meta.click_events {
-            let click_age_ms = frame_time_ms - click.timestamp_ms as f64;
-            if click_age_ms >= 0.0 && click_age_ms < 600.0 {
-                render_click_effect(
-                    &mut frame_buf, width, height,
-                    click.x, click.y,
-                    click_age_ms / 600.0,
-                    color, &meta.click_effect,
-                );
-            }
-        }
+            // Active clicks
+            let active_clicks: Vec<(f32, f32, f64)> = meta
+                .click_events
+                .iter()
+                .filter_map(|click| {
+                    let click_age_ms = frame_time_ms - click.timestamp_ms as f64;
+                    if click_age_ms >= 0.0 && click_age_ms < 600.0 {
+                        Some((click.x, click.y, click_age_ms / 600.0))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
-        // Write frame to FFmpeg stdin
-        if stdin.write_all(&frame_buf).is_err() {
-            break; // FFmpeg closed pipe (video shorter than trail data)
+            (segment, active_clicks)
+        })
+        .collect();
+
+    tracing::info!(
+        "Pre-computed {} frames, starting parallel render (batch=8)",
+        total_frames
+    );
+
+    // ═══ PARALLEL BATCH RENDER → FFmpeg PIPE ═══
+    // Render 8 frames in parallel, write in order. Each frame is independent.
+    let batch_size = 8;
+
+    for batch_start in (0..total_frames as usize).step_by(batch_size) {
+        let batch_end = (batch_start + batch_size).min(total_frames as usize);
+
+        // Render batch in parallel with rayon
+        let rendered: Vec<Vec<u8>> = (batch_start..batch_end)
+            .into_par_iter()
+            .map(|frame_idx| {
+                let mut frame_buf = vec![0u8; frame_size];
+                let (ref segment, ref active_clicks) = pre_computed[frame_idx];
+
+                // Trail
+                if segment.len() >= 2 {
+                    render_smooth_trail(
+                        &mut frame_buf,
+                        width,
+                        height,
+                        segment,
+                        color,
+                        &meta.trail_style,
+                    );
+                }
+
+                // Click effects
+                for &(cx, cy, progress) in active_clicks {
+                    render_click_effect(
+                        &mut frame_buf,
+                        width,
+                        height,
+                        cx,
+                        cy,
+                        progress,
+                        color,
+                        &meta.click_effect,
+                    );
+                }
+
+                frame_buf
+            })
+            .collect();
+
+        // Write batch in order (FFmpeg needs sequential frames)
+        for frame_buf in rendered {
+            if stdin.write_all(&frame_buf).is_err() {
+                break;
+            }
         }
     }
 

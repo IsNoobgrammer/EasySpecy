@@ -39,6 +39,7 @@ uuid = { version = "1", features = ["v4"] }
 miniz_oxide = "0.8"
 base64 = "0.22"
 crc32fast = "1.4"
+rayon = "1.10"
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"

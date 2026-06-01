@@ -1047,6 +1047,7 @@ dependencies = [
  "hound",
  "miniz_oxide",
  "pipewire",
+ "rayon",
  "screencapturekit",
  "serde",
  "serde_json",
