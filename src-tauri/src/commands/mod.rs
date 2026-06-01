@@ -419,6 +419,20 @@ pub fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn delete_recording(path: String) -> Result<(), String> {
+    let file_path = std::path::Path::new(&path);
+    if !file_path.exists() {
+        return Err("File not found".to_string());
+    }
+    std::fs::remove_file(file_path).map_err(|e| e.to_string())?;
+    // Also remove from history
+    let mut history = RecordingHistory::load();
+    history.entries.retain(|entry| entry.output_path != path);
+    history.save().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Create a transparent fullscreen overlay window for trail + click effects during recording.
 #[tauri::command]
 pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {

@@ -8,6 +8,7 @@ import { Icon } from "./components/Icon";
 import { SidebarStats } from "./components/StatusBar";
 import { useStore } from "./stores/recording";
 import { useThemeStore } from "./lib/theme";
+import { ContextMenuProvider, useAppContextMenu } from "./components/ContextMenu";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -66,9 +67,18 @@ export default function App() {
   }, [theme]);
 
   const isRecording = recordingPhase === "recording";
+  const appContextMenu = useAppContextMenu(setPage);
+
+  // Disable browser default context menu (right-click)
+  useEffect(() => {
+    const handler = (e: Event) => e.preventDefault();
+    document.addEventListener("contextmenu", handler);
+    return () => document.removeEventListener("contextmenu", handler);
+  }, []);
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex" style={{ color: "var(--text-primary)" }}>
+    <ContextMenuProvider>
+    <div className="h-screen w-screen overflow-hidden flex" style={{ color: "var(--text-primary)" }} onContextMenu={appContextMenu.onContextMenu}>
       <ToastContainer />
 
       {/* ═══ SIDEBAR — 240px, exact Stitch layout ═══ */}
@@ -167,6 +177,7 @@ export default function App() {
         <div className="absolute rounded-full" style={{ bottom: "-10%", left: "-10%", width: "30%", height: "30%", background: "rgba(192,193,255,0.05)", filter: "blur(100px)" }} />
       </div>
     </div>
+    </ContextMenuProvider>
   );
 }
 

@@ -53,6 +53,7 @@ pub fn run() {
             commands::detect_gpu_encoders,
             commands::get_recording_history,
             commands::clear_recording_history,
+            commands::delete_recording,
             commands::set_capture_region,
             commands::get_capture_region,
             commands::clear_capture_region,

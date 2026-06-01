@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
+import { useRecordingContextMenu } from "./ContextMenu";
 import { RegionSelector } from "./RegionSelector";
 import { Footer } from "./StatusBar";
 
@@ -123,6 +124,7 @@ function HistoryPanel({ entries, onOpen, onClear }: {
   onOpen: (path: string) => void;
   onClear: () => void;
 }) {
+  const recordingCtx = useRecordingContextMenu();
   if (entries.length === 0) {
     return (
       <motion.div
@@ -185,6 +187,7 @@ function HistoryPanel({ entries, onOpen, onClear }: {
             transition={{ delay: i * 0.03 }}
             whileHover={{ borderColor: "var(--accent-info)", y: -1, boxShadow: "var(--shadow-md)" }}
             onClick={() => onOpen(entry.output_path)}
+            onContextMenu={(e) => recordingCtx.onContextMenu(e, entry)}
           >
             <div className="flex-1 min-w-0">
               <div className="font-mono text-xs font-semibold flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
