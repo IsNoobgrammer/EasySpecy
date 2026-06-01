@@ -65,7 +65,7 @@ const SHAPES: { id: WebcamShape; label: string; icon: string }[] = [
 
 export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920, recordingHeight = 1080 }: WebcamPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
 
   // Overlay state
@@ -79,31 +79,43 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
     opacity: initial?.opacity ?? 1,
   });
 
-  // Attach stream to video element when both are ready
-  useEffect(() => {
-    if (stream && videoRef.current) {
-      videoRef.current.srcObject = stream;
-    }
-  }, [stream, cameraReady]);
-
-  // Start webcam
+  // Start webcam + handle cleanup properly
   useEffect(() => {
     let mounted = true;
     navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
       audio: false,
     }).then((s) => {
-      if (!mounted) return;
-      setStream(s);
+      if (!mounted) {
+        // Component already unmounted — release immediately
+        s.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      streamRef.current = s;
       setCameraReady(true);
+      // Attach to video element
+      if (videoRef.current) {
+        videoRef.current.srcObject = s;
+      }
     }).catch(() => {
       setCameraReady(false);
     });
     return () => {
       mounted = false;
-      stream?.getTracks().forEach((t) => t.stop());
+      // Stop ALL tracks — ref always has current value, no stale closure
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
     };
   }, []);
+
+  // Re-attach stream when video element mounts (after cameraReady becomes true)
+  useEffect(() => {
+    if (cameraReady && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [cameraReady]);
 
   const update = <K extends keyof WebcamOverlayConfig>(key: K, value: WebcamOverlayConfig[K]) =>
     setOverlay((prev) => ({ ...prev, [key]: value }));

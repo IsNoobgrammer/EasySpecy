@@ -1,9 +1,10 @@
-﻿import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
-import { useRecordingContextMenu } from "./ContextMenu";
 import { RegionSelector } from "./RegionSelector";
 import { Footer } from "./StatusBar";
+import { KeyboardOverlay } from "./KeyboardOverlay";
+import { useRecordingContextMenu } from "./ContextMenu";
 
 function formatDuration(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -555,6 +556,9 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
         {/* ═══ RECORDING HISTORY ═══ */}
         <HistoryPanel entries={history} onOpen={openPath} onClear={clearHistory} />
       </div>
+
+      {/* ═══ KEYBOARD OVERLAY ═══ */}
+      <KeyboardOverlay />
 
       {/* ═══ FOOTER ═══ */}
       <Footer isRecording={isRecording} />

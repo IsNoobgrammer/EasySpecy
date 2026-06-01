@@ -363,4 +363,11 @@ export const useStore = create<AppState>((set, get) => ({
       set({ audioLevels: { micRms: levels.mic_rms, micPeak: levels.mic_peak, micDb: levels.mic_db, sysRms: levels.sys_rms, sysPeak: levels.sys_peak, sysDb: levels.sys_db } });
     } catch {}
   },
+
+  pollKeyboardEvents: async () => {
+    try {
+      const events = await invoke<KeyEvent[]>("get_keyboard_events");
+      set({ keyboardEvents: events });
+    } catch {}
+  },
 }));
