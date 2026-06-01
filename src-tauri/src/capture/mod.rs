@@ -43,6 +43,16 @@ pub struct RecordingConfig {
     pub audio_source: String, // "Mic", "System", "Both"
     pub audio_sample_rate: u32,
     pub fps: u32,
+    // Webcam
+    pub webcam_enabled: bool,
+    pub webcam_device: String,
+    pub webcam_size: u32,
+    pub webcam_x: i32,
+    pub webcam_y: i32,
+    pub webcam_shape: String,
+    pub webcam_border_color: String,
+    pub webcam_border_width: u32,
+    pub webcam_opacity: f32,
 }
 
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -108,6 +118,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                     audio.set_armed(true);
                 }
             }
+
+            // Arm webcam capture (synced with video + audio)
+            crate::webcam::arm_webcam();
 
             // Signal frontend: we are LIVE
             CAPTURE_READY.store(true, Ordering::SeqCst);
@@ -213,6 +226,30 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
         let mut audio = AudioCapture::new(audio_temp, source).map_err(|e| e.to_string())?;
         audio.start().map_err(|e| e.to_string())?;
         *AUDIO_CAPTURE.lock().unwrap() = Some(audio);
+    }
+
+    // ═══ Start webcam capture (waits for CAPTURE_ARMED) ═══
+    if config.webcam_enabled {
+        let webcam_config = crate::config::AppConfig {
+            webcam_enabled: config.webcam_enabled,
+            webcam_device: config.webcam_device.clone(),
+            webcam_size: config.webcam_size,
+            webcam_x: config.webcam_x,
+            webcam_y: config.webcam_y,
+            webcam_shape: match config.webcam_shape.as_str() {
+                "Circle" => crate::config::WebcamShape::Circle,
+                "Rounded" => crate::config::WebcamShape::Rounded,
+                "Squircle" => crate::config::WebcamShape::Squircle,
+                _ => crate::config::WebcamShape::Circle,
+            },
+            webcam_border_color: config.webcam_border_color.clone(),
+            webcam_border_width: config.webcam_border_width,
+            webcam_opacity: config.webcam_opacity,
+            ..Default::default()
+        };
+        if let Err(e) = crate::webcam::start_webcam_capture(&webcam_config) {
+            tracing::warn!("Webcam capture failed to start: {}", e);
+        }
     }
 
     RECORDING_ACTIVE.store(true, Ordering::SeqCst);
@@ -441,7 +478,48 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         video_path
     };
 
-    // Step 2: Merge video + audio
+    // Step 2: Webcam overlay compositing (before audio merge)
+    set_encoding_progress(25, "Webcam overlay...");
+    let webcam_dir = crate::webcam::stop_webcam_capture();
+    let processed_video = if let Some(ref wdir) = webcam_dir {
+        let config_loaded = crate::config::AppConfig::load();
+        let shape = match config_loaded.webcam_shape {
+            crate::config::WebcamShape::Circle => crate::config::WebcamShape::Circle,
+            crate::config::WebcamShape::Rounded => crate::config::WebcamShape::Rounded,
+            crate::config::WebcamShape::Squircle => crate::config::WebcamShape::Squircle,
+        };
+        let mask_path = crate::webcam::generate_shape_mask(
+            &shape,
+            config_loaded.webcam_size,
+            config_loaded.webcam_border_width,
+            &config_loaded.webcam_border_color,
+        );
+        match mask_path {
+            Ok(mask) => {
+                match crate::webcam::composite_webcam_on_video(&processed_video, wdir, &mask.to_string_lossy(), &config_loaded) {
+                    Ok(webcam_video) => {
+                        let _ = std::fs::remove_file(&processed_video);
+                        crate::webcam::cleanup_webcam();
+                        webcam_video
+                    }
+                    Err(e) => {
+                        tracing::warn!("Webcam overlay failed: {}", e);
+                        crate::webcam::cleanup_webcam();
+                        processed_video
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Webcam mask generation failed: {}", e);
+                crate::webcam::cleanup_webcam();
+                processed_video
+            }
+        }
+    } else {
+        processed_video
+    };
+
+    // Step 3: Merge video + audio
     set_encoding_progress(30, "Encoding video...");
     if has_audio {
         let audio_file = audio_path.unwrap();

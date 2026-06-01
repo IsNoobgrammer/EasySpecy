@@ -7,6 +7,7 @@ mod history;
 mod postprocess;
 mod region;
 pub mod sync_verifier;
+pub mod webcam;
 mod tray;
 
 use std::sync::OnceLock;

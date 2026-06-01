@@ -244,6 +244,15 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
         audio_source: format!("{:?}", config.audio_source),
         audio_sample_rate: config.audio_sample_rate,
         fps: config.fps,
+        webcam_enabled: config.webcam_enabled,
+        webcam_device: config.webcam_device.clone(),
+        webcam_size: config.webcam_size,
+        webcam_x: config.webcam_x,
+        webcam_y: config.webcam_y,
+        webcam_shape: format!("{:?}", config.webcam_shape),
+        webcam_border_color: config.webcam_border_color.clone(),
+        webcam_border_width: config.webcam_border_width,
+        webcam_opacity: config.webcam_opacity,
     })?;
 
     // Start cursor metadata collection for post-processing

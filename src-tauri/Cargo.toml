@@ -40,6 +40,8 @@ miniz_oxide = "0.8"
 base64 = "0.22"
 crc32fast = "1.4"
 rayon = "1.10"
+nokhwa = { version = "0.10", features = ["input-native"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"
