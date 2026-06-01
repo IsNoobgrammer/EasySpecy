@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
 import { RegionSelector } from "./RegionSelector";
-import { StatusBar } from "./StatusBar";
+import { Footer } from "./StatusBar";
 
 function formatDuration(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -572,8 +572,8 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
         <HistoryPanel entries={history} onOpen={openPath} onClear={clearHistory} />
       </div>
 
-      {/* ═══ STATUS BAR (System Info + Footer) ═══ */}
-      <StatusBar isRecording={isRecording} />
+      {/* ═══ FOOTER ═══ */}
+      <Footer isRecording={isRecording} />
 
       {/* ═══ REGION SELECTOR OVERLAY ═══ */}
       <AnimatePresence>

@@ -5,7 +5,7 @@ import { Settings } from "./components/Settings";
 import { Customization } from "./components/Customization";
 import { ToastContainer } from "./components/Toast";
 import { Icon } from "./components/Icon";
-import { LoudnessMeter } from "./components/StatusBar";
+import { SidebarStats } from "./components/StatusBar";
 import { useStore } from "./stores/recording";
 import { useThemeStore } from "./lib/theme";
 import { listen } from "@tauri-apps/api/event";
@@ -82,18 +82,16 @@ export default function App() {
           <NavItem icon="settings" label="Settings" active={page === "settings"} onClick={() => setPage("settings")} />
         </nav>
 
-        {/* Bottom */}
+        {/* Bottom — Stats + Loudness + Theme */}
         <div className="mt-auto px-4 pt-4" style={{ borderTop: "1px solid var(--border-default)" }}>
-          {/* ═══ LOUDNESS METER ═══ */}
-          {config?.audio_enabled && (
-            <div className="flex justify-center mb-3">
-              <LoudnessMeter
-                audioSource={config?.audio_source || "Mic"}
-                audioEnabled={config?.audio_enabled || false}
-                levels={audioLevels}
-              />
-            </div>
-          )}
+          {/* ═══ SIDEBAR STATS (System Info + Loudness) ═══ */}
+          <div className="mb-3">
+            <SidebarStats
+              audioSource={config?.audio_source || "Mic"}
+              audioEnabled={config?.audio_enabled || false}
+              levels={audioLevels}
+            />
+          </div>
           <motion.div
             onClick={toggleTheme}
             className="flex items-center gap-4 px-4 py-2 cursor-pointer rounded"
