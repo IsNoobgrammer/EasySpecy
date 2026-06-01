@@ -79,6 +79,13 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
     opacity: initial?.opacity ?? 1,
   });
 
+  // Attach stream to video element when both are ready
+  useEffect(() => {
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream, cameraReady]);
+
   // Start webcam
   useEffect(() => {
     let mounted = true;
@@ -88,12 +95,8 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
     }).then((s) => {
       if (!mounted) return;
       setStream(s);
-      if (videoRef.current) {
-        videoRef.current.srcObject = s;
-        videoRef.current.onloadedmetadata = () => setCameraReady(true);
-      }
+      setCameraReady(true);
     }).catch(() => {
-      // Camera not available — show placeholder
       setCameraReady(false);
     });
     return () => {

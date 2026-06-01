@@ -409,23 +409,51 @@ fn webcam_capture_loop(
         // Capture frame
         match camera.frame() {
             Ok(frame) => {
-                // Convert to RGBA and save as PNG
                 let frame_path = format!("{}/webcam_{:06}.png", output_dir, frame_idx);
-
-                // nokhwa gives us RGB bytes
                 let raw = frame.buffer();
+                let raw_len = raw.len();
 
-                // Convert RGB to RGBA
-                let mut rgba = Vec::with_capacity((cam_w * cam_h * 4) as usize);
-                for chunk in raw.chunks(3) {
-                    if chunk.len() >= 3 {
-                        rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
-                    }
+                // Use frame's actual resolution (may differ from camera.resolution())
+                let frame_res = frame.resolution();
+                let fw = frame_res.width();
+                let fh = frame_res.height();
+
+                if frame_idx == 0 {
+                    tracing::info!(
+                        "First webcam frame: buffer_len={}, frame_res={}x{}, camera_res={}x{}, target_size={}",
+                        raw_len, fw, fh, cam_w, cam_h, target_size
+                    );
                 }
 
-                // Save as PNG using image crate
-                if let Some(img) = image::RgbaImage::from_raw(cam_w, cam_h, rgba) {
-                    // Resize to target size
+                // Validate buffer size — raw should be fw*fh*3 (RGB)
+                let expected_rgb = (fw * fh * 3) as usize;
+                let expected_rgba = (fw * fh * 4) as usize;
+
+                let rgba: Vec<u8> = if raw_len == expected_rgb {
+                    // Standard RGB → RGBA conversion
+                    let mut rgba = Vec::with_capacity(expected_rgba);
+                    for chunk in raw.chunks(3) {
+                        if chunk.len() >= 3 {
+                            rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+                        }
+                    }
+                    rgba
+                } else if raw_len == expected_rgba {
+                    // Already RGBA
+                    raw.to_vec()
+                } else {
+                    if frame_idx == 0 {
+                        tracing::error!(
+                            "Webcam buffer size mismatch: got {} bytes, expected {} (RGB) or {} (RGBA) for {}x{}",
+                            raw_len, expected_rgb, expected_rgba, fw, fh
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                };
+
+                // Build image from the actual frame dimensions
+                if let Some(img) = image::RgbaImage::from_raw(fw, fh, rgba) {
                     let resized = image::imageops::resize(
                         &img,
                         target_size,
@@ -438,6 +466,10 @@ fn webcam_capture_loop(
                         frame_idx += 1;
                         WEBCAM_FRAME_COUNT.store(frame_idx, Ordering::Relaxed);
                     }
+                } else {
+                    tracing::warn!(
+                        "RgbaImage::from_raw failed: {} bytes for {}x{}", raw_len, fw, fh
+                    );
                 }
             }
             Err(e) => {

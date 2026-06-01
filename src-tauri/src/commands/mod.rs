@@ -258,6 +258,9 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
     // Start cursor metadata collection for post-processing
     crate::postprocess::start_collection();
 
+    // Start keyboard capture for overlay
+    crate::keyboard::start_keyboard_capture();
+
 
     // ═══ WAIT until capture is actually armed (first video frame received) ═══
     // This is the key fix: frontend won't show "recording" until we're ACTUALLY recording.
@@ -298,6 +301,9 @@ pub fn get_encoding_progress() -> (u32, String) {
 
 #[tauri::command]
 pub async fn stop_recording() -> Result<capture::RecordingResult, String> {
+    // Stop keyboard capture
+    crate::keyboard::stop_keyboard_capture();
+
     // ═══ Restore cursors so user sees normal cursor during encoding ═══
     if let Err(e) = crate::cursors::restore_cursors() {
         tracing::warn!("Cursor restore failed: {}", e);
@@ -503,10 +509,28 @@ pub fn stop_audio_monitor_cmd() {
 }
 
 /// Get current audio levels (mic + system RMS/peak/dB)
+/// Returns snapshot from atomic levels — no locks, real-time safe.
 #[tauri::command]
-pub fn get_audio_levels() -> (f32, f32, f32, f32, f32, f32) {
-    let levels = crate::audio::get_audio_levels();
-    (levels.mic_rms, levels.mic_peak, levels.mic_db, levels.sys_rms, levels.sys_peak, levels.sys_db)
+pub fn get_audio_levels() -> crate::audio::AudioLevelsSnapshot {
+    crate::audio::get_audio_levels()
+}
+
+/// Start capturing keyboard events for overlay
+#[tauri::command]
+pub fn start_keyboard_capture_cmd() {
+    crate::keyboard::start_keyboard_capture();
+}
+
+/// Stop capturing keyboard events, returns final events
+#[tauri::command]
+pub fn stop_keyboard_capture_cmd() -> Vec<crate::keyboard::KeyEvent> {
+    crate::keyboard::stop_keyboard_capture()
+}
+
+/// Get current keyboard events (polled by frontend for overlay display)
+#[tauri::command]
+pub fn get_keyboard_events() -> Vec<crate::keyboard::KeyEvent> {
+    crate::keyboard::get_keyboard_events()
 }
 
 /// Destroy the effects overlay window

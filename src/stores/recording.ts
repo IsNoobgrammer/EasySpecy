@@ -89,6 +89,12 @@ export interface AudioLevels {
   sysDb: number;
 }
 
+export interface KeyEvent {
+  key: string;
+  timestamp_ms: number;
+  duration_ms: number;
+}
+
 type RecordingPhase = "idle" | "recording" | "encoding";
 type SelectorMode = "none" | "region";
 
@@ -109,6 +115,7 @@ interface AppState {
   encodingStage: string;
   estimatedMbPerMin: number;
   audioLevels: AudioLevels;
+  keyboardEvents: KeyEvent[];
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
@@ -133,6 +140,7 @@ interface AppState {
   startAudioMonitor: () => Promise<void>;
   stopAudioMonitor: () => Promise<void>;
   pollAudioLevels: () => Promise<void>;
+  pollKeyboardEvents: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -152,6 +160,7 @@ export const useStore = create<AppState>((set, get) => ({
   encodingStage: "",
   estimatedMbPerMin: 0,
   audioLevels: { micRms: 0, micPeak: 0, micDb: -60, sysRms: 0, sysPeak: 0, sysDb: -60 },
+  keyboardEvents: [],
 
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
@@ -350,8 +359,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   pollAudioLevels: async () => {
     try {
-      const [micRms, micPeak, micDb, sysRms, sysPeak, sysDb] = await invoke<[number, number, number, number, number, number]>("get_audio_levels");
-      set({ audioLevels: { micRms, micPeak, micDb, sysRms, sysPeak, sysDb } });
+      const levels = await invoke<{ mic_rms: number; mic_peak: number; mic_db: number; sys_rms: number; sys_peak: number; sys_db: number }>("get_audio_levels");
+      set({ audioLevels: { micRms: levels.mic_rms, micPeak: levels.mic_peak, micDb: levels.mic_db, sysRms: levels.sys_rms, sysPeak: levels.sys_peak, sysDb: levels.sys_db } });
     } catch {}
   },
 }));

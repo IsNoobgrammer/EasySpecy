@@ -42,10 +42,13 @@ crc32fast = "1.4"
 rayon = "1.10"
 nokhwa = { version = "0.10", features = ["input-native"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+nnnoiseless = "0.5"
+flume = "0.11"
+crossbeam-utils = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_UI_Input"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = "0.2"
