@@ -230,7 +230,7 @@ export function useRecordingContextMenu() {
 }
 
 /** Build context menu items for general app area */
-export function useAppContextMenu(navigate: (page: string) => void) {
+export function useAppContextMenu(navigate: (page: "dashboard" | "settings" | "customization") => void) {
   return {
     onContextMenu: (e: React.MouseEvent) => {
       showContextMenu(e, [
