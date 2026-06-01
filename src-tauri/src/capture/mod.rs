@@ -256,30 +256,20 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 std::thread::sleep(Duration::from_millis(5));
             }
 
-            // Pre-compute coordinate scaling (screen → video resolution)
-            let config = crate::config::AppConfig::load();
-            let screen_w = unsafe {
-                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                    windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN
-                )
-            } as f32;
-            let screen_h = unsafe {
-                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
-                    windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN
-                )
-            } as f32;
-            let scale_x = config.resolution_width as f32 / screen_w;
-            let scale_y = config.resolution_height as f32 / screen_h;
+            // Pre-compute coordinate info
+            // Video is captured at MONITOR resolution (not config resolution)
+            // GetCursorPos returns screen coords = same coordinate space as video
+            // NO SCALING NEEDED
 
             while RECORDING_ACTIVE.load(Ordering::SeqCst) {
-                // Get cursor position (SCREEN coordinates)
+                // Get cursor position (screen coordinates = video coordinates)
                 let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
-                let (mut vx, mut vy) = (last_x as f32 * scale_x, last_y as f32 * scale_y);
+                let (mut vx, mut vy) = (last_x as f32, last_y as f32);
 
                 if unsafe { GetCursorPos(&mut point).is_ok() } {
-                    // Transform screen coords → video coords
-                    vx = point.x as f32 * scale_x;
-                    vy = point.y as f32 * scale_y;
+                    // Direct use — no scaling. Video is at monitor resolution.
+                    vx = point.x as f32;
+                    vy = point.y as f32;
 
                     crate::postprocess::record_cursor(vx, vy);
 

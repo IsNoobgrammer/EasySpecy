@@ -127,8 +127,22 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     let config = crate::config::AppConfig::load();
     let fps = config.fps;
-    let width = config.resolution_width;
-    let height = config.resolution_height;
+
+    // Video is captured at MONITOR resolution, not config resolution
+    // Get actual monitor size for the trail frame buffer
+    let (width, height) = {
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+            let w = unsafe { GetSystemMetrics(SM_CXSCREEN) } as u32;
+            let h = unsafe { GetSystemMetrics(SM_CYSCREEN) } as u32;
+            (w, h)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            (config.resolution_width, config.resolution_height)
+        }
+    };
 
     // Get actual video duration by probing with FFmpeg
     let video_duration_ms = probe_video_duration(&ffmpeg, input).unwrap_or_else(|| {
