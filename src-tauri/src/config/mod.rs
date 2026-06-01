@@ -157,8 +157,8 @@ impl Default for AppConfig {
             webcam_border_color: "#00e88a".to_string(),
             webcam_border_width: 3,
             webcam_opacity: 1.0,
-            webcam_x: 1200,
-            webcam_y: 600,
+            webcam_x: 860,
+            webcam_y: 440,
 
             auto_zoom_enabled: false,
             zoom_level: 2.0,

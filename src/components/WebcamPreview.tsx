@@ -70,8 +70,8 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
 
   // Overlay state
   const [overlay, setOverlay] = useState<WebcamOverlayConfig>({
-    x: initial?.x ?? 1200,
-    y: initial?.y ?? 600,
+    x: initial?.x ?? 860,
+    y: initial?.y ?? 440,
     size: initial?.size ?? 200,
     shape: initial?.shape ?? "circle",
     borderColor: initial?.borderColor ?? "#00e88a",

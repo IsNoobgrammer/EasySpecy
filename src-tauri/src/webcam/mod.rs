@@ -361,20 +361,19 @@ fn webcam_capture_loop(
     let index = if device_str == "default" || device_str.is_empty() {
         CameraIndex::Index(0)
     } else {
-        // Try to parse as index
-        device_str.parse::<u32>()
+        device_str
+            .parse::<u32>()
             .map(CameraIndex::Index)
             .unwrap_or(CameraIndex::Index(0))
     };
 
-    let format = RequestedFormat::new::<RgbFormat>(
-        RequestedFormatType::AbsoluteHighestFrameRate,
-    );
+    let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
 
-    let mut camera = Camera::new(index, format)
-        .map_err(|e| format!("Failed to open webcam: {}", e))?;
+    let mut camera =
+        Camera::new(index, format).map_err(|e| format!("Failed to open webcam: {}", e))?;
 
-    camera.open_stream()
+    camera
+        .open_stream()
         .map_err(|e| format!("Failed to start webcam stream: {}", e))?;
 
     tracing::info!("Webcam stream started (target_size={}px)", target_size);
@@ -383,6 +382,13 @@ fn webcam_capture_loop(
     let resolution = camera.resolution();
     let cam_w = resolution.width();
     let cam_h = resolution.height();
+    tracing::info!("Webcam resolution: {}x{}", cam_w, cam_h);
+
+    if cam_w == 0 || cam_h == 0 {
+        tracing::error!("Webcam returned zero resolution!");
+        camera.stop_stream().ok();
+        return Ok(());
+    }
 
     let frame_interval = Duration::from_millis(33); // ~30fps
     let mut last_frame_time = Instant::now();
@@ -438,6 +444,10 @@ fn webcam_capture_loop(
                 tracing::warn!("Webcam frame capture error: {}", e);
                 std::thread::sleep(Duration::from_millis(10));
             }
+        }
+
+        if frame_idx > 0 && frame_idx % 30 == 0 {
+            tracing::info!("Webcam: {} frames captured", frame_idx);
         }
     }
 

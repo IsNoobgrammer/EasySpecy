@@ -261,7 +261,7 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
     } else {
       await invoke("apply_cursor_pack", { packId: selectedPack }).catch(() => {});
       setPreviewActive(true);
-      setTimeout(async () => { await invoke("restore_cursors").catch(() => {}); setPreviewActive(false); }, 5000);
+      setTimeout(async () => { await invoke("restore_cursors").catch(() => {}); setPreviewActive(false); }, 30000);
     }
   };
 
@@ -292,7 +292,7 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
             >
-              {previewActive ? "■ Stop" : "▶ Live 5s"}
+              {previewActive ? "■ Stop" : "▶ Live 30s"}
             </motion.button>
           </div>
 
