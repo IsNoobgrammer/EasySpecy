@@ -18,6 +18,7 @@
 //! - Noise gate + nnnoiseless + gain normalization pipeline
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use dasp::Sample;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -591,6 +592,9 @@ impl AudioCapture {
 // RESAMPLING & CHANNEL CONVERSION
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// High-quality resampling using rubato (sinc interpolation).
+/// Replaces the old linear interpolation which caused aliasing artifacts.
+/// Rubato expects non-interleaved audio, so we deinterleave → resample → reinterleave.
 fn resample_frames(input: &[f32], channels: u32, from_rate: u32, to_rate: u32) -> Vec<f32> {
     if input.is_empty() || from_rate == to_rate || from_rate == 0 || channels == 0 {
         return input.to_vec();
@@ -602,6 +606,102 @@ fn resample_frames(input: &[f32], channels: u32, from_rate: u32, to_rate: u32) -
         return Vec::new();
     }
 
+    // Deinterleave into per-channel buffers (rubato requires this)
+    let mut channel_buffers: Vec<Vec<f32>> = (0..ch)
+        .map(|_| Vec::with_capacity(num_input_frames))
+        .collect();
+    for frame in input.chunks_exact(ch) {
+        for (c, &sample) in frame.iter().enumerate() {
+            channel_buffers[c].push(sample);
+        }
+    }
+
+    // Create rubato resampler
+    // SincFixedIn: fixed input size, variable output size
+    // Parameters: chunk_size, nbr_channels, resample_ratio, sub_chunks, cutoff
+    let chunk_size = 1024.min(num_input_frames);
+    let ratio = to_rate as f64 / from_rate as f64;
+
+    let resampler_result = rubato::SincFixedIn::<f32>::new(
+        ratio,
+        2.0, // max relative ratio (allows some variation)
+        rubato::SincInterpolationParameters {
+            sinc_len: 256,        // Higher = better quality, slower
+            f_cutoff: 0.95,       // Anti-aliasing cutoff (fraction of Nyquist)
+            interpolation: rubato::SincInterpolationType::Linear,
+            oversampling_factor: 256, // Higher = better quality
+            window: rubato::WindowFunction::BlackmanHarris2,
+        },
+        chunk_size,
+        ch,
+    );
+
+    let mut resampler = match resampler_result {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Rubato resampler creation failed: {}, falling back to linear", e);
+            return resample_frames_linear(input, channels, from_rate, to_rate);
+        }
+    };
+
+    // Process in chunks
+    let mut output_channels: Vec<Vec<f32>> = (0..ch).map(|_| Vec::new()).collect();
+
+    for chunk_start in (0..num_input_frames).step_by(chunk_size) {
+        let chunk_end = (chunk_start + chunk_size).min(num_input_frames);
+
+        // Prepare input chunk (per-channel)
+        let input_chunk: Vec<Vec<f32>> = channel_buffers
+            .iter()
+            .map(|ch_buf| ch_buf[chunk_start..chunk_end].to_vec())
+            .collect();
+
+        // Pad last chunk if needed
+        let mut padded_chunk: Vec<Vec<f32>> = Vec::with_capacity(ch);
+        for ch_data in &input_chunk {
+            let mut padded = ch_data.clone();
+            if padded.len() < chunk_size {
+                padded.resize(chunk_size, 0.0);
+            }
+            padded_chunk.push(padded);
+        }
+
+        match resampler.process(&padded_chunk, None) {
+            Ok(output_chunk) => {
+                for (c, ch_out) in output_chunk.into_iter().enumerate() {
+                    // Only take the actual output frames (not padding)
+                    let expected_frames = ((chunk_end - chunk_start) as f64 * ratio) as usize;
+                    let actual = ch_out.len().min(expected_frames.max(1));
+                    output_channels[c].extend_from_slice(&ch_out[..actual]);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Rubato processing error: {}", e);
+                break;
+            }
+        }
+    }
+
+    // Reinterleave
+    let num_output_frames = output_channels[0].len();
+    let mut output = Vec::with_capacity(num_output_frames * ch);
+    for frame_idx in 0..num_output_frames {
+        for c in 0..ch {
+            if frame_idx < output_channels[c].len() {
+                output.push(output_channels[c][frame_idx]);
+            } else {
+                output.push(0.0);
+            }
+        }
+    }
+
+    output
+}
+
+/// Fallback linear interpolation resampler (used if rubato fails)
+fn resample_frames_linear(input: &[f32], channels: u32, from_rate: u32, to_rate: u32) -> Vec<f32> {
+    let ch = channels as usize;
+    let num_input_frames = input.len() / ch;
     let ratio = to_rate as f64 / from_rate as f64;
     let num_output_frames = (num_input_frames as f64 * ratio) as usize;
     let mut output = Vec::with_capacity(num_output_frames * ch);
@@ -610,10 +710,8 @@ fn resample_frames(input: &[f32], channels: u32, from_rate: u32, to_rate: u32) -
         let src_pos = frame_idx as f64 / ratio;
         let src_frame = src_pos as usize;
         let frac = (src_pos - src_frame as f64) as f32;
-
         let frame0 = src_frame.min(num_input_frames - 1);
         let frame1 = (src_frame + 1).min(num_input_frames - 1);
-
         for c in 0..ch {
             let s0 = input[frame0 * ch + c];
             let s1 = input[frame1 * ch + c];

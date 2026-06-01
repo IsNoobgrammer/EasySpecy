@@ -48,7 +48,15 @@ export default function App() {
         }
       });
     });
-    return () => { unlisten.then((fn) => fn()); unlistenWebcam.then((fn) => fn()); };
+    // Show webcam errors to user
+    const unlistenWebcamError = listen<string>("webcam-error", (event) => {
+      useStore.getState().addToast(`Webcam error: ${event.payload}`, "error");
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+      unlistenWebcam.then((fn) => fn());
+      unlistenWebcamError.then((fn) => fn());
+    };
   }, []);
 
   // Audio monitor lifecycle — runs on ALL pages (not just Dashboard)

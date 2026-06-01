@@ -256,6 +256,10 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
         };
         if let Err(e) = crate::webcam::start_webcam_capture(&webcam_config) {
             tracing::warn!("Webcam capture failed to start: {}", e);
+            // Emit error to frontend so user knows webcam won't be in the video
+            if let Some(app) = crate::app_handle() {
+                let _ = app.emit("webcam-error", e.to_string());
+            }
         }
     }
 

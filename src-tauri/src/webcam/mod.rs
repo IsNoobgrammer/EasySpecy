@@ -1,15 +1,18 @@
 //! Webcam capture + compositing for PiP overlay
 //!
-//! Architecture:
-//! 1. Webcam thread starts but waits for CAPTURE_ARMED
-//! 2. When armed, captures frames at ~30fps as RGBA PNGs in temp dir
-//! 3. On stop, composites webcam onto video using FFmpeg overlay with shape mask
+//! Architecture (sync-manager pattern):
+//! 1. start_webcam_capture() spawns thread that opens camera IMMEDIATELY
+//! 2. Thread verifies camera works (test frame), signals WEBCAM_READY
+//! 3. Thread waits for CAPTURE_ARMED (sync point with video + audio)
+//! 4. When armed, captures frames at ~30fps as PNGs in temp dir
+//! 5. On stop, composites webcam onto video using FFmpeg overlay with shape mask
 //!
-//! Sync: Webcam arms at the same instant as audio — both triggered by first video frame.
+//! Sync flow: camera opens → WEBCAM_READY → wait for CAPTURE_ARMED → capture frames
+//! If camera fails to open, WEBCAM_ERROR is set and reported to user.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Mutex};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::config::{AppConfig, WebcamShape};
@@ -20,13 +23,16 @@ static WEBCAM_ARMED: AtomicBool = AtomicBool::new(false);
 static WEBCAM_STOP: AtomicBool = AtomicBool::new(false);
 static WEBCAM_FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 static WEBCAM_ACTIVE: AtomicBool = AtomicBool::new(false);
+static WEBCAM_READY: AtomicBool = AtomicBool::new(false);
+static WEBCAM_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 static WEBCAM_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 static WEBCAM_DIR: Mutex<Option<String>> = Mutex::new(None);
 
 // ═══ PUBLIC API ═══
 
-/// Start webcam capture thread. Thread waits for CAPTURE_ARMED before collecting frames.
+/// Start webcam capture thread. Camera opens IMMEDIATELY and signals WEBCAM_READY.
+/// If camera fails, returns Err with the reason (shown to user).
 /// Called from start_recording() BEFORE video capture starts.
 pub fn start_webcam_capture(config: &AppConfig) -> Result<(), String> {
     if !config.webcam_enabled {
@@ -50,6 +56,8 @@ pub fn start_webcam_capture(config: &AppConfig) -> Result<(), String> {
     WEBCAM_STOP.store(false, Ordering::SeqCst);
     WEBCAM_FRAME_COUNT.store(0, Ordering::SeqCst);
     WEBCAM_ACTIVE.store(true, Ordering::SeqCst);
+    WEBCAM_READY.store(false, Ordering::SeqCst);
+    *WEBCAM_ERROR.lock().unwrap() = None;
 
     let device_str = config.webcam_device.clone();
     let target_size = config.webcam_size;
@@ -59,14 +67,32 @@ pub fn start_webcam_capture(config: &AppConfig) -> Result<(), String> {
         .spawn(move || {
             if let Err(e) = webcam_capture_loop(&dir_str, &device_str, target_size) {
                 tracing::error!("Webcam capture error: {}", e);
+                *WEBCAM_ERROR.lock().unwrap() = Some(e.clone());
+                WEBCAM_READY.store(false, Ordering::SeqCst);
             }
         })
         .map_err(|e| e.to_string())?;
 
     *WEBCAM_THREAD.lock().unwrap() = Some(handle);
 
-    tracing::info!("Webcam capture thread spawned (waiting for CAPTURE_ARMED)");
-    Ok(())
+    // Wait for camera to either become READY or fail (max 5 seconds)
+    let start = Instant::now();
+    while !WEBCAM_READY.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(5) {
+        // Check if thread already errored out
+        if let Some(err) = WEBCAM_ERROR.lock().unwrap().as_ref() {
+            WEBCAM_ACTIVE.store(false, Ordering::SeqCst);
+            return Err(format!("Webcam failed: {}", err));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    if WEBCAM_READY.load(Ordering::SeqCst) {
+        tracing::info!("Webcam READY — waiting for CAPTURE_ARMED");
+        Ok(())
+    } else {
+        WEBCAM_ACTIVE.store(false, Ordering::SeqCst);
+        Err("Webcam failed to initialize within 5 seconds".into())
+    }
 }
 
 /// Arm webcam capture — called when first video frame arrives.
@@ -77,6 +103,11 @@ pub fn arm_webcam() {
     }
     WEBCAM_ARMED.store(true, Ordering::SeqCst);
     tracing::info!("Webcam ARMED — synced with video frame 0");
+}
+
+/// Get webcam error message if any. Called from frontend to show error to user.
+pub fn get_webcam_error() -> Option<String> {
+    WEBCAM_ERROR.lock().unwrap().clone()
 }
 
 /// Stop webcam capture and wait for thread to finish.
@@ -96,16 +127,6 @@ pub fn stop_webcam_capture() -> Option<String> {
 
     let frame_count = WEBCAM_FRAME_COUNT.load(Ordering::Relaxed);
     tracing::info!("Webcam capture stopped: {} frames", frame_count);
-
-    // Write diagnostic to file for debugging
-    let diag_path = std::env::temp_dir().join("easyspecy").join("webcam_diag.txt");
-    let _ = std::fs::write(&diag_path, format!(
-        "frame_count={}\nactive={}\ndir={:?}\ntime={:?}\n",
-        frame_count,
-        WEBCAM_ACTIVE.load(Ordering::SeqCst),
-        WEBCAM_DIR.lock().unwrap().clone(),
-        std::time::SystemTime::now()
-    ));
 
     WEBCAM_ACTIVE.store(false, Ordering::SeqCst);
 
@@ -131,10 +152,7 @@ pub fn generate_shape_mask(
     let s = size as i32;
     let bw = border_width as i32;
 
-    // Create RGBA image
     let mut img = image::RgbaImage::new(size, size);
-
-    // Parse border color
     let bc = parse_hex_color(border_color);
 
     for y in 0..s {
@@ -150,16 +168,13 @@ pub fn generate_shape_mask(
                     dist <= cx
                 }
                 WebcamShape::Rounded => {
-                    let r = 16.0_f32.min(cx); // corner radius
+                    let r = 16.0_f32.min(cx);
                     rounded_rect_contains(px, py, 0.0, 0.0, s as f32, s as f32, r)
                 }
-                WebcamShape::Squircle => {
-                    squircle_contains(px, py, cx, cy, cx, 4.0)
-                }
+                WebcamShape::Squircle => squircle_contains(px, py, cx, cy, cx, 4.0),
             };
 
             if inside {
-                // Check if in border zone
                 let border_zone = if bw > 0 {
                     let inner = match shape {
                         WebcamShape::Circle => {
@@ -168,7 +183,10 @@ pub fn generate_shape_mask(
                         }
                         WebcamShape::Rounded => {
                             let r = 16.0_f32.min(cx);
-                            !rounded_rect_contains(px, py, bw as f32, bw as f32, (s - bw * 2) as f32, (s - bw * 2) as f32, (r - bw as f32).max(0.0))
+                            !rounded_rect_contains(
+                                px, py, bw as f32, bw as f32, (s - bw * 2) as f32,
+                                (s - bw * 2) as f32, (r - bw as f32).max(0.0),
+                            )
                         }
                         WebcamShape::Squircle => {
                             !squircle_contains(px, py, cx, cy, cx - bw as f32, 4.0)
@@ -182,11 +200,9 @@ pub fn generate_shape_mask(
                 if border_zone {
                     img.put_pixel(x as u32, y as u32, image::Rgba([bc[0], bc[1], bc[2], 255]));
                 } else {
-                    // White = show webcam content
                     img.put_pixel(x as u32, y as u32, image::Rgba([255, 255, 255, 255]));
                 }
             } else {
-                // Transparent = hide
                 img.put_pixel(x as u32, y as u32, image::Rgba([0, 0, 0, 0]));
             }
         }
@@ -198,7 +214,6 @@ pub fn generate_shape_mask(
 }
 
 /// Composite webcam onto video using FFmpeg.
-/// Runs after region crop, before audio merge.
 pub fn composite_webcam_on_video(
     video_path: &str,
     webcam_dir: &str,
@@ -216,16 +231,9 @@ pub fn composite_webcam_on_video(
     let opacity = config.webcam_opacity.clamp(0.0, 1.0);
     let size = config.webcam_size;
 
-    // FFmpeg command:
-    // 1. Input video
-    // 2. Input webcam frames as image sequence
-    // 3. Input mask
-    // 4. Scale webcam to size, apply mask as alpha, overlay on video
-
     let webcam_pattern = format!("{}/webcam_%06d.png", webcam_dir);
 
     let filter = if opacity < 1.0 {
-        // With opacity: scale webcam, apply mask alpha, adjust opacity, overlay
         format!(
             "[1:v]scale={s}:{s},format=rgba[cam];\
              [2:v]scale={s}:{s},format=rgba[mask];\
@@ -235,7 +243,6 @@ pub fn composite_webcam_on_video(
             s = size, op = opacity, x = x, y = y
         )
     } else {
-        // No opacity: scale webcam, apply mask alpha, overlay
         format!(
             "[1:v]scale={s}:{s},format=rgba[cam];\
              [2:v]scale={s}:{s},format=rgba[mask];\
@@ -248,8 +255,7 @@ pub fn composite_webcam_on_video(
     let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found")?;
 
     let args: Vec<String> = vec![
-        "-y".into(),
-        "-i".into(), video_path.into(),
+        "-y".into(), "-i".into(), video_path.into(),
         "-framerate".into(), "30".into(),
         "-i".into(), webcam_pattern,
         "-i".into(), mask_path.into(),
@@ -264,8 +270,10 @@ pub fn composite_webcam_on_video(
         output_path.clone(),
     ];
 
-    tracing::info!("Compositing webcam overlay: {} frames at ({}, {})", 
-        WEBCAM_FRAME_COUNT.load(Ordering::Relaxed), x, y);
+    tracing::info!(
+        "Compositing webcam overlay: {} frames at ({}, {})",
+        WEBCAM_FRAME_COUNT.load(Ordering::Relaxed), x, y
+    );
 
     let output = std::process::Command::new(&ffmpeg)
         .args(&args)
@@ -274,7 +282,6 @@ pub fn composite_webcam_on_video(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // Try fallback without mask (just overlay, no shape)
         tracing::warn!("Masked overlay failed, trying simple overlay: {}", stderr);
         return composite_simple_overlay(video_path, webcam_dir, config);
     }
@@ -298,7 +305,6 @@ fn composite_simple_overlay(
     let x = config.webcam_x.max(0).to_string();
     let y = config.webcam_y.max(0).to_string();
     let size = config.webcam_size;
-    let opacity = config.webcam_opacity.clamp(0.0, 1.0);
 
     let webcam_pattern = format!("{}/webcam_%06d.png", webcam_dir);
     let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found")?;
@@ -310,8 +316,7 @@ fn composite_simple_overlay(
     );
 
     let args: Vec<String> = vec![
-        "-y".into(),
-        "-i".into(), video_path.into(),
+        "-y".into(), "-i".into(), video_path.into(),
         "-framerate".into(), "30".into(),
         "-i".into(), webcam_pattern,
         "-filter_complex".into(), filter,
@@ -348,6 +353,7 @@ pub fn cleanup_webcam() {
 }
 
 // ═══ INTERNAL: CAPTURE LOOP ═══
+// Opens camera IMMEDIATELY, signals READY, then waits for ARMED.
 
 fn webcam_capture_loop(
     output_dir: &str,
@@ -358,16 +364,7 @@ fn webcam_capture_loop(
     use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
     use nokhwa::Camera;
 
-    // Wait for CAPTURE_ARMED
-    tracing::info!("Webcam thread waiting for CAPTURE_ARMED...");
-    while !WEBCAM_ARMED.load(Ordering::SeqCst) {
-        if WEBCAM_STOP.load(Ordering::SeqCst) {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-
-    // Initialize camera
+    // ═══ PHASE 1: Open camera immediately (before ARMED) ═══
     let index = if device_str == "default" || device_str.is_empty() {
         CameraIndex::Index(0)
     } else {
@@ -379,16 +376,14 @@ fn webcam_capture_loop(
 
     let format = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
 
-    let mut camera =
-        Camera::new(index, format).map_err(|e| format!("Failed to open webcam: {}", e))?;
+    tracing::info!("Webcam: opening camera device...");
+    let mut camera = Camera::new(index, format)
+        .map_err(|e| format!("Failed to open webcam: {}", e))?;
 
-    camera
-        .open_stream()
+    camera.open_stream()
         .map_err(|e| format!("Failed to start webcam stream: {}", e))?;
 
-    tracing::info!("Webcam stream started (target_size={}px)", target_size);
-
-    // Camera warmup — some webcams need time for auto-exposure
+    // Camera warmup — auto-exposure needs time
     std::thread::sleep(Duration::from_millis(500));
 
     // Get camera resolution
@@ -398,15 +393,41 @@ fn webcam_capture_loop(
     tracing::info!("Webcam resolution: {}x{}", cam_w, cam_h);
 
     if cam_w == 0 || cam_h == 0 {
-        tracing::error!("Webcam returned zero resolution!");
         camera.stop_stream().ok();
-        return Ok(());
+        return Err("Webcam returned zero resolution".into());
     }
 
+    // Verify camera works with a test frame
+    match camera.frame() {
+        Ok(frame) => {
+            let buf_len = frame.buffer().len();
+            tracing::info!("Webcam test frame OK: {} bytes ({}x{})", buf_len, cam_w, cam_h);
+        }
+        Err(e) => {
+            camera.stop_stream().ok();
+            return Err(format!("Webcam test frame failed: {}", e));
+        }
+    }
+
+    // ═══ PHASE 2: Signal READY — camera is open and working ═══
+    WEBCAM_READY.store(true, Ordering::SeqCst);
+    tracing::info!("Webcam READY — camera open, waiting for CAPTURE_ARMED...");
+
+    // ═══ PHASE 3: Wait for CAPTURE_ARMED (sync with video + audio) ═══
+    while !WEBCAM_ARMED.load(Ordering::SeqCst) {
+        if WEBCAM_STOP.load(Ordering::SeqCst) {
+            camera.stop_stream().ok();
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    tracing::info!("Webcam CAPTURE_ARMED — recording frames");
+
+    // ═══ PHASE 4: Capture frames ═══
     let frame_interval = Duration::from_millis(33); // ~30fps
     let mut last_frame_time = Instant::now();
     let mut frame_idx: u32 = 0;
-    let mut consecutive_errors: u32 = 0;
 
     loop {
         if WEBCAM_STOP.load(Ordering::SeqCst) {
@@ -420,32 +441,18 @@ fn webcam_capture_loop(
         }
         last_frame_time = now;
 
-        // Capture frame
         match camera.frame() {
             Ok(frame) => {
-                consecutive_errors = 0;
                 let frame_path = format!("{}/webcam_{:06}.png", output_dir, frame_idx);
                 let raw = frame.buffer();
-                let raw_len = raw.len();
-
-                // Use frame's actual resolution (may differ from camera.resolution())
                 let frame_res = frame.resolution();
                 let fw = frame_res.width();
                 let fh = frame_res.height();
 
-                if frame_idx == 0 {
-                    tracing::info!(
-                        "First webcam frame: buffer_len={}, frame_res={}x{}, camera_res={}x{}, target_size={}",
-                        raw_len, fw, fh, cam_w, cam_h, target_size
-                    );
-                }
-
-                // Validate buffer size — raw should be fw*fh*3 (RGB)
                 let expected_rgb = (fw * fh * 3) as usize;
                 let expected_rgba = (fw * fh * 4) as usize;
 
-                let rgba: Vec<u8> = if raw_len == expected_rgb {
-                    // Standard RGB → RGBA conversion
+                let rgba: Vec<u8> = if raw.len() == expected_rgb {
                     let mut rgba = Vec::with_capacity(expected_rgba);
                     for chunk in raw.chunks(3) {
                         if chunk.len() >= 3 {
@@ -453,56 +460,23 @@ fn webcam_capture_loop(
                         }
                     }
                     rgba
-                } else if raw_len == expected_rgba {
-                    // Already RGBA
+                } else if raw.len() == expected_rgba {
                     raw.to_vec()
                 } else {
-                    if frame_idx == 0 {
-                        tracing::error!(
-                            "Webcam buffer size mismatch: got {} bytes, expected {} (RGB) or {} (RGBA) for {}x{}",
-                            raw_len, expected_rgb, expected_rgba, fw, fh
-                        );
-                    }
-                    std::thread::sleep(Duration::from_millis(10));
                     continue;
                 };
 
-                // Build image from the actual frame dimensions
                 if let Some(img) = image::RgbaImage::from_raw(fw, fh, rgba) {
                     let resized = image::imageops::resize(
-                        &img,
-                        target_size,
-                        target_size,
-                        image::imageops::FilterType::Triangle,
+                        &img, target_size, target_size, image::imageops::FilterType::Triangle,
                     );
-                    if let Err(e) = resized.save(&frame_path) {
-                        tracing::warn!("Failed to save webcam frame {}: {}", frame_idx, e);
-                    } else {
+                    if resized.save(&frame_path).is_ok() {
                         frame_idx += 1;
                         WEBCAM_FRAME_COUNT.store(frame_idx, Ordering::Relaxed);
                     }
-                } else {
-                    tracing::warn!(
-                        "RgbaImage::from_raw failed: {} bytes for {}x{}", raw_len, fw, fh
-                    );
                 }
             }
-            Err(e) => {
-                consecutive_errors += 1;
-                if consecutive_errors <= 5 || consecutive_errors % 30 == 0 {
-                    tracing::warn!(
-                        "Webcam frame capture error #{}: {} (consecutive={})",
-                        frame_idx, e, consecutive_errors
-                    );
-                }
-                // After 100 consecutive errors, the camera is probably not going to work
-                if consecutive_errors >= 100 {
-                    tracing::error!(
-                        "Webcam: {} consecutive frame errors, giving up. Camera may be in use by another app.",
-                        consecutive_errors
-                    );
-                    break;
-                }
+            Err(_) => {
                 std::thread::sleep(Duration::from_millis(10));
             }
         }
@@ -527,21 +501,17 @@ fn parse_hex_color(hex: &str) -> [u8; 3] {
         let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
         [r, g, b]
     } else {
-        [0, 232, 138] // default emerald
+        [0, 232, 138]
     }
 }
 
 fn rounded_rect_contains(px: f32, py: f32, rx: f32, ry: f32, w: f32, h: f32, r: f32) -> bool {
-    // Check if point is inside rounded rectangle
     if px < rx || px > rx + w || py < ry || py > ry + h {
         return false;
     }
-    // Check corners
     let corners = [
-        (rx + r, ry + r),
-        (rx + w - r, ry + r),
-        (rx + r, ry + h - r),
-        (rx + w - r, ry + h - r),
+        (rx + r, ry + r), (rx + w - r, ry + r),
+        (rx + r, ry + h - r), (rx + w - r, ry + h - r),
     ];
     for (cx, cy) in &corners {
         if (px < rx + r || px > rx + w - r) && (py < ry + r || py > ry + h - r) {
