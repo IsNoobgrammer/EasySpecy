@@ -33,6 +33,8 @@ pub struct RecordingMetadata {
     pub trail_style: String,
     pub click_effect: String,
     pub trail_color: String,
+    pub secondary_color: String,
+    pub trail_duration_ms: f64,
 }
 
 static METADATA: Mutex<Option<RecordingMetadata>> = Mutex::new(None);
@@ -45,6 +47,8 @@ pub fn start_collection() {
         trail_style: config.trail_style.clone(),
         click_effect: config.click_effect.clone(),
         trail_color: config.cursor_trail_color.clone(),
+        secondary_color: config.cursor_secondary_color.clone(),
+        trail_duration_ms: config.trail_duration_ms,
         ..Default::default()
     });
     *SESSION_START.lock().unwrap() = Some(Instant::now());
@@ -175,8 +179,9 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     tracing::info!("Rendering {} trail frames at {}x{} {}fps", total_frames, width, height, fps);
 
-    // Parse trail color
+    // Parse trail color + secondary color (for right-click, gradients)
     let color = parse_hex_color(&meta.trail_color);
+    let secondary_color = parse_hex_color(&meta.secondary_color);
 
     // ═══ PRE-SMOOTH THE ENTIRE CURSOR PATH ═══
     // This is the key: build one continuous smooth curve from all samples FIRST,
@@ -223,32 +228,91 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     let frame_size = (width * height * 4) as usize;
     let ms_per_frame = 1000.0 / fps as f64;
-    let trail_duration_ms: f64 = 400.0; // Comet tail length in ms
+    let trail_duration_ms: f64 = meta.trail_duration_ms.max(100.0); // Comet tail length in ms (configurable)
 
     use std::io::Write;
+
+    // ═══ SPRING PHYSICS: Pre-compute smoothed head positions (sequential) ═══
+    let spring_stiffness = 0.15_f64;
+    let spring_damping = 0.75_f64;
+    let mut spring_x = 0.0_f64;
+    let mut spring_y = 0.0_f64;
+    let mut spring_vx = 0.0_f64;
+    let mut spring_vy = 0.0_f64;
+    let mut spring_initialized = false;
+    let mut smoothed_heads: Vec<Option<(f32, f32)>> = Vec::with_capacity(total_frames as usize);
+
+    for frame_idx in 0..total_frames {
+        let frame_time_ms = frame_idx as f64 * ms_per_frame;
+        let head_idx = find_path_index_at_time(&smooth_path, frame_time_ms);
+
+        if head_idx > 0 {
+            let target_x = smooth_path[head_idx].0 as f64;
+            let target_y = smooth_path[head_idx].1 as f64;
+
+            if !spring_initialized {
+                spring_x = target_x;
+                spring_y = target_y;
+                spring_initialized = true;
+            }
+
+            let force_x = spring_stiffness * (target_x - spring_x);
+            let force_y = spring_stiffness * (target_y - spring_y);
+            spring_vx = spring_vx * spring_damping + force_x;
+            spring_vy = spring_vy * spring_damping + force_y;
+            spring_x += spring_vx;
+            spring_y += spring_vy;
+
+            smoothed_heads.push(Some((spring_x as f32, spring_y as f32)));
+        } else {
+            smoothed_heads.push(None);
+        }
+    }
 
     // ═══ PRE-COMPUTE PER-FRAME DATA (PARALLEL) ═══
     // Each frame's trail segment + click data is independent → parallel compute.
     let smooth_path_ref = &smooth_path;
     let click_ref = &meta.click_events;
-    let pre_computed: Vec<(Vec<(f32, f32, f64)>, Vec<(f32, f32, f64)>)> = (0..total_frames)
+    let smoothed_heads_ref = &smoothed_heads;
+    let pre_computed: Vec<(Vec<(f32, f32, f64, f64)>, Vec<(f32, f32, f64, bool)>)> = (0..total_frames)
         .into_par_iter()
         .map(|frame_idx| {
             let frame_time_ms = frame_idx as f64 * ms_per_frame;
             let head_idx = find_path_index_at_time(smooth_path_ref, frame_time_ms);
 
-            // Trail segment
-            let segment: Vec<(f32, f32, f64)> = if head_idx > 0 {
+            // Trail segment with motion blur speed
+            let segment: Vec<(f32, f32, f64, f64)> = if head_idx > 0 {
                 let tail_start_time = (frame_time_ms - trail_duration_ms).max(0.0);
                 let tail_idx = find_path_index_at_time(smooth_path_ref, tail_start_time);
                 if head_idx > tail_idx {
-                    (tail_idx..=head_idx)
+                    let span = (head_idx - tail_idx).max(1) as f64;
+                    let mut seg: Vec<(f32, f32, f64, f64)> = (tail_idx..head_idx)
                         .map(|i| {
                             let p = &smooth_path_ref[i];
-                            let age = 1.0 - ((i - tail_idx) as f64 / (head_idx - tail_idx) as f64);
-                            (p.0, p.1, age)
+                            let age = 1.0 - ((i - tail_idx) as f64 / span);
+                            // Speed between this point and the next (px/ms)
+                            let speed = if i + 1 < smooth_path_ref.len() {
+                                let p_next = &smooth_path_ref[i + 1];
+                                let dx = (p_next.0 - p.0) as f64;
+                                let dy = (p_next.1 - p.1) as f64;
+                                let dt = (p_next.2 - p.2).abs().max(1.0);
+                                (dx * dx + dy * dy).sqrt() / dt
+                            } else {
+                                0.0
+                            };
+                            (p.0, p.1, age, speed)
                         })
-                        .collect()
+                        .collect();
+                    // Append spring-smoothed head position
+                    if let Some((sx, sy)) = smoothed_heads_ref[frame_idx as usize] {
+                        let p_head = &smooth_path_ref[head_idx];
+                        let dx = (sx - p_head.0) as f64;
+                        let dy = (sy - p_head.1) as f64;
+                        let dt = (frame_time_ms - p_head.2).abs().max(1.0);
+                        let head_speed = (dx * dx + dy * dy).sqrt() / dt;
+                        seg.push((sx, sy, 0.0, head_speed));
+                    }
+                    seg
                 } else {
                     Vec::new()
                 }
@@ -256,13 +320,14 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                 Vec::new()
             };
 
-            // Active clicks — binary search since click_events are sorted by timestamp
-            let active_clicks: Vec<(f32, f32, f64)> = click_ref
+            // Active clicks — with left/right button detection
+            let active_clicks: Vec<(f32, f32, f64, bool)> = click_ref
                 .iter()
                 .filter_map(|click| {
                     let click_age_ms = frame_time_ms - click.timestamp_ms as f64;
                     if click_age_ms >= 0.0 && click_age_ms < 600.0 {
-                        Some((click.x, click.y, click_age_ms / 600.0))
+                        let is_right = click.button == "right";
+                        Some((click.x, click.y, click_age_ms / 600.0, is_right))
                     } else {
                         None
                     }
@@ -286,6 +351,10 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
         .unwrap_or(8)
         .max(8);
 
+    // Find first/last frames with cursor activity for start/stop markers
+    let first_cursor_frame = pre_computed.iter().position(|(seg, _)| seg.len() >= 2);
+    let last_cursor_frame = pre_computed.iter().rposition(|(seg, _)| seg.len() >= 2);
+
     for batch_start in (0..total_frames as usize).step_by(batch_size) {
         let batch_end = (batch_start + batch_size).min(total_frames as usize);
 
@@ -304,12 +373,14 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                         height,
                         segment,
                         color,
+                        secondary_color,
                         &meta.trail_style,
                     );
                 }
 
-                // Click effects
-                for &(cx, cy, progress) in active_clicks {
+                // Click effects — use left/right button color
+                for &(cx, cy, progress, is_right) in active_clicks {
+                    let click_color = if is_right { secondary_color } else { color };
                     render_click_effect(
                         &mut frame_buf,
                         width,
@@ -317,9 +388,47 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                         cx,
                         cy,
                         progress,
-                        color,
+                        click_color,
                         &meta.click_effect,
                     );
+                }
+
+                // Recording start/stop markers
+                if Some(frame_idx) == first_cursor_frame
+                    || Some(frame_idx) == last_cursor_frame
+                {
+                    if let Some(&(x, y, _, _)) = segment.last() {
+                        draw_glow_circle(
+                            &mut frame_buf,
+                            width,
+                            height,
+                            x,
+                            y,
+                            40.0,
+                            (255, 255, 255),
+                            0.3,
+                        );
+                        draw_glow_circle(
+                            &mut frame_buf,
+                            width,
+                            height,
+                            x,
+                            y,
+                            25.0,
+                            (255, 255, 255),
+                            0.5,
+                        );
+                        draw_glow_circle(
+                            &mut frame_buf,
+                            width,
+                            height,
+                            x,
+                            y,
+                            15.0,
+                            (255, 255, 255),
+                            0.6,
+                        );
+                    }
                 }
 
                 frame_buf
@@ -561,18 +670,30 @@ fn draw_glow_circle(buf: &mut [u8], w: u32, h: u32, cx: f32, cy: f32, radius: f3
     }
 }
 
+/// Linear interpolation between two RGB colors
+fn lerp_color(a: (u8, u8, u8), b: (u8, u8, u8), t: f32) -> (u8, u8, u8) {
+    let t = t.clamp(0.0, 1.0);
+    (
+        (a.0 as f32 + (b.0 as f32 - a.0 as f32) * t) as u8,
+        (a.1 as f32 + (b.1 as f32 - a.1 as f32) * t) as u8,
+        (a.2 as f32 + (b.2 as f32 - a.2 as f32) * t) as u8,
+    )
+}
+
 /// Render smooth cursor trail onto RGBA frame buffer
 fn render_smooth_trail(
     buf: &mut [u8],
-    w: u32, h: u32,
-    points: &[(f32, f32, f64)], // (x, y, age 0..1)
+    w: u32,
+    h: u32,
+    points: &[(f32, f32, f64, f64)], // (x, y, age 0..1, speed px/ms)
     color: (u8, u8, u8),
+    secondary_color: (u8, u8, u8),
     style: &str,
 ) {
     if points.len() < 2 { return; }
 
     // Interpolate between points using Catmull-Rom for smoothness
-    let mut interpolated: Vec<(f32, f32, f64)> = Vec::with_capacity(points.len() * 4);
+    let mut interpolated: Vec<(f32, f32, f64, f64)> = Vec::with_capacity(points.len() * 4);
 
     for i in 0..points.len() - 1 {
         let p0 = points[i.saturating_sub(1)];
@@ -588,7 +709,8 @@ fn render_smooth_trail(
             let x = catmull_rom(p0.0, p1.0, p2.0, p3.0, t);
             let y = catmull_rom(p0.1, p1.1, p2.1, p3.1, t);
             let age = p1.2 + (p2.2 - p1.2) * t as f64;
-            interpolated.push((x, y, age));
+            let speed = p1.3 + (p2.3 - p1.3) * t as f64;
+            interpolated.push((x, y, age, speed));
         }
     }
     // Add last point
@@ -600,62 +722,74 @@ fn render_smooth_trail(
     match style {
         "glow" => {
             // Multi-layer glow: outer diffuse → core bright
-            for &(x, y, age) in &interpolated {
+            // Per-style palette: blend primary→secondary along trail, motion blur via speed
+            for &(x, y, age, speed) in &interpolated {
                 let life = (1.0 - age as f32).max(0.0);
                 if life <= 0.0 { continue; }
+                // Motion blur: faster = bigger glow (max 1.5x), slightly reduced alpha
+                let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
+                let alpha_mod = (1.0 - speed as f32 * 0.03).max(0.7);
+                // Per-style color palette: blend primary→secondary along trail
+                let blended = lerp_color(color, secondary_color, age as f32);
                 // Outer glow
-                draw_glow_circle(buf, w, h, x, y, 12.0 * life, color, 0.04 * life);
-                draw_glow_circle(buf, w, h, x, y, 7.0 * life, color, 0.12 * life);
+                draw_glow_circle(buf, w, h, x, y, 12.0 * life * speed_factor, blended, 0.04 * life * alpha_mod);
+                draw_glow_circle(buf, w, h, x, y, 7.0 * life * speed_factor, blended, 0.12 * life * alpha_mod);
                 // Core
-                draw_glow_circle(buf, w, h, x, y, 3.5 * life, color, 0.6 * life);
+                draw_glow_circle(buf, w, h, x, y, 3.5 * life * speed_factor, blended, 0.6 * life * alpha_mod);
                 // White center
                 draw_glow_circle(buf, w, h, x, y, 1.5 * life, (255, 255, 255), 0.5 * life);
             }
             // Extra bright head glow at newest point
-            if let Some(&(x, y, _)) = interpolated.last() {
-                draw_glow_circle(buf, w, h, x, y, 16.0, color, 0.08);
-                draw_glow_circle(buf, w, h, x, y, 9.0, color, 0.2);
+            if let Some(&(x, y, _, speed)) = interpolated.last() {
+                let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
+                draw_glow_circle(buf, w, h, x, y, 16.0 * speed_factor, color, 0.08);
+                draw_glow_circle(buf, w, h, x, y, 9.0 * speed_factor, color, 0.2);
                 draw_glow_circle(buf, w, h, x, y, 4.0, color, 0.8);
                 draw_glow_circle(buf, w, h, x, y, 2.0, (255, 255, 255), 0.9);
             }
         }
         "particles" | "dots" => {
-            for &(x, y, age) in &interpolated {
+            for &(x, y, age, speed) in &interpolated {
                 let life = (1.0 - age as f32).max(0.0);
                 if life <= 0.0 { continue; }
-                let size = 3.0 + life * 4.0;
+                let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
+                let size = (3.0 + life * 4.0) * speed_factor;
                 draw_glow_circle(buf, w, h, x, y, size, color, 0.7 * life);
                 draw_glow_circle(buf, w, h, x, y, size * 0.4, (255, 255, 255), 0.5 * life);
             }
         }
         "ribbon" => {
-            for &(x, y, age) in &interpolated {
+            for &(x, y, age, speed) in &interpolated {
                 let life = (1.0 - age as f32).max(0.0);
                 if life <= 0.0 { continue; }
+                let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
+                let alpha_mod = (1.0 - speed as f32 * 0.03).max(0.7);
                 // Wider, more diffuse
-                draw_glow_circle(buf, w, h, x, y, 8.0 * life, color, 0.15 * life);
-                draw_glow_circle(buf, w, h, x, y, 4.0 * life, color, 0.4 * life);
+                draw_glow_circle(buf, w, h, x, y, 8.0 * life * speed_factor, color, 0.15 * life * alpha_mod);
+                draw_glow_circle(buf, w, h, x, y, 4.0 * life * speed_factor, color, 0.4 * life * alpha_mod);
                 draw_glow_circle(buf, w, h, x, y, 1.5 * life, (255, 255, 255), 0.3 * life);
             }
         }
         "aurora" => {
-            for (i, &(x, y, age)) in interpolated.iter().enumerate() {
+            for (i, &(x, y, age, speed)) in interpolated.iter().enumerate() {
                 let life = (1.0 - age as f32).max(0.0);
                 if life <= 0.0 { continue; }
+                let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
                 // Shift hue along trail
                 let hue_shift = (i as f32 * 3.0) % 360.0;
                 let shifted_color = hue_rotate_rgb(color, hue_shift);
-                draw_glow_circle(buf, w, h, x, y, 10.0 * life, shifted_color, 0.08 * life);
-                draw_glow_circle(buf, w, h, x, y, 5.0 * life, shifted_color, 0.2 * life);
+                draw_glow_circle(buf, w, h, x, y, 10.0 * life * speed_factor, shifted_color, 0.08 * life);
+                draw_glow_circle(buf, w, h, x, y, 5.0 * life * speed_factor, shifted_color, 0.2 * life);
                 draw_glow_circle(buf, w, h, x, y, 2.0 * life, (255, 255, 255), 0.3 * life);
             }
         }
         _ => {
             // Default: simple dots
-            for &(x, y, age) in &interpolated {
+            for &(x, y, age, speed) in &interpolated {
                 let life = (1.0 - age as f32).max(0.0);
                 if life <= 0.0 { continue; }
-                draw_glow_circle(buf, w, h, x, y, 4.0 * life, color, 0.6 * life);
+                let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
+                draw_glow_circle(buf, w, h, x, y, 4.0 * life * speed_factor, color, 0.6 * life);
             }
         }
     }

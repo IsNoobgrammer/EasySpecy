@@ -42,12 +42,15 @@ pub struct AppConfig {
     // Cursor effects
     pub cursor_trail_enabled: bool,
     pub cursor_trail_color: String,
+    pub cursor_secondary_color: String, // For right-click, gradients
     pub cursor_trail_size: f32,
     pub cursor_smoothing: bool,
     pub cursor_size_multiplier: f32,
     pub cursor_pack: String,
     pub trail_style: String,
     pub click_effect: String,
+    pub trail_duration_ms: f64, // 200-2000ms, default 600
+    pub cursor_hide_in_recording: bool,
 
     // Hotkeys
     pub hotkey_start: String,
@@ -144,12 +147,15 @@ impl Default for AppConfig {
 
             cursor_trail_enabled: false,
             cursor_trail_color: "#00ff88".to_string(),
+            cursor_secondary_color: "#ff4488".to_string(),
             cursor_trail_size: 8.0,
             cursor_smoothing: true,
             cursor_size_multiplier: 1.5,
             cursor_pack: "default".to_string(),
             trail_style: "glow".to_string(),
             click_effect: "ripple".to_string(),
+            trail_duration_ms: 600.0,
+            cursor_hide_in_recording: false,
 
             hotkey_start: "Ctrl+Shift+R".to_string(),
             hotkey_stop: "Ctrl+Shift+S".to_string(),
