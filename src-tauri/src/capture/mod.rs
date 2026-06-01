@@ -230,6 +230,13 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
 
     // ═══ Start webcam capture (waits for CAPTURE_ARMED) ═══
     if config.webcam_enabled {
+        // Tell frontend to release any browser webcam streams (device contention)
+        if let Some(app) = crate::app_handle() {
+            let _ = app.emit("release-webcam", ());
+        }
+        // Give browser time to release the device
+        std::thread::sleep(Duration::from_millis(300));
+
         let webcam_config = crate::config::AppConfig {
             webcam_enabled: config.webcam_enabled,
             webcam_device: config.webcam_device.clone(),

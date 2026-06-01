@@ -232,6 +232,8 @@ export const useStore = create<AppState>((set, get) => ({
       set({ selectorMode: "none" });
       // Start recording and WAIT for capture to be armed
       get().addToast("Initializing capture...", "info");
+      // Stop monitor first to avoid racing on atomics
+      await invoke("stop_audio_monitor_cmd");
       await invoke("start_recording", { outputPath: null });
       // Only now is capture truly active
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
@@ -259,6 +261,9 @@ export const useStore = create<AppState>((set, get) => ({
     // FullScreen — start and WAIT for capture to be armed
     try {
       get().addToast("Initializing capture...", "info");
+      // Stop monitor FIRST so recording streams have exclusive device access
+      // and don't race on the same atomics
+      await invoke("stop_audio_monitor_cmd");
       // This now blocks until the first video frame is captured
       // and audio is armed — guaranteeing perfect sync
       await invoke("start_recording", { outputPath: null });
@@ -282,6 +287,10 @@ export const useStore = create<AppState>((set, get) => ({
       const result = await invoke<RecordingResult>("stop_recording");
       clearInterval(progressInterval);
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, lastRecording: result, encodingProgress: 100, encodingStage: "Done" });
+      // Restart audio monitor now that recording streams are freed
+      if (get().config?.audio_enabled) {
+        await invoke("start_audio_monitor_cmd");
+      }
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
       get().addToast(`Saved! ${dur}s, ${sizeMB}MB`, "success", { label: "Open", onClick: () => get().openPath(result.output_path) });

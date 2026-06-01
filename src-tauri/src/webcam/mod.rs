@@ -97,6 +97,16 @@ pub fn stop_webcam_capture() -> Option<String> {
     let frame_count = WEBCAM_FRAME_COUNT.load(Ordering::Relaxed);
     tracing::info!("Webcam capture stopped: {} frames", frame_count);
 
+    // Write diagnostic to file for debugging
+    let diag_path = std::env::temp_dir().join("easyspecy").join("webcam_diag.txt");
+    let _ = std::fs::write(&diag_path, format!(
+        "frame_count={}\nactive={}\ndir={:?}\ntime={:?}\n",
+        frame_count,
+        WEBCAM_ACTIVE.load(Ordering::SeqCst),
+        WEBCAM_DIR.lock().unwrap().clone(),
+        std::time::SystemTime::now()
+    ));
+
     WEBCAM_ACTIVE.store(false, Ordering::SeqCst);
 
     if frame_count == 0 {
@@ -378,6 +388,9 @@ fn webcam_capture_loop(
 
     tracing::info!("Webcam stream started (target_size={}px)", target_size);
 
+    // Camera warmup — some webcams need time for auto-exposure
+    std::thread::sleep(Duration::from_millis(500));
+
     // Get camera resolution
     let resolution = camera.resolution();
     let cam_w = resolution.width();
@@ -393,6 +406,7 @@ fn webcam_capture_loop(
     let frame_interval = Duration::from_millis(33); // ~30fps
     let mut last_frame_time = Instant::now();
     let mut frame_idx: u32 = 0;
+    let mut consecutive_errors: u32 = 0;
 
     loop {
         if WEBCAM_STOP.load(Ordering::SeqCst) {
@@ -409,6 +423,7 @@ fn webcam_capture_loop(
         // Capture frame
         match camera.frame() {
             Ok(frame) => {
+                consecutive_errors = 0;
                 let frame_path = format!("{}/webcam_{:06}.png", output_dir, frame_idx);
                 let raw = frame.buffer();
                 let raw_len = raw.len();
@@ -473,7 +488,21 @@ fn webcam_capture_loop(
                 }
             }
             Err(e) => {
-                tracing::warn!("Webcam frame capture error: {}", e);
+                consecutive_errors += 1;
+                if consecutive_errors <= 5 || consecutive_errors % 30 == 0 {
+                    tracing::warn!(
+                        "Webcam frame capture error #{}: {} (consecutive={})",
+                        frame_idx, e, consecutive_errors
+                    );
+                }
+                // After 100 consecutive errors, the camera is probably not going to work
+                if consecutive_errors >= 100 {
+                    tracing::error!(
+                        "Webcam: {} consecutive frame errors, giving up. Camera may be in use by another app.",
+                        consecutive_errors
+                    );
+                    break;
+                }
                 std::thread::sleep(Duration::from_millis(10));
             }
         }

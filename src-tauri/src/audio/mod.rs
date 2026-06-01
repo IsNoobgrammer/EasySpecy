@@ -169,15 +169,12 @@ pub fn start_audio_monitor(source: &AudioSource) -> Result<(), String> {
             if let Some(device) = host.default_input_device() {
                 if let Ok(supported) = device.default_input_config() {
                     let config: cpal::StreamConfig = supported.clone().into();
-                    let lvl = levels as *const AudioLevels;
-                    // SAFETY: AUDIO_LEVELS lives for 'static
-                    let lvl_ref: &'static AudioLevels = unsafe { &*lvl };
                     let stream_result = match supported.sample_format() {
                         cpal::SampleFormat::F32 => device.build_input_stream(
                             &config,
                             move |data: &[f32], _| {
                                 let (peak, rms) = compute_levels(data);
-                                lvl_ref.store_mic(peak, rms, rms_to_db(rms));
+                                global_levels().store_mic(peak, rms, rms_to_db(rms));
                             },
                             |e| tracing::warn!("Mic monitor error: {}", e),
                             None,
@@ -188,7 +185,7 @@ pub fn start_audio_monitor(source: &AudioSource) -> Result<(), String> {
                                 let f32_data: Vec<f32> =
                                     data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                                 let (peak, rms) = compute_levels(&f32_data);
-                                lvl_ref.store_mic(peak, rms, rms_to_db(rms));
+                                global_levels().store_mic(peak, rms, rms_to_db(rms));
                             },
                             |e| tracing::warn!("Mic monitor error: {}", e),
                             None,
@@ -214,14 +211,12 @@ pub fn start_audio_monitor(source: &AudioSource) -> Result<(), String> {
             if let Some(device) = host.default_output_device() {
                 if let Ok(supported) = device.default_output_config() {
                     let config: cpal::StreamConfig = supported.clone().into();
-                    let lvl = levels as *const AudioLevels;
-                    let lvl_ref: &'static AudioLevels = unsafe { &*lvl };
                     let stream_result = match supported.sample_format() {
                         cpal::SampleFormat::F32 => device.build_input_stream(
                             &config,
                             move |data: &[f32], _| {
                                 let (peak, rms) = compute_levels(data);
-                                lvl_ref.store_sys(peak, rms, rms_to_db(rms));
+                                global_levels().store_sys(peak, rms, rms_to_db(rms));
                             },
                             |e| tracing::warn!("System monitor error: {}", e),
                             None,
@@ -232,7 +227,7 @@ pub fn start_audio_monitor(source: &AudioSource) -> Result<(), String> {
                                 let f32_data: Vec<f32> =
                                     data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                                 let (peak, rms) = compute_levels(&f32_data);
-                                lvl_ref.store_sys(peak, rms, rms_to_db(rms));
+                                global_levels().store_sys(peak, rms, rms_to_db(rms));
                             },
                             |e| tracing::warn!("System monitor error: {}", e),
                             None,
@@ -341,8 +336,6 @@ impl AudioCapture {
             let recording = self.recording.clone();
             let armed = self.armed.clone();
             let paused = self.paused.clone();
-            let lvl = global_levels() as *const AudioLevels;
-            let lvl_ref: &'static AudioLevels = unsafe { &*lvl };
             let stream_config: cpal::StreamConfig = supported.clone().into();
 
             let stream = match supported.sample_format() {
@@ -351,7 +344,7 @@ impl AudioCapture {
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         // Always update levels for visualization (lock-free)
                         let (peak, rms) = compute_levels(data);
-                        lvl_ref.store_mic(peak, rms, rms_to_db(rms));
+                        global_levels().store_mic(peak, rms, rms_to_db(rms));
                         // Buffer samples only when armed
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
@@ -370,7 +363,7 @@ impl AudioCapture {
                             data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                         // Always update levels (lock-free)
                         let (peak, rms) = compute_levels(&f32_data);
-                        lvl_ref.store_mic(peak, rms, rms_to_db(rms));
+                        global_levels().store_mic(peak, rms, rms_to_db(rms));
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
                             && !paused.load(Ordering::Relaxed)
@@ -412,8 +405,6 @@ impl AudioCapture {
             let recording = self.recording.clone();
             let armed = self.armed.clone();
             let paused = self.paused.clone();
-            let lvl = global_levels() as *const AudioLevels;
-            let lvl_ref: &'static AudioLevels = unsafe { &*lvl };
             let stream_config: cpal::StreamConfig = supported.clone().into();
 
             let stream = match supported.sample_format() {
@@ -422,7 +413,7 @@ impl AudioCapture {
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         // Always update levels (lock-free)
                         let (peak, rms) = compute_levels(data);
-                        lvl_ref.store_sys(peak, rms, rms_to_db(rms));
+                        global_levels().store_sys(peak, rms, rms_to_db(rms));
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
                             && !paused.load(Ordering::Relaxed)
@@ -440,7 +431,7 @@ impl AudioCapture {
                             data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                         // Always update levels (lock-free)
                         let (peak, rms) = compute_levels(&f32_data);
-                        lvl_ref.store_sys(peak, rms, rms_to_db(rms));
+                        global_levels().store_sys(peak, rms, rms_to_db(rms));
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
                             && !paused.load(Ordering::Relaxed)

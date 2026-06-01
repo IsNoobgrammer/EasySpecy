@@ -38,7 +38,17 @@ export default function App() {
       useStore.setState({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       useStore.getState().addToast("Recording started (region)", "success");
     });
-    return () => { unlisten.then((fn) => fn()); };
+    // Release browser webcam when backend needs the device for nokhwa capture
+    const unlistenWebcam = listen("release-webcam", () => {
+      // Stop any existing video element streams (from WebcamPreview etc.)
+      document.querySelectorAll("video").forEach((v) => {
+        if (v.srcObject instanceof MediaStream) {
+          (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+          v.srcObject = null;
+        }
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); unlistenWebcam.then((fn) => fn()); };
   }, []);
 
   // Audio monitor lifecycle — runs on ALL pages (not just Dashboard)
@@ -52,15 +62,6 @@ export default function App() {
     const interval = setInterval(pollAudioLevels, 50);
     return () => clearInterval(interval);
   }, [pollAudioLevels]);
-
-  // Stop monitor before recording (free device for AudioCapture), restart after
-  useEffect(() => {
-    if (recordingPhase === "recording") {
-      stopAudioMonitor();
-    } else if (recordingPhase === "idle" && config?.audio_enabled) {
-      startAudioMonitor();
-    }
-  }, [recordingPhase]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);

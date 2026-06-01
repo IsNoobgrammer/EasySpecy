@@ -45,6 +45,16 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 nnnoiseless = "0.5"
 flume = "0.11"
 crossbeam-utils = "0.8"
+dasp = "0.11"
+rubato = "0.16"
+sysinfo = "0.39"
+resvg = "0.47"
+usvg = "0.47"
+tiny-skia = "0.12"
+cosmic-text = "0.12"
+muda = "0.19"
+tray-icon = "0.24"
+rav1e = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"
