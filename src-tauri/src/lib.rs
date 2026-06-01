@@ -9,7 +9,17 @@ mod region;
 pub mod sync_verifier;
 mod tray;
 
+use std::sync::OnceLock;
+use tauri::AppHandle;
 use tracing_subscriber::EnvFilter;
+
+/// Global AppHandle for emitting events from background threads (e.g. cursor tracking)
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+
+/// Get the global AppHandle (available after app setup)
+pub fn app_handle() -> Option<&'static AppHandle> {
+    APP_HANDLE.get()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,6 +67,8 @@ pub fn run() {
             commands::destroy_effects_overlay,
         ])
         .setup(|app| {
+            // Store AppHandle globally for background thread access (cursor events)
+            let _ = APP_HANDLE.set(app.handle().clone());
             tray::setup_tray(app.handle())?;
             Ok(())
         })

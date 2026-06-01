@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   TrailRenderer, ClickEffectRenderer,
@@ -10,6 +11,9 @@ import {
  * RecordingOverlay — transparent fullscreen overlay window.
  * Renders trail + click effects at cursor position during recording.
  * Created as a separate Tauri window (transparent, click-through, always-on-top).
+ *
+ * v3: Receives cursor data via Tauri events from the Rust mouse tracking thread.
+ * This fixes the jitter/latency issue where DOM events don't fire on click-through windows.
  */
 export function RecordingOverlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -49,20 +53,36 @@ export function RecordingOverlay() {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  // Track mouse movement
+  // Listen to Tauri events from Rust mouse tracking thread
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      trailRef.current.addPoint(e.clientX, e.clientY);
-    };
-    const onClick = (e: MouseEvent) => {
-      clickRef.current.addClick(e.clientX, e.clientY);
+    let unlistenMove: (() => void) | null = null;
+    let unlistenClick: (() => void) | null = null;
+
+    const setup = async () => {
+      // Cursor movement events from Rust (~120Hz)
+      unlistenMove = await listen<[number, number]>("cursor-move", (event) => {
+        const [x, y] = event.payload;
+        trailRef.current.addPoint(x, y);
+      });
+
+      // Click events from Rust
+      unlistenClick = await listen<[number, number, string]>("cursor-click", (event) => {
+        const [x, y] = event.payload;
+        clickRef.current.addClick(x, y);
+      });
     };
 
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mousedown", onClick);
+    setup().catch(() => {
+      // Fallback: DOM events (for debugging, won't work on click-through windows)
+      const onMove = (e: MouseEvent) => trailRef.current.addPoint(e.clientX, e.clientY);
+      const onClick = (e: MouseEvent) => clickRef.current.addClick(e.clientX, e.clientY);
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mousedown", onClick);
+    });
+
     return () => {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mousedown", onClick);
+      unlistenMove?.();
+      unlistenClick?.();
     };
   }, []);
 

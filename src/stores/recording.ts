@@ -14,6 +14,10 @@ export interface AppConfig {
   audio_source: "Mic" | "System" | "Both";
   audio_sample_rate: number;
   audio_device: string;
+  mic_gain: number;
+  system_volume: number;
+  noise_gate_threshold: number;
+  noise_reduction: number;
   webcam_enabled: boolean;
   webcam_device: string;
   webcam_position: "TopLeft" | "TopRight" | "BottomLeft" | "BottomRight";

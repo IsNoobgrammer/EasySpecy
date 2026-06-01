@@ -1,0 +1,1 @@
+{"identifier":"overlay","description":"Capability for the effects overlay window","windows":["effects-overlay"],"permissions":["core:default","core:event:default","core:event:allow-listen","core:event:allow-emit"]}

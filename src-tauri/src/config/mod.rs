@@ -22,6 +22,12 @@ pub struct AppConfig {
     pub audio_sample_rate: u32,
     pub audio_device: String,
 
+    // Audio Processing
+    pub mic_gain: f32,              // Mic volume multiplier (0.0 - 3.0, default 1.0)
+    pub system_volume: f32,         // System audio volume in mix (0.0 - 1.0, default 0.55)
+    pub noise_gate_threshold: f32,  // Noise gate sensitivity (0.0 = off, 1.0 = aggressive, default 0.5)
+    pub noise_reduction: f32,       // Noise reduction strength (0.0 = off, 1.0 = max, default 0.6)
+
     // Webcam
     pub webcam_enabled: bool,
     pub webcam_device: String,
@@ -121,6 +127,11 @@ impl Default for AppConfig {
             audio_source: AudioSource::Mic,
             audio_sample_rate: 44100,
             audio_device: "default".to_string(),
+
+            mic_gain: 1.0,
+            system_volume: 0.55,
+            noise_gate_threshold: 0.5,
+            noise_reduction: 0.6,
 
             webcam_enabled: false,
             webcam_device: "default".to_string(),

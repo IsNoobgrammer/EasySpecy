@@ -253,14 +253,17 @@ impl AudioCapture {
                 // 3. Normalize mic loudness to match system audio level
                 let mic_processed = process_mic_audio(&mic_stereo, &sys_stereo, out_rate, out_channels);
 
-                // OVERLAP mixing with mic boosted
+                let config = crate::config::AppConfig::load();
+                let sys_vol = config.system_volume.clamp(0.0, 1.0);
+
+                // OVERLAP mixing with configurable system volume
                 let len = mic_processed.len().max(sys_stereo.len());
                 let mut out = Vec::with_capacity(len);
                 for i in 0..len {
                     let m = if i < mic_processed.len() { mic_processed[i] } else { 0.0 };
                     let s = if i < sys_stereo.len() { sys_stereo[i] } else { 0.0 };
-                    // Mic at full volume, system slightly ducked so voice cuts through
-                    out.push((m * 1.0 + s * 0.55).clamp(-1.0, 1.0));
+                    // Mic at full volume, system at user-configured level
+                    out.push((m * 1.0 + s * sys_vol).clamp(-1.0, 1.0));
                 }
                 out
             }
@@ -395,27 +398,46 @@ fn process_mic_audio(
         return Vec::new();
     }
 
+    let config = crate::config::AppConfig::load();
     let ch = channels as usize;
     let frames_per_ms = sample_rate as usize / 1000;
 
     // ═══ Step 1: Estimate noise floor from first 200ms ═══
     let noise_samples = (200 * frames_per_ms * ch).min(mic.len());
     let noise_rms = rms(&mic[..noise_samples]);
-    let noise_threshold = noise_rms * 2.5; // Gate threshold = 2.5x noise floor
+
+    // Use config noise_gate_threshold to scale sensitivity (0.0 = off, 1.0 = aggressive)
+    let gate_multiplier = 1.0 + config.noise_gate_threshold * 4.0; // maps 0..1 to 1x..5x
+    let noise_threshold = noise_rms * gate_multiplier;
 
     tracing::info!(
-        "Mic processing: noise_rms={:.6}, gate_threshold={:.6}",
-        noise_rms, noise_threshold
+        "Mic processing: noise_rms={:.6}, gate_threshold={:.6} (sensitivity={:.1})",
+        noise_rms, noise_threshold, config.noise_gate_threshold
     );
 
-    // ═══ Step 2: Noise gate with smooth attack/release ═══
-    let gated = noise_gate(mic, noise_threshold, sample_rate, channels);
+    // ═══ Step 2: Noise gate (skip if threshold is 0) ═══
+    let gated = if config.noise_gate_threshold > 0.01 {
+        noise_gate(mic, noise_threshold, sample_rate, channels)
+    } else {
+        mic.to_vec()
+    };
 
-    // ═══ Step 3: Spectral noise reduction (simple but effective) ═══
-    let denoised = spectral_subtract(&gated, noise_rms, sample_rate, channels);
+    // ═══ Step 3: Spectral noise reduction (skip if reduction is 0) ═══
+    let denoised = if config.noise_reduction > 0.01 {
+        spectral_subtract(&gated, noise_rms, sample_rate, channels, config.noise_reduction)
+    } else {
+        gated
+    };
 
-    // ═══ Step 4: Normalize mic loudness to match system audio ═══
-    let normalized = normalize_to_target(&denoised, sys, sample_rate, channels);
+    // ═══ Step 4: Apply mic gain from config ═══
+    let gained: Vec<f32> = if (config.mic_gain - 1.0).abs() > 0.01 {
+        denoised.iter().map(|&s| (s * config.mic_gain).clamp(-1.0, 1.0)).collect()
+    } else {
+        denoised
+    };
+
+    // ═══ Step 5: Normalize mic loudness to match system audio ═══
+    let normalized = normalize_to_target(&gained, sys, sample_rate, channels);
 
     normalized
 }
@@ -490,20 +512,21 @@ fn noise_gate(
 /// Works by subtracting the estimated noise magnitude from each sample's envelope.
 /// This is a simplified time-domain approach (not full FFT) that's fast and effective
 /// for constant noise like fan hum, AC, or mic hiss.
+/// `strength` controls aggressiveness: 0.0 = none, 1.0 = maximum
 fn spectral_subtract(
     input: &[f32],
     noise_rms: f32,
     _sample_rate: u32,
     _channels: u32,
+    strength: f32,
 ) -> Vec<f32> {
     if noise_rms < 0.0001 {
         // Noise floor is negligible, skip processing
         return input.to_vec();
     }
 
-    // Subtraction factor: how aggressively to remove noise
-    // 1.5x = moderate (preserves voice quality), 3.0x = aggressive
-    let subtract_factor: f32 = 1.8;
+    // Subtraction factor scales with strength: 0.0 → 0x, 0.5 → 1.5x, 1.0 → 3.0x
+    let subtract_factor: f32 = strength * 3.0;
     let noise_level = noise_rms * subtract_factor;
 
     let mut output = Vec::with_capacity(input.len());

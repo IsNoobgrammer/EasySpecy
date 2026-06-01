@@ -231,17 +231,20 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
         .map_err(|e| format!("Failed to spawn capture thread: {}", e))?;
 
     // ═══ Spawn mouse tracking thread for cursor trail + click effects ═══
-    // Polls cursor position at ~60Hz and detects mouse clicks.
-    // Feeds data to postprocess module for FFmpeg effects.
+    // Polls cursor position at ~120Hz for smooth overlay rendering.
+    // Emits events to the overlay window AND feeds postprocess for FFmpeg bake-in.
     std::thread::Builder::new()
         .name("easyspecy-mouse".to_string())
         .spawn(move || {
             use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON, VK_MBUTTON};
             use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+            use tauri::Emitter;
 
             let mut left_was_down = false;
             let mut right_was_down = false;
             let mut middle_was_down = false;
+            let mut last_x: i32 = 0;
+            let mut last_y: i32 = 0;
 
             tracing::info!("Mouse tracking thread started");
 
@@ -258,6 +261,19 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
                 if unsafe { GetCursorPos(&mut point).is_ok() } {
                     crate::postprocess::record_cursor(point.x as f32, point.y as f32);
+
+                    // Emit to overlay window only if position changed (reduces IPC noise)
+                    if point.x != last_x || point.y != last_y {
+                        last_x = point.x;
+                        last_y = point.y;
+                        if let Some(app) = crate::app_handle() {
+                            let _ = app.emit_to(
+                                "effects-overlay",
+                                "cursor-move",
+                                (point.x, point.y),
+                            );
+                        }
+                    }
                 }
 
                 // Detect mouse button state changes (press = new click)
@@ -267,20 +283,42 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
 
                 if left_down && !left_was_down {
                     crate::postprocess::record_click(point.x as f32, point.y as f32, "left");
+                    if let Some(app) = crate::app_handle() {
+                        let _ = app.emit_to(
+                            "effects-overlay",
+                            "cursor-click",
+                            (point.x, point.y, "left"),
+                        );
+                    }
                 }
                 if right_down && !right_was_down {
                     crate::postprocess::record_click(point.x as f32, point.y as f32, "right");
+                    if let Some(app) = crate::app_handle() {
+                        let _ = app.emit_to(
+                            "effects-overlay",
+                            "cursor-click",
+                            (point.x, point.y, "right"),
+                        );
+                    }
                 }
                 if middle_down && !middle_was_down {
                     crate::postprocess::record_click(point.x as f32, point.y as f32, "middle");
+                    if let Some(app) = crate::app_handle() {
+                        let _ = app.emit_to(
+                            "effects-overlay",
+                            "cursor-click",
+                            (point.x, point.y, "middle"),
+                        );
+                    }
                 }
 
                 left_was_down = left_down;
                 right_was_down = right_down;
                 middle_was_down = middle_down;
 
-                // ~60Hz polling
-                std::thread::sleep(Duration::from_millis(16));
+                // ~120Hz polling for smoother cursor tracking
+                // Higher rate = more interpolation points = smoother trails
+                std::thread::sleep(Duration::from_millis(8));
             }
 
             tracing::info!("Mouse tracking thread stopped");

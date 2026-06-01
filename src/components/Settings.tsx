@@ -154,6 +154,20 @@ export function Settings({ onBack }: { onBack: () => void }) {
                         ]}
                       />
                     </Row>
+                    <Row label="Mic Gain" desc="Boost or reduce mic volume (1.0 = normal)">
+                      <Slider value={local.mic_gain} min={0} max={3} step={0.1} onChange={(v) => update("mic_gain", v)} suffix="×" />
+                    </Row>
+                    {(local.audio_source === "Both" || local.audio_source === "System") && (
+                      <Row label="System Volume" desc="System audio level in mix">
+                        <Slider value={local.system_volume} min={0} max={1} step={0.05} onChange={(v) => update("system_volume", v)} suffix="" />
+                      </Row>
+                    )}
+                    <Row label="Noise Gate" desc="Suppress background noise (0 = off, 1 = aggressive)">
+                      <Slider value={local.noise_gate_threshold} min={0} max={1} step={0.05} onChange={(v) => update("noise_gate_threshold", v)} suffix="" />
+                    </Row>
+                    <Row label="Noise Reduction" desc="Remove constant hiss/hum (0 = off, 1 = max)">
+                      <Slider value={local.noise_reduction} min={0} max={1} step={0.05} onChange={(v) => update("noise_reduction", v)} suffix="" />
+                    </Row>
                   </div>
                 </motion.div>
               )}
@@ -695,6 +709,28 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function Slider({ value, min, max, step, onChange, suffix }: {
+  value: number; min: number; max: number; step: number; onChange: (v: number) => void; suffix?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2 min-w-[160px]">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="flex-1 h-1.5 cursor-pointer accent-[var(--accent-primary)]"
+        style={{ background: "var(--bg-base)", borderRadius: "var(--radius-full)" }}
+      />
+      <span className="font-mono text-[10px] min-w-[36px] text-right" style={{ color: "var(--text-muted)" }}>
+        {value.toFixed(step < 0.1 ? 2 : 1)}{suffix}
+      </span>
     </div>
   );
 }

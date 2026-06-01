@@ -13,8 +13,17 @@
 <body>
   <canvas id="fx"></canvas>
   <script>
-    // ── Premium Effects Engine v2 (inlined for overlay window) ──
+    /**
+     * EasySpecy Effects Overlay v3 — Event-driven + Spline Interpolation
+     *
+     * KEY FIXES over v2:
+     * 1. Receives cursor position via Tauri events (not DOM mousemove which doesn't work on click-through windows)
+     * 2. Uses Catmull-Rom spline interpolation between samples for buttery smooth trails
+     * 3. Renders at display refresh rate (requestAnimationFrame) independent of input rate
+     * 4. Immediate point injection — no frame delay between event receipt and render
+     */
 
+    // ── Color Helpers ──
     function hexToRgb(hex) {
       const h = hex.replace("#", "");
       return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
@@ -26,6 +35,18 @@
     function hsl(h, s, l, a) { return `hsla(${h % 360},${s}%,${l}%,${Math.max(0, Math.min(1, a))})`; }
     function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
     function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+    // ── Catmull-Rom Spline Interpolation ──
+    // Given 4 control points and t in [0,1], returns interpolated position
+    function catmullRom(p0, p1, p2, p3, t) {
+      const t2 = t * t, t3 = t2 * t;
+      return 0.5 * (
+        (2 * p1) +
+        (-p0 + p2) * t +
+        (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+        (-p0 + 3 * p1 - 3 * p2 + p3) * t3
+      );
+    }
 
     function drawSmoothPath(ctx, pts) {
       if (pts.length < 2) return;
@@ -39,24 +60,92 @@
       }
     }
 
-    // ── Trail Renderer ──
+    // ── Spline-Interpolated Trail Renderer ──
     class TrailRenderer {
-      constructor() { this.points = []; this.style = "glow"; this.color = "#00e88a"; this.time = 0; this.lastX = 0; this.lastY = 0; this.velocity = 0; }
-      addPoint(x, y) {
-        const dx = x - this.lastX, dy = y - this.lastY, dist = Math.hypot(dx, dy);
-        if (dist < 1.5) return;
-        this.velocity = Math.min(dist, 30); this.lastX = x; this.lastY = y;
-        this.points.push({ x, y, age: 0, vx: dx * 0.1, vy: dy * 0.1 });
-        if (this.points.length > 80) this.points.shift();
+      constructor() {
+        this.rawPoints = [];     // Raw input samples from Rust (timestamped)
+        this.points = [];        // Interpolated render points
+        this.style = "glow";
+        this.color = "#00e88a";
+        this.time = 0;
+        this.lastX = 0;
+        this.lastY = 0;
+        this.velocity = 0;
+        this.maxRaw = 20;       // Keep last N raw samples for spline
+        this.maxPoints = 80;    // Max render points
       }
+
+      // Called when a new cursor position arrives from Rust
+      addRawPoint(x, y) {
+        const now = performance.now();
+        const dx = x - this.lastX, dy = y - this.lastY;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 0.5) return; // Deduplicate sub-pixel jitter
+
+        this.velocity = Math.min(dist, 40);
+        this.lastX = x;
+        this.lastY = y;
+        this.rawPoints.push({ x, y, t: now });
+        if (this.rawPoints.length > this.maxRaw) this.rawPoints.shift();
+
+        // Interpolate between the last few raw points to generate smooth render points
+        this._interpolate();
+      }
+
+      _interpolate() {
+        const raw = this.rawPoints;
+        if (raw.length < 2) {
+          // Just add the point directly
+          if (raw.length === 1) {
+            this.points.push({ x: raw[0].x, y: raw[0].y, age: 0, vx: 0, vy: 0 });
+          }
+          return;
+        }
+
+        // Generate interpolated points between the last two raw samples
+        const n = raw.length;
+        const p0 = raw[Math.max(0, n - 3)];
+        const p1 = raw[Math.max(0, n - 2)];
+        const p2 = raw[n - 1];
+        const p3 = raw[Math.min(n - 1, n)]; // clamp to last
+
+        // Number of interpolation steps based on distance (more distance = more steps)
+        const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        const steps = Math.max(2, Math.min(6, Math.ceil(dist / 4)));
+
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          const ix = catmullRom(p0.x, p1.x, p2.x, p3.x, t);
+          const iy = catmullRom(p0.y, p1.y, p2.y, p3.y, t);
+          const vx = (p2.x - p1.x) * 0.08;
+          const vy = (p2.y - p1.y) * 0.08;
+          this.points.push({ x: ix, y: iy, age: 0, vx, vy });
+        }
+
+        // Trim to max
+        while (this.points.length > this.maxPoints) this.points.shift();
+      }
+
       update() {
-        this.time++; this.velocity *= 0.92;
-        this.points = this.points.filter(p => { p.age++; p.x += p.vx * 0.3; p.y += p.vy * 0.3; p.vx *= 0.95; p.vy *= 0.95; return p.age < 50; });
+        this.time++;
+        this.velocity *= 0.92;
+        this.points = this.points.filter(p => {
+          p.age++;
+          p.x += p.vx * 0.2;
+          p.y += p.vy * 0.2;
+          p.vx *= 0.94;
+          p.vy *= 0.94;
+          return p.age < 50;
+        });
       }
+
       draw(ctx) {
         if (this.style === "none" || this.points.length === 0) return;
-        ({ glow: () => this.drawGlow(ctx), particles: () => this.drawParticles(ctx), ribbon: () => this.drawRibbon(ctx), dots: () => this.drawDots(ctx), aurora: () => this.drawAurora(ctx) })[this.style]?.();
+        ({ glow: () => this.drawGlow(ctx), particles: () => this.drawParticles(ctx),
+           ribbon: () => this.drawRibbon(ctx), dots: () => this.drawDots(ctx),
+           aurora: () => this.drawAurora(ctx) })[this.style]?.();
       }
+
       drawGlow(ctx) {
         const pts = this.points; if (pts.length < 2) return; ctx.save(); ctx.lineCap = "round"; ctx.lineJoin = "round";
         const velFactor = Math.min(1, this.velocity / 15);
@@ -71,6 +160,7 @@
         ctx.beginPath(); ctx.arc(head.x, head.y, 2 * hl, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,255,255,${0.9 * hl})`; ctx.fill();
         ctx.restore();
       }
+
       drawParticles(ctx) {
         const pts = this.points; ctx.save();
         for (let i = 0; i < pts.length; i++) {
@@ -96,6 +186,7 @@
         }
         ctx.restore();
       }
+
       drawRibbon(ctx) {
         const pts = this.points; if (pts.length < 3) return; ctx.save();
         for (const { width, alpha, blur } of [{ width: 18, alpha: 0.04, blur: 4 }, { width: 10, alpha: 0.12, blur: 1 }, { width: 4, alpha: 0.35, blur: 0 }, { width: 1.5, alpha: 0.7, blur: 0 }]) {
@@ -106,6 +197,7 @@
         ctx.setLineDash([4, 8]); ctx.lineDashOffset = -this.time * 2; ctx.stroke(); ctx.setLineDash([]);
         ctx.restore();
       }
+
       drawDots(ctx) {
         const pts = this.points; ctx.save();
         for (let i = 0; i < pts.length; i++) {
@@ -118,6 +210,7 @@
         }
         ctx.restore();
       }
+
       drawAurora(ctx) {
         const pts = this.points; if (pts.length < 4) return; ctx.save();
         const bh = (this.time * 1.5) % 360;
@@ -194,7 +287,7 @@
       }
     }
 
-    // ── Main ──
+    // ── Main Initialization ──
     const canvas = document.getElementById("fx");
     const ctx = canvas.getContext("2d");
     const trail = new TrailRenderer();
@@ -203,18 +296,48 @@
     function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
     resize(); window.addEventListener("resize", resize);
 
+    // Load config
     async function loadConfig() {
       try {
         const cfg = await window.__TAURI__.core.invoke("get_config");
-        trail.style = cfg.trail_style || "glow"; trail.color = cfg.cursor_trail_color || "#00e88a";
-        click.style = cfg.click_effect || "ripple"; click.color = cfg.cursor_trail_color || "#00e88a";
+        trail.style = cfg.trail_style || "glow";
+        trail.color = cfg.cursor_trail_color || "#00e88a";
+        click.style = cfg.click_effect || "ripple";
+        click.color = cfg.cursor_trail_color || "#00e88a";
       } catch (e) { console.error("Config load failed:", e); }
     }
     loadConfig();
 
-    document.addEventListener("mousemove", e => trail.addPoint(e.clientX, e.clientY));
-    document.addEventListener("mousedown", e => click.addClick(e.clientX, e.clientY));
+    // ── Listen to Tauri events from Rust mouse tracking thread ──
+    // This is the KEY FIX: we receive cursor data via IPC events, not DOM events
+    // (DOM events don't fire on click-through transparent windows)
+    async function setupEventListeners() {
+      try {
+        const { listen } = window.__TAURI__.event;
 
+        // Cursor movement — arrives at ~120Hz from Rust
+        await listen("cursor-move", (event) => {
+          const [x, y] = event.payload;
+          trail.addRawPoint(x, y);
+        });
+
+        // Click events — arrives on mouse button press
+        await listen("cursor-click", (event) => {
+          const [x, y, _button] = event.payload;
+          click.addClick(x, y);
+        });
+
+        console.log("[EasySpecy] Event listeners registered — receiving cursor data from Rust");
+      } catch (e) {
+        console.error("[EasySpecy] Failed to set up event listeners:", e);
+        // Fallback: try DOM events (won't work on click-through but useful for debugging)
+        document.addEventListener("mousemove", e => trail.addRawPoint(e.clientX, e.clientY));
+        document.addEventListener("mousedown", e => click.addClick(e.clientX, e.clientY));
+      }
+    }
+    setupEventListeners();
+
+    // ── Render Loop (runs at display refresh rate, independent of input rate) ──
     function animate() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       trail.update(); trail.draw(ctx);
