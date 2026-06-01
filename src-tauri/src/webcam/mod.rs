@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex};
 use std::time::{Duration, Instant};
 
 use crate::config::{AppConfig, WebcamShape};
@@ -235,7 +235,7 @@ pub fn composite_webcam_on_video(
         )
     };
 
-    let ffmpeg = crate::capture::resolve_ffmpeg_path();
+    let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found")?;
 
     let args: Vec<String> = vec![
         "-y".into(),
@@ -291,7 +291,7 @@ fn composite_simple_overlay(
     let opacity = config.webcam_opacity.clamp(0.0, 1.0);
 
     let webcam_pattern = format!("{}/webcam_%06d.png", webcam_dir);
-    let ffmpeg = crate::capture::resolve_ffmpeg_path();
+    let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found")?;
 
     let filter = format!(
         "[1:v]scale={s}:{s},format=rgba[cam];\
@@ -374,10 +374,15 @@ fn webcam_capture_loop(
     let mut camera = Camera::new(index, format)
         .map_err(|e| format!("Failed to open webcam: {}", e))?;
 
-    camera.stream()
+    camera.open_stream()
         .map_err(|e| format!("Failed to start webcam stream: {}", e))?;
 
     tracing::info!("Webcam stream started (target_size={}px)", target_size);
+
+    // Get camera resolution
+    let resolution = camera.resolution();
+    let cam_w = resolution.width();
+    let cam_h = resolution.height();
 
     let frame_interval = Duration::from_millis(33); // ~30fps
     let mut last_frame_time = Instant::now();
@@ -403,8 +408,6 @@ fn webcam_capture_loop(
 
                 // nokhwa gives us RGB bytes
                 let raw = frame.buffer();
-                let cam_w = frame.width();
-                let cam_h = frame.height();
 
                 // Convert RGB to RGBA
                 let mut rgba = Vec::with_capacity((cam_w * cam_h * 4) as usize);
