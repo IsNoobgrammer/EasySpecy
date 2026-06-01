@@ -232,48 +232,10 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     use std::io::Write;
 
-    // ═══ SPRING PHYSICS: Pre-compute smoothed head positions (sequential) ═══
-    let spring_stiffness = 0.15_f64;
-    let spring_damping = 0.75_f64;
-    let mut spring_x = 0.0_f64;
-    let mut spring_y = 0.0_f64;
-    let mut spring_vx = 0.0_f64;
-    let mut spring_vy = 0.0_f64;
-    let mut spring_initialized = false;
-    let mut smoothed_heads: Vec<Option<(f32, f32)>> = Vec::with_capacity(total_frames as usize);
-
-    for frame_idx in 0..total_frames {
-        let frame_time_ms = frame_idx as f64 * ms_per_frame;
-        let head_idx = find_path_index_at_time(&smooth_path, frame_time_ms);
-
-        if head_idx > 0 {
-            let target_x = smooth_path[head_idx].0 as f64;
-            let target_y = smooth_path[head_idx].1 as f64;
-
-            if !spring_initialized {
-                spring_x = target_x;
-                spring_y = target_y;
-                spring_initialized = true;
-            }
-
-            let force_x = spring_stiffness * (target_x - spring_x);
-            let force_y = spring_stiffness * (target_y - spring_y);
-            spring_vx = spring_vx * spring_damping + force_x;
-            spring_vy = spring_vy * spring_damping + force_y;
-            spring_x += spring_vx;
-            spring_y += spring_vy;
-
-            smoothed_heads.push(Some((spring_x as f32, spring_y as f32)));
-        } else {
-            smoothed_heads.push(None);
-        }
-    }
-
     // ═══ PRE-COMPUTE PER-FRAME DATA (PARALLEL) ═══
     // Each frame's trail segment + click data is independent → parallel compute.
     let smooth_path_ref = &smooth_path;
     let click_ref = &meta.click_events;
-    let smoothed_heads_ref = &smoothed_heads;
     let pre_computed: Vec<(Vec<(f32, f32, f64, f64)>, Vec<(f32, f32, f64, bool)>)> = (0..total_frames)
         .into_par_iter()
         .map(|frame_idx| {
@@ -286,7 +248,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                 let tail_idx = find_path_index_at_time(smooth_path_ref, tail_start_time);
                 if head_idx > tail_idx {
                     let span = (head_idx - tail_idx).max(1) as f64;
-                    let mut seg: Vec<(f32, f32, f64, f64)> = (tail_idx..head_idx)
+                    let mut seg: Vec<(f32, f32, f64, f64)> = (tail_idx..=head_idx)
                         .map(|i| {
                             let p = &smooth_path_ref[i];
                             let age = 1.0 - ((i - tail_idx) as f64 / span);
@@ -303,15 +265,6 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                             (p.0, p.1, age, speed)
                         })
                         .collect();
-                    // Append spring-smoothed head position
-                    if let Some((sx, sy)) = smoothed_heads_ref[frame_idx as usize] {
-                        let p_head = &smooth_path_ref[head_idx];
-                        let dx = (sx - p_head.0) as f64;
-                        let dy = (sy - p_head.1) as f64;
-                        let dt = (frame_time_ms - p_head.2).abs().max(1.0);
-                        let head_speed = (dx * dx + dy * dy).sqrt() / dt;
-                        seg.push((sx, sy, 0.0, head_speed));
-                    }
                     seg
                 } else {
                     Vec::new()
