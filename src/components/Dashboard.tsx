@@ -219,7 +219,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     openPath, updateField, loadHistory, clearHistory, loadEstimatedSize,
     selectorMode, setCaptureRegion, setSelectorMode,
     encodingProgress, encodingStage, estimatedMbPerMin,
-    audioLevels, startAudioMonitor, stopAudioMonitor, pollAudioLevels,
+    startAudioMonitor, stopAudioMonitor, pollAudioLevels,
   } = useStore();
 
   const [elapsed, setElapsed] = useState("00:00:00");
