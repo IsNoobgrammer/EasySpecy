@@ -74,6 +74,15 @@ export interface CaptureRegion {
   height: number;
 }
 
+export interface AudioLevels {
+  micRms: number;
+  micPeak: number;
+  micDb: number;
+  sysRms: number;
+  sysPeak: number;
+  sysDb: number;
+}
+
 type RecordingPhase = "idle" | "recording" | "encoding";
 type SelectorMode = "none" | "region";
 
@@ -93,6 +102,7 @@ interface AppState {
   encodingProgress: number;
   encodingStage: string;
   estimatedMbPerMin: number;
+  audioLevels: AudioLevels;
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
@@ -114,6 +124,9 @@ interface AppState {
   copyToClipboard: (text: string) => Promise<void>;
   pollEncodingProgress: () => Promise<void>;
   loadEstimatedSize: () => Promise<void>;
+  startAudioMonitor: () => Promise<void>;
+  stopAudioMonitor: () => Promise<void>;
+  pollAudioLevels: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -132,6 +145,7 @@ export const useStore = create<AppState>((set, get) => ({
   encodingProgress: 0,
   encodingStage: "",
   estimatedMbPerMin: 0,
+  audioLevels: { micRms: 0, micPeak: 0, micDb: -60, sysRms: 0, sysPeak: 0, sysDb: -60 },
 
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
@@ -310,6 +324,28 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const [mbPerMin] = await invoke<[number, number, string]>("get_estimated_size");
       set({ estimatedMbPerMin: mbPerMin });
+    } catch {}
+  },
+
+  startAudioMonitor: async () => {
+    try {
+      await invoke("start_audio_monitor_cmd");
+    } catch (e) {
+      console.warn("Audio monitor start failed:", e);
+    }
+  },
+
+  stopAudioMonitor: async () => {
+    try {
+      await invoke("stop_audio_monitor_cmd");
+      set({ audioLevels: { micRms: 0, micPeak: 0, micDb: -60, sysRms: 0, sysPeak: 0, sysDb: -60 } });
+    } catch {}
+  },
+
+  pollAudioLevels: async () => {
+    try {
+      const [micRms, micPeak, micDb, sysRms, sysPeak, sysDb] = await invoke<[number, number, number, number, number, number]>("get_audio_levels");
+      set({ audioLevels: { micRms, micPeak, micDb, sysRms, sysPeak, sysDb } });
     } catch {}
   },
 }));

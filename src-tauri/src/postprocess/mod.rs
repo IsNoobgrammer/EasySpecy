@@ -35,6 +35,7 @@ pub struct RecordingMetadata {
     pub trail_color: String,
     pub secondary_color: String,
     pub trail_duration_ms: f64,
+    pub trail_width: f32,
 }
 
 static METADATA: Mutex<Option<RecordingMetadata>> = Mutex::new(None);
@@ -49,6 +50,7 @@ pub fn start_collection() {
         trail_color: config.cursor_trail_color.clone(),
         secondary_color: config.cursor_secondary_color.clone(),
         trail_duration_ms: config.trail_duration_ms,
+        trail_width: config.trail_width,
         ..Default::default()
     });
     *SESSION_START.lock().unwrap() = Some(Instant::now());
@@ -328,6 +330,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                         color,
                         secondary_color,
                         &meta.trail_style,
+                        meta.trail_width,
                     );
                 }
 
@@ -642,6 +645,7 @@ fn render_smooth_trail(
     color: (u8, u8, u8),
     secondary_color: (u8, u8, u8),
     style: &str,
+    trail_width: f32,
 ) {
     if points.len() < 2 { return; }
 
@@ -685,20 +689,20 @@ fn render_smooth_trail(
                 // Per-style color palette: blend primary→secondary along trail
                 let blended = lerp_color(color, secondary_color, age as f32);
                 // Outer glow
-                draw_glow_circle(buf, w, h, x, y, 12.0 * life * speed_factor, blended, 0.04 * life * alpha_mod);
-                draw_glow_circle(buf, w, h, x, y, 7.0 * life * speed_factor, blended, 0.12 * life * alpha_mod);
+                draw_glow_circle(buf, w, h, x, y, 12.0 * life * speed_factor * trail_width, blended, 0.04 * life * alpha_mod);
+                draw_glow_circle(buf, w, h, x, y, 7.0 * life * speed_factor * trail_width, blended, 0.12 * life * alpha_mod);
                 // Core
-                draw_glow_circle(buf, w, h, x, y, 3.5 * life * speed_factor, blended, 0.6 * life * alpha_mod);
+                draw_glow_circle(buf, w, h, x, y, 3.5 * life * speed_factor * trail_width, blended, 0.6 * life * alpha_mod);
                 // White center
-                draw_glow_circle(buf, w, h, x, y, 1.5 * life, (255, 255, 255), 0.5 * life);
+                draw_glow_circle(buf, w, h, x, y, 1.5 * life * trail_width, (255, 255, 255), 0.5 * life);
             }
             // Extra bright head glow at newest point
             if let Some(&(x, y, _, speed)) = interpolated.last() {
                 let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
-                draw_glow_circle(buf, w, h, x, y, 16.0 * speed_factor, color, 0.08);
-                draw_glow_circle(buf, w, h, x, y, 9.0 * speed_factor, color, 0.2);
-                draw_glow_circle(buf, w, h, x, y, 4.0, color, 0.8);
-                draw_glow_circle(buf, w, h, x, y, 2.0, (255, 255, 255), 0.9);
+                draw_glow_circle(buf, w, h, x, y, 16.0 * speed_factor * trail_width, color, 0.08);
+                draw_glow_circle(buf, w, h, x, y, 9.0 * speed_factor * trail_width, color, 0.2);
+                draw_glow_circle(buf, w, h, x, y, 4.0 * trail_width, color, 0.8);
+                draw_glow_circle(buf, w, h, x, y, 2.0 * trail_width, (255, 255, 255), 0.9);
             }
         }
         "particles" | "dots" => {
@@ -706,9 +710,9 @@ fn render_smooth_trail(
                 let life = (1.0 - age as f32).max(0.0);
                 if life <= 0.0 { continue; }
                 let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
-                let size = (3.0 + life * 4.0) * speed_factor;
+                let size = (3.0 + life * 4.0) * speed_factor * trail_width;
                 draw_glow_circle(buf, w, h, x, y, size, color, 0.7 * life);
-                draw_glow_circle(buf, w, h, x, y, size * 0.4, (255, 255, 255), 0.5 * life);
+                draw_glow_circle(buf, w, h, x, y, size * 0.4 * trail_width, (255, 255, 255), 0.5 * life);
             }
         }
         "ribbon" => {
@@ -718,9 +722,9 @@ fn render_smooth_trail(
                 let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
                 let alpha_mod = (1.0 - speed as f32 * 0.03).max(0.7);
                 // Wider, more diffuse
-                draw_glow_circle(buf, w, h, x, y, 8.0 * life * speed_factor, color, 0.15 * life * alpha_mod);
-                draw_glow_circle(buf, w, h, x, y, 4.0 * life * speed_factor, color, 0.4 * life * alpha_mod);
-                draw_glow_circle(buf, w, h, x, y, 1.5 * life, (255, 255, 255), 0.3 * life);
+                draw_glow_circle(buf, w, h, x, y, 8.0 * life * speed_factor * trail_width, color, 0.15 * life * alpha_mod);
+                draw_glow_circle(buf, w, h, x, y, 4.0 * life * speed_factor * trail_width, color, 0.4 * life * alpha_mod);
+                draw_glow_circle(buf, w, h, x, y, 1.5 * life * trail_width, (255, 255, 255), 0.3 * life);
             }
         }
         "aurora" => {
@@ -731,9 +735,9 @@ fn render_smooth_trail(
                 // Shift hue along trail
                 let hue_shift = (i as f32 * 3.0) % 360.0;
                 let shifted_color = hue_rotate_rgb(color, hue_shift);
-                draw_glow_circle(buf, w, h, x, y, 10.0 * life * speed_factor, shifted_color, 0.08 * life);
-                draw_glow_circle(buf, w, h, x, y, 5.0 * life * speed_factor, shifted_color, 0.2 * life);
-                draw_glow_circle(buf, w, h, x, y, 2.0 * life, (255, 255, 255), 0.3 * life);
+                draw_glow_circle(buf, w, h, x, y, 10.0 * life * speed_factor * trail_width, shifted_color, 0.08 * life);
+                draw_glow_circle(buf, w, h, x, y, 5.0 * life * speed_factor * trail_width, shifted_color, 0.2 * life);
+                draw_glow_circle(buf, w, h, x, y, 2.0 * life * trail_width, (255, 255, 255), 0.3 * life);
             }
         }
         _ => {
@@ -742,7 +746,7 @@ fn render_smooth_trail(
                 let life = (1.0 - age as f32).max(0.0);
                 if life <= 0.0 { continue; }
                 let speed_factor = (1.0 + speed as f32 * 0.1).min(1.5);
-                draw_glow_circle(buf, w, h, x, y, 4.0 * life * speed_factor, color, 0.6 * life);
+                draw_glow_circle(buf, w, h, x, y, 4.0 * life * speed_factor * trail_width, color, 0.6 * life);
             }
         }
     }

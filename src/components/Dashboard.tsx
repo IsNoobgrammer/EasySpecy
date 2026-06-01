@@ -2,7 +2,7 @@
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
 import { RegionSelector } from "./RegionSelector";
-import { Icon } from "./Icon";
+import { StatusBar } from "./StatusBar";
 
 function formatDuration(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -208,49 +208,8 @@ function HistoryPanel({ entries, onOpen, onClear }: {
   );
 }
 
-// ═══ AUDIO LEVEL METER ═══
-function AudioMeter({ active }: { active: boolean }) {
-  const [levels, setLevels] = useState<number[]>(new Array(12).fill(0.05));
-  const animRef = useRef<number>(0);
-
-  useEffect(() => {
-    if (!active) {
-      setLevels(new Array(12).fill(0.05));
-      return;
-    }
-    const tick = () => {
-      setLevels(prev => prev.map(l => {
-        const target = Math.random() * 0.7 + 0.15;
-        return l + (target - l) * 0.45;
-      }));
-      animRef.current = requestAnimationFrame(tick);
-    };
-    animRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(animRef.current);
-  }, [active]);
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5" style={{ border: "var(--border-thin) solid var(--border-default)", background: "var(--bg-surface)", borderRadius: "var(--radius-sm)" }}>
-      <span className="font-mono" style={{ color: "var(--text-muted)", fontSize: "0.55rem", letterSpacing: "0.05em" }}>AUDIO</span>
-      <div className="flex items-end gap-0.5 h-3.5 w-14">
-        {levels.map((level, i) => (
-          <div
-            key={i}
-            className="w-[3px] rounded-t-[1px] transition-all duration-75"
-            style={{
-              height: `${Math.max(15, level * 100)}%`,
-              background: i < 7 
-                ? "var(--accent-success)" 
-                : i < 10 
-                  ? "var(--accent-warning)" 
-                  : "var(--accent-danger)",
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
+// ═══ AUDIO LEVEL METER (REPLACED BY STATUSBAR) ═══
+// Old AudioMeter removed — now using canvas-based StatusBar component
 
 // ═══ MAIN DASHBOARD ═══
 export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings: () => void }) {
@@ -260,6 +219,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     openPath, updateField, loadHistory, clearHistory, loadEstimatedSize,
     selectorMode, setCaptureRegion, setSelectorMode,
     encodingProgress, encodingStage, estimatedMbPerMin,
+    audioLevels, startAudioMonitor, stopAudioMonitor, pollAudioLevels,
   } = useStore();
 
   const [elapsed, setElapsed] = useState("00:00:00");
@@ -267,7 +227,25 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
   useEffect(() => {
     loadHistory();
     loadEstimatedSize();
+    // Start audio level monitoring on mount
+    startAudioMonitor();
+    return () => { stopAudioMonitor(); };
   }, []);
+
+  // Poll audio levels at ~20Hz
+  useEffect(() => {
+    const interval = setInterval(pollAudioLevels, 50);
+    return () => clearInterval(interval);
+  }, [pollAudioLevels]);
+
+  // Stop monitor before recording, restart after
+  useEffect(() => {
+    if (recordingPhase === "recording") {
+      stopAudioMonitor();
+    } else if (recordingPhase === "idle" && config?.audio_enabled) {
+      startAudioMonitor();
+    }
+  }, [recordingPhase]);
 
   useEffect(() => {
     if (recordingPhase !== "recording" || !recordingStartTime) return;
@@ -327,7 +305,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
           </span>
         </div>
         <div className="flex items-center gap-3">
-          {isRecording && <AudioMeter active={!isPaused} />}
+          {/* Audio meter moved to footer StatusBar */}
         </div>
       </header>
 
@@ -594,29 +572,16 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
         <HistoryPanel entries={history} onOpen={openPath} onClear={clearHistory} />
       </div>
 
-      {/* ═══ FOOTER ═══ */}
-      <footer className="px-6 py-2.5 flex items-center justify-between" style={{ borderTop: "var(--border-width) solid var(--border-default)" }}>
-        <motion.button
-          onClick={() => openPath(config?.output_dir || "~/Videos/EasySpecy")}
-          className="font-mono text-xs cursor-pointer flex items-center gap-2"
-          style={{ color: "var(--text-muted)" }}
-          whileHover={{ color: "var(--accent-info)", x: 2 }}
-        >
-          <Icon name="folder_open" size={14} />
-          <span>{normalizePath(config?.output_dir || "~/Videos/EasySpecy")}</span>
-        </motion.button>
-        <div className="flex items-center gap-4">
-          {isRecording && (
-            <span className="font-mono text-xs" style={{ color: "var(--accent-record)" }}>
-              <span className="uppercase" style={{ fontSize: "0.55rem", letterSpacing: "0.08em" }}>SESSION </span>
-              ~{Math.round((Date.now() - (recordingStartTime || Date.now())) / 1000 * 0.15)}MB
-            </span>
-          )}
-          <span className="font-mono text-xs font-bold" style={{ color: "var(--accent-primary)" }}>
-            {history.length} <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>recordings</span>
-          </span>
-        </div>
-      </footer>
+      {/* ═══ STATUS BAR (Audio Visualization + System Info) ═══ */}
+      <StatusBar
+        audioSource={config?.audio_source || "Mic"}
+        audioEnabled={config?.audio_enabled || false}
+        levels={audioLevels}
+        isRecording={isRecording}
+        fps={config?.fps || 30}
+        resolution={config ? `${config.resolution_width}×${config.resolution_height}` : "1920×1080"}
+        sampleRate={config?.audio_sample_rate || 44100}
+      />
 
       {/* ═══ REGION SELECTOR OVERLAY ═══ */}
       <AnimatePresence>

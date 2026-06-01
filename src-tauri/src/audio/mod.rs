@@ -21,6 +21,171 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+// ═══ REAL-TIME AUDIO LEVEL METERING ═══
+/// Shared audio levels updated by audio callbacks (mic + system streams).
+/// Read by the frontend via `get_audio_levels` command (polled at ~20Hz).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AudioLevels {
+    pub mic_rms: f32,
+    pub mic_peak: f32,
+    pub mic_db: f32,
+    pub sys_rms: f32,
+    pub sys_peak: f32,
+    pub sys_db: f32,
+}
+
+impl Default for AudioLevels {
+    fn default() -> Self {
+        Self { mic_rms: 0.0, mic_peak: 0.0, mic_db: -60.0, sys_rms: 0.0, sys_peak: 0.0, sys_db: -60.0 }
+    }
+}
+
+/// Global audio levels — updated by cpal callbacks from any thread
+static MONITOR_LEVELS: std::sync::OnceLock<Arc<Mutex<AudioLevels>>> = std::sync::OnceLock::new();
+
+fn get_levels() -> Arc<Mutex<AudioLevels>> {
+    MONITOR_LEVELS.get_or_init(|| Arc::new(Mutex::new(AudioLevels::default()))).clone()
+}
+
+/// Compute peak amplitude and RMS from interleaved samples
+fn compute_levels(samples: &[f32]) -> (f32, f32) {
+    if samples.is_empty() { return (0.0, 0.0); }
+    let mut peak: f32 = 0.0;
+    let mut sum_sq: f64 = 0.0;
+    for &s in samples {
+        let a = s.abs();
+        if a > peak { peak = a; }
+        sum_sq += (s as f64) * (s as f64);
+    }
+    let rms = (sum_sq / samples.len() as f64).sqrt() as f32;
+    (peak, rms)
+}
+
+/// Convert RMS to dB (full-scale). Returns -60.0 for silence.
+fn rms_to_db(rms: f32) -> f32 {
+    if rms < 0.001 { -60.0 } else { 20.0 * (rms as f64).log10() as f32 }
+}
+
+// ═══ AUDIO MONITOR (pre-recording level check) ═══
+/// Lightweight streams that only compute levels — no sample buffering.
+/// These run before recording starts so users can verify mic/system audio.
+/// Coexists with cpal WASAPI shared mode (doesn't block other streams).
+struct AudioMonitor {
+    _mic_stream: Option<cpal::Stream>,
+    _sys_stream: Option<cpal::Stream>,
+}
+
+unsafe impl Send for AudioMonitor {}
+
+static AUDIO_MONITOR: std::sync::OnceLock<Mutex<AudioMonitor>> = std::sync::OnceLock::new();
+
+/// Start monitoring audio levels without recording.
+/// `source` determines which streams to create (Mic, System, or Both).
+pub fn start_audio_monitor(source: &AudioSource) -> Result<(), String> {
+    let host = cpal::default_host();
+    let levels = get_levels();
+    let monitor_mutex = AUDIO_MONITOR.get_or_init(|| Mutex::new(AudioMonitor { _mic_stream: None, _sys_stream: None }));
+    let mut monitor = monitor_mutex.lock().unwrap();
+
+    // Mic monitor stream
+    if *source == AudioSource::Mic || *source == AudioSource::Both {
+        if monitor._mic_stream.is_none() {
+            if let Some(device) = host.default_input_device() {
+                if let Ok(supported) = device.default_input_config() {
+                    let config: cpal::StreamConfig = supported.clone().into();
+                    let lvl = levels.clone();
+                    let stream_result = match supported.sample_format() {
+                        cpal::SampleFormat::F32 => device.build_input_stream(
+                            &config,
+                            move |data: &[f32], _| {
+                                let (peak, rms) = compute_levels(data);
+                                if let Ok(mut l) = lvl.lock() { l.mic_peak = peak; l.mic_rms = rms; l.mic_db = rms_to_db(rms); }
+                            },
+                            |e| tracing::warn!("Mic monitor error: {}", e), None,
+                        ),
+                        cpal::SampleFormat::I16 => device.build_input_stream(
+                            &config,
+                            move |data: &[i16], _| {
+                                let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                                let (peak, rms) = compute_levels(&f32_data);
+                                if let Ok(mut l) = lvl.lock() { l.mic_peak = peak; l.mic_rms = rms; l.mic_db = rms_to_db(rms); }
+                            },
+                            |e| tracing::warn!("Mic monitor error: {}", e), None,
+                        ),
+                        _ => { tracing::warn!("Unsupported mic format for monitor"); return Ok(()); }
+                    };
+                    if let Ok(stream) = stream_result {
+                        let _ = stream.play();
+                        monitor._mic_stream = Some(stream);
+                        tracing::info!("Mic monitor started");
+                    }
+                }
+            }
+        }
+    }
+
+    // System audio monitor stream (WASAPI loopback)
+    if *source == AudioSource::System || *source == AudioSource::Both {
+        if monitor._sys_stream.is_none() {
+            if let Some(device) = host.default_output_device() {
+                if let Ok(supported) = device.default_output_config() {
+                    let config: cpal::StreamConfig = supported.clone().into();
+                    let lvl = levels.clone();
+                    let stream_result = match supported.sample_format() {
+                        cpal::SampleFormat::F32 => device.build_input_stream(
+                            &config,
+                            move |data: &[f32], _| {
+                                let (peak, rms) = compute_levels(data);
+                                if let Ok(mut l) = lvl.lock() { l.sys_peak = peak; l.sys_rms = rms; l.sys_db = rms_to_db(rms); }
+                            },
+                            |e| tracing::warn!("System monitor error: {}", e), None,
+                        ),
+                        cpal::SampleFormat::I16 => device.build_input_stream(
+                            &config,
+                            move |data: &[i16], _| {
+                                let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                                let (peak, rms) = compute_levels(&f32_data);
+                                if let Ok(mut l) = lvl.lock() { l.sys_peak = peak; l.sys_rms = rms; l.sys_db = rms_to_db(rms); }
+                            },
+                            |e| tracing::warn!("System monitor error: {}", e), None,
+                        ),
+                        _ => { tracing::warn!("Unsupported system format for monitor"); return Ok(()); }
+                    };
+                    if let Ok(stream) = stream_result {
+                        let _ = stream.play();
+                        monitor._sys_stream = Some(stream);
+                        tracing::info!("System audio monitor started");
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Stop monitoring streams (called before recording starts to free devices).
+pub fn stop_audio_monitor() {
+    if let Some(mutex) = AUDIO_MONITOR.get() {
+        if let Ok(mut monitor) = mutex.lock() {
+            monitor._mic_stream = None;
+            monitor._sys_stream = None;
+            tracing::info!("Audio monitor stopped");
+        }
+    }
+    // Reset levels to silence
+    let levels = get_levels();
+    let mut l = levels.lock().unwrap();
+    *l = AudioLevels::default();
+}
+
+/// Get current audio levels (called by frontend polling).
+pub fn get_audio_levels() -> AudioLevels {
+    let levels = get_levels();
+    let l = levels.lock().unwrap();
+    l.clone()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AudioSource {
     Mic,

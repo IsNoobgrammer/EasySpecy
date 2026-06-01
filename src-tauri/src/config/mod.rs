@@ -51,6 +51,7 @@ pub struct AppConfig {
     pub click_effect: String,
     pub trail_duration_ms: f64, // 200-2000ms, default 600
     pub cursor_hide_in_recording: bool,
+    pub trail_width: f32,
 
     // Hotkeys
     pub hotkey_start: String,
@@ -156,6 +157,7 @@ impl Default for AppConfig {
             click_effect: "ripple".to_string(),
             trail_duration_ms: 600.0,
             cursor_hide_in_recording: false,
+            trail_width: 1.0,
 
             hotkey_start: "Ctrl+Shift+R".to_string(),
             hotkey_stop: "Ctrl+Shift+S".to_string(),

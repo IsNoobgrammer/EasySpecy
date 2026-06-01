@@ -213,6 +213,7 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
   const [secondaryColor, setSecondaryColor] = useState("#ff4488");
   const [trailDuration, setTrailDuration] = useState(600);
   const [cursorHide, setCursorHide] = useState(false);
+  const [trailWidth, setTrailWidth] = useState(1.0);
   const [previewActive, setPreviewActive] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -230,6 +231,7 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
       if (cfg.cursor_secondary_color) setSecondaryColor(cfg.cursor_secondary_color);
       if (cfg.trail_duration_ms) setTrailDuration(cfg.trail_duration_ms);
       if (cfg.cursor_hide_in_recording !== undefined) setCursorHide(cfg.cursor_hide_in_recording);
+      if (cfg.trail_width) setTrailWidth(cfg.trail_width);
     }).catch(() => {});
   }, []);
 
@@ -268,6 +270,11 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
     const next = !cursorHide;
     setCursorHide(next);
     try { await invoke("update_config_field", { key: "cursor_hide_in_recording", value: next.toString() }); } catch {}
+  };
+
+  const handleTrailWidthChange = async (w: number) => {
+    setTrailWidth(w);
+    try { await invoke("update_config_field", { key: "trail_width", value: w.toString() }); } catch {}
   };
 
   const handlePreview = async () => {
@@ -548,6 +555,28 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
                   <div className="flex justify-between mt-1">
                     <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Short (100ms)</span>
                     <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Long (2000ms)</span>
+                  </div>
+                </div>
+
+                {/* Trail width slider */}
+                <div className="px-5 py-2.5" style={{ borderBottom: "1px solid var(--border-default)" }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>Trail thickness</span>
+                    <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{trailWidth.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.3}
+                    max={3.0}
+                    step={0.1}
+                    value={trailWidth}
+                    onChange={(e) => handleTrailWidthChange(Number(e.target.value))}
+                    className="w-full cursor-pointer"
+                    style={{ accentColor: trailColor }}
+                  />
+                  <div className="flex justify-between mt-1">
+                    <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Thin (0.3x)</span>
+                    <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Thick (3.0x)</span>
                   </div>
                 </div>
 

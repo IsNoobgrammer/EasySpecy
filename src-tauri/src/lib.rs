@@ -65,6 +65,9 @@ pub fn run() {
             commands::restore_cursors,
             commands::create_effects_overlay,
             commands::destroy_effects_overlay,
+            commands::start_audio_monitor_cmd,
+            commands::stop_audio_monitor_cmd,
+            commands::get_audio_levels,
         ])
         .setup(|app| {
             // Store AppHandle globally for background thread access (cursor events)

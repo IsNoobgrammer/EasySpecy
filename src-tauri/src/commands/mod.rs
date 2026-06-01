@@ -88,6 +88,18 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
             };
         }
         "video_bitrate_kbps" => config.video_bitrate_kbps = value.as_u64().unwrap_or(4000) as u32,
+        "cursor_secondary_color" => {
+            config.cursor_secondary_color = value.as_str().unwrap_or("#ff4488").to_string();
+        }
+        "trail_duration_ms" => {
+            config.trail_duration_ms = value.as_f64().unwrap_or(600.0);
+        }
+        "cursor_hide_in_recording" => {
+            config.cursor_hide_in_recording = value.as_bool().unwrap_or(false);
+        }
+        "trail_width" => {
+            config.trail_width = value.as_f64().unwrap_or(1.0) as f32;
+        }
         _ => return Err(format!("Unknown config key: {}", key)),
     }
     config.save().map_err(|e| e.to_string())
@@ -243,6 +255,16 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
     // Start cursor metadata collection for post-processing
     crate::postprocess::start_collection();
 
+    // Hide system cursor if configured
+    if config.cursor_hide_in_recording {
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::ShowCursor;
+            unsafe { ShowCursor(false); }
+            tracing::info!("System cursor hidden for recording");
+        }
+    }
+
     // ═══ WAIT until capture is actually armed (first video frame received) ═══
     // This is the key fix: frontend won't show "recording" until we're ACTUALLY recording.
     // Timeout after 10s to avoid hanging forever if something goes wrong.
@@ -282,6 +304,13 @@ pub fn get_encoding_progress() -> (u32, String) {
 
 #[tauri::command]
 pub async fn stop_recording() -> Result<capture::RecordingResult, String> {
+    // Restore system cursor
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::ShowCursor;
+        unsafe { ShowCursor(true); }
+    }
+
     // ═══ Restore cursors IMMEDIATELY so user sees normal cursor during encoding ═══
     if let Err(e) = crate::cursors::restore_cursors() {
         tracing::warn!("Cursor restore failed: {}", e);
@@ -449,6 +478,34 @@ pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
 
     tracing::info!("Effects overlay window created: {}x{}", width, height);
     Ok(())
+}
+
+/// Start audio level monitoring (pre-recording mic/system check)
+#[tauri::command]
+pub fn start_audio_monitor_cmd() -> Result<(), String> {
+    let config = AppConfig::load();
+    if !config.audio_enabled {
+        return Ok(());
+    }
+    let source = match config.audio_source {
+        crate::config::AudioSource::Mic => crate::audio::AudioSource::Mic,
+        crate::config::AudioSource::System => crate::audio::AudioSource::System,
+        crate::config::AudioSource::Both => crate::audio::AudioSource::Both,
+    };
+    crate::audio::start_audio_monitor(&source)
+}
+
+/// Stop audio level monitoring
+#[tauri::command]
+pub fn stop_audio_monitor_cmd() {
+    crate::audio::stop_audio_monitor();
+}
+
+/// Get current audio levels (mic + system RMS/peak/dB)
+#[tauri::command]
+pub fn get_audio_levels() -> (f32, f32, f32, f32, f32, f32) {
+    let levels = crate::audio::get_audio_levels();
+    (levels.mic_rms, levels.mic_peak, levels.mic_db, levels.sys_rms, levels.sys_peak, levels.sys_db)
 }
 
 /// Destroy the effects overlay window
