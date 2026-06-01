@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useState, useEffect, useRef } from "react";
+import { motion } from "motion/react";
 import { Rnd } from "react-rnd";
 import { Icon } from "./Icon";
 
@@ -26,23 +26,9 @@ interface WebcamPreviewProps {
   recordingHeight?: number;
 }
 
-// ═══ SQUIRCLE PATH GENERATOR ═══
-
-function generateSuperellipsePath(w: number, h: number, smoothness = 4): string {
-  const a = w / 2, b = h / 2, exponent = 2 / smoothness;
-  const points: string[] = [];
-  for (let angle = 0; angle <= Math.PI * 2 + 0.01; angle += 0.01) {
-    const cos = Math.cos(angle), sin = Math.sin(angle);
-    const x = a + Math.sign(cos) * Math.pow(Math.abs(cos), exponent) * a;
-    const y = b + Math.sign(sin) * Math.pow(Math.abs(sin), exponent) * b;
-    points.push(angle === 0 ? `M ${x} ${y}` : `L ${x} ${y}`);
-  }
-  return `${points.join(" ")} Z`;
-}
-
 // ═══ SHAPE STYLES ═══
 
-function getShapeStyle(shape: WebcamShape, size: number): React.CSSProperties {
+function getShapeStyle(shape: WebcamShape): React.CSSProperties {
   switch (shape) {
     case "circle":
       return { borderRadius: "50%" };
@@ -52,19 +38,6 @@ function getShapeStyle(shape: WebcamShape, size: number): React.CSSProperties {
       return { borderRadius: "25%" }; // CSS approximation
     default:
       return { borderRadius: "50%" };
-  }
-}
-
-function getClipPath(shape: WebcamShape, size: number): string {
-  switch (shape) {
-    case "circle":
-      return `circle(${size / 2}px at center)`;
-    case "rounded":
-      return `inset(0 round 16px)`;
-    case "squircle":
-      return `inset(0 round 25% / 40%)`;
-    default:
-      return "none";
   }
 }
 
@@ -141,7 +114,7 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
   const previewW = recordingWidth * scale;
   const previewH = recordingHeight * scale;
 
-  const shapeStyle = getShapeStyle(overlay.shape, overlay.size);
+  const shapeStyle = getShapeStyle(overlay.shape);
 
   return (
     <motion.div
