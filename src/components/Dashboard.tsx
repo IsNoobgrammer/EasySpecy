@@ -572,16 +572,8 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
         <HistoryPanel entries={history} onOpen={openPath} onClear={clearHistory} />
       </div>
 
-      {/* ═══ STATUS BAR (Audio Visualization + System Info) ═══ */}
-      <StatusBar
-        audioSource={config?.audio_source || "Mic"}
-        audioEnabled={config?.audio_enabled || false}
-        levels={audioLevels}
-        isRecording={isRecording}
-        fps={config?.fps || 30}
-        resolution={config ? `${config.resolution_width}×${config.resolution_height}` : "1920×1080"}
-        sampleRate={config?.audio_sample_rate || 44100}
-      />
+      {/* ═══ STATUS BAR (System Info + Footer) ═══ */}
+      <StatusBar isRecording={isRecording} />
 
       {/* ═══ REGION SELECTOR OVERLAY ═══ */}
       <AnimatePresence>
