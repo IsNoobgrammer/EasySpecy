@@ -50,6 +50,18 @@ pub fn start_collection() {
     tracing::info!("Cursor metadata collection started");
 }
 
+/// Reset session start time to NOW — called when CAPTURE_ARMED fires
+/// to sync cursor timestamps with video frame 0.
+pub fn reset_session_start() {
+    *SESSION_START.lock().unwrap() = Some(Instant::now());
+    // Clear any samples recorded before arming (they have wrong timestamps)
+    if let Some(ref mut m) = *METADATA.lock().unwrap() {
+        m.cursor_trail.clear();
+        m.click_events.clear();
+    }
+    tracing::info!("Cursor session start reset to CAPTURE_ARMED instant");
+}
+
 /// Record a cursor position sample
 pub fn record_cursor(x: f32, y: f32) {
     let start = SESSION_START.lock().unwrap();

@@ -256,6 +256,12 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 std::thread::sleep(Duration::from_millis(5));
             }
 
+            // ═══ SYNC: Reset cursor timestamp origin to NOW (= first video frame) ═══
+            // This ensures cursor timestamps are perfectly aligned with video frames.
+            // Without this, there's a 200-500ms offset between start_collection() and
+            // first video frame, causing trail to appear "behind" cursor.
+            crate::postprocess::reset_session_start();
+
             // Pre-compute coordinate info
             // Video is captured at MONITOR resolution (not config resolution)
             // GetCursorPos returns screen coords = same coordinate space as video
