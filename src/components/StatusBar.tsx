@@ -36,7 +36,7 @@ export function Footer({ isRecording }: { isRecording: boolean }) {
       >
         Made with <span style={{ color: "var(--accent-danger)" }}>♥</span> by{" "}
         <span style={{ color: "var(--text-secondary)" }}>Shaurya</span> &{" "}
-        <span style={{ color: "var(--text-secondary)" }}>Bonna</span> · © 2026{" "}
+        <span style={{ color: "var(--text-secondary)" }}>Bauna Intern</span> · © 2026{" "}
         <span style={{ color: "var(--accent-primary)" }}>EasySpecy</span>
       </span>
     </motion.div>
