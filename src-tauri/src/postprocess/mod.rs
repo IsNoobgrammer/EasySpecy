@@ -250,7 +250,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                 let tail_idx = find_path_index_at_time(smooth_path_ref, tail_start_time);
                 if head_idx > tail_idx {
                     let span = (head_idx - tail_idx).max(1) as f64;
-                    let mut seg: Vec<(f32, f32, f64, f64)> = (tail_idx..=head_idx)
+                    let seg: Vec<(f32, f32, f64, f64)> = (tail_idx..=head_idx)
                         .map(|i| {
                             let p = &smooth_path_ref[i];
                             let age = 1.0 - ((i - tail_idx) as f64 / span);
