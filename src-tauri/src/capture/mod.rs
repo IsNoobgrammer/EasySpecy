@@ -256,13 +256,34 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 std::thread::sleep(Duration::from_millis(5));
             }
 
-            while RECORDING_ACTIVE.load(Ordering::SeqCst) {
-                // Get cursor position
-                let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
-                if unsafe { GetCursorPos(&mut point).is_ok() } {
-                    crate::postprocess::record_cursor(point.x as f32, point.y as f32);
+            // Pre-compute coordinate scaling (screen → video resolution)
+            let config = crate::config::AppConfig::load();
+            let screen_w = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                    windows::Win32::UI::WindowsAndMessaging::SM_CXSCREEN
+                )
+            } as f32;
+            let screen_h = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::GetSystemMetrics(
+                    windows::Win32::UI::WindowsAndMessaging::SM_CYSCREEN
+                )
+            } as f32;
+            let scale_x = config.resolution_width as f32 / screen_w;
+            let scale_y = config.resolution_height as f32 / screen_h;
 
-                    // Emit to overlay window only if position changed (reduces IPC noise)
+            while RECORDING_ACTIVE.load(Ordering::SeqCst) {
+                // Get cursor position (SCREEN coordinates)
+                let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+                let (mut vx, mut vy) = (last_x as f32 * scale_x, last_y as f32 * scale_y);
+
+                if unsafe { GetCursorPos(&mut point).is_ok() } {
+                    // Transform screen coords → video coords
+                    vx = point.x as f32 * scale_x;
+                    vy = point.y as f32 * scale_y;
+
+                    crate::postprocess::record_cursor(vx, vy);
+
+                    // Emit to overlay window only if position changed
                     if point.x != last_x || point.y != last_y {
                         last_x = point.x;
                         last_y = point.y;
@@ -282,7 +303,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 let middle_down = unsafe { GetAsyncKeyState(VK_MBUTTON.0 as i32) } & 0x8000u16 as i16 != 0;
 
                 if left_down && !left_was_down {
-                    crate::postprocess::record_click(point.x as f32, point.y as f32, "left");
+                    crate::postprocess::record_click(vx, vy, "left");
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -292,7 +313,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                     }
                 }
                 if right_down && !right_was_down {
-                    crate::postprocess::record_click(point.x as f32, point.y as f32, "right");
+                    crate::postprocess::record_click(vx, vy, "right");
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -302,7 +323,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                     }
                 }
                 if middle_down && !middle_was_down {
-                    crate::postprocess::record_click(point.x as f32, point.y as f32, "middle");
+                    crate::postprocess::record_click(vx, vy, "middle");
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",

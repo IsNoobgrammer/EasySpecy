@@ -57,7 +57,13 @@ pub fn record_cursor(x: f32, y: f32) {
         let ms = t.elapsed().as_millis() as u64;
         let mut meta = METADATA.lock().unwrap();
         if let Some(ref mut m) = *meta {
-            if m.cursor_trail.last().map_or(true, |s| ms - s.timestamp_ms >= 16) {
+            // Only record if cursor actually MOVED (skip stationary duplicates)
+            let moved = m.cursor_trail.last().map_or(true, |s| {
+                let dx = (x - s.x).abs();
+                let dy = (y - s.y).abs();
+                dx > 0.5 || dy > 0.5 // Must move at least 0.5px
+            });
+            if moved {
                 m.cursor_trail.push(CursorSample { timestamp_ms: ms, x, y });
             }
         }
