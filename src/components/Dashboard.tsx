@@ -219,7 +219,6 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     openPath, updateField, loadHistory, clearHistory, loadEstimatedSize,
     selectorMode, setCaptureRegion, setSelectorMode,
     encodingProgress, encodingStage, estimatedMbPerMin,
-    startAudioMonitor, stopAudioMonitor, pollAudioLevels,
   } = useStore();
 
   const [elapsed, setElapsed] = useState("00:00:00");
@@ -227,25 +226,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
   useEffect(() => {
     loadHistory();
     loadEstimatedSize();
-    // Start audio level monitoring on mount
-    startAudioMonitor();
-    return () => { stopAudioMonitor(); };
   }, []);
-
-  // Poll audio levels at ~20Hz
-  useEffect(() => {
-    const interval = setInterval(pollAudioLevels, 50);
-    return () => clearInterval(interval);
-  }, [pollAudioLevels]);
-
-  // Stop monitor before recording, restart after
-  useEffect(() => {
-    if (recordingPhase === "recording") {
-      stopAudioMonitor();
-    } else if (recordingPhase === "idle" && config?.audio_enabled) {
-      startAudioMonitor();
-    }
-  }, [recordingPhase]);
 
   useEffect(() => {
     if (recordingPhase !== "recording" || !recordingStartTime) return;

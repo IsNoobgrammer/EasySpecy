@@ -50,6 +50,8 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
             };
         }
         "auto_zoom_enabled" => config.auto_zoom_enabled = value.as_bool().unwrap_or(false),
+        "zoom_sensitivity" => config.zoom_sensitivity = value.as_f64().unwrap_or(0.5) as f32,
+        "zoom_speed" => config.zoom_speed = value.as_f64().unwrap_or(1.0) as f32,
         "cursor_trail_enabled" => config.cursor_trail_enabled = value.as_bool().unwrap_or(false),
         "webcam_enabled" => config.webcam_enabled = value.as_bool().unwrap_or(false),
         "cursor_pack" => {
@@ -91,15 +93,7 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
         "cursor_secondary_color" => {
             config.cursor_secondary_color = value.as_str().unwrap_or("#ff4488").to_string();
         }
-        "trail_duration_ms" => {
-            config.trail_duration_ms = value.as_f64().unwrap_or(600.0);
-        }
-        "cursor_hide_in_recording" => {
-            config.cursor_hide_in_recording = value.as_bool().unwrap_or(false);
-        }
-        "trail_width" => {
-            config.trail_width = value.as_f64().unwrap_or(1.0) as f32;
-        }
+
         _ => return Err(format!("Unknown config key: {}", key)),
     }
     config.save().map_err(|e| e.to_string())
@@ -255,15 +249,6 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
     // Start cursor metadata collection for post-processing
     crate::postprocess::start_collection();
 
-    // Hide system cursor if configured
-    if config.cursor_hide_in_recording {
-        #[cfg(target_os = "windows")]
-        {
-            use windows::Win32::UI::WindowsAndMessaging::ShowCursor;
-            unsafe { ShowCursor(false); }
-            tracing::info!("System cursor hidden for recording");
-        }
-    }
 
     // ═══ WAIT until capture is actually armed (first video frame received) ═══
     // This is the key fix: frontend won't show "recording" until we're ACTUALLY recording.
@@ -304,14 +289,7 @@ pub fn get_encoding_progress() -> (u32, String) {
 
 #[tauri::command]
 pub async fn stop_recording() -> Result<capture::RecordingResult, String> {
-    // Restore system cursor
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::ShowCursor;
-        unsafe { ShowCursor(true); }
-    }
-
-    // ═══ Restore cursors IMMEDIATELY so user sees normal cursor during encoding ═══
+    // ═══ Restore cursors so user sees normal cursor during encoding ═══
     if let Err(e) = crate::cursors::restore_cursors() {
         tracing::warn!("Cursor restore failed: {}", e);
     }

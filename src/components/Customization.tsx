@@ -211,11 +211,7 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
   const [clickEffect, setClickEffect] = useState<ClickEffect>("ripple");
   const [clickColor, setClickColor] = useState("#00e88a");
   const [secondaryColor, setSecondaryColor] = useState("#ff4488");
-  const [trailDuration, setTrailDuration] = useState(600);
-  const [cursorHide, setCursorHide] = useState(false);
-  const [trailWidth, setTrailWidth] = useState(1.0);
   const [previewActive, setPreviewActive] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Load saved config
   useEffect(() => {
@@ -229,9 +225,6 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
         setClickColor(cfg.cursor_trail_color);
       }
       if (cfg.cursor_secondary_color) setSecondaryColor(cfg.cursor_secondary_color);
-      if (cfg.trail_duration_ms) setTrailDuration(cfg.trail_duration_ms);
-      if (cfg.cursor_hide_in_recording !== undefined) setCursorHide(cfg.cursor_hide_in_recording);
-      if (cfg.trail_width) setTrailWidth(cfg.trail_width);
     }).catch(() => {});
   }, []);
 
@@ -259,22 +252,6 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
   const handleSecondaryColorChange = async (color: string) => {
     setSecondaryColor(color);
     try { await invoke("update_config_field", { key: "cursor_secondary_color", value: color }); } catch {}
-  };
-
-  const handleTrailDurationChange = async (ms: number) => {
-    setTrailDuration(ms);
-    try { await invoke("update_config_field", { key: "trail_duration_ms", value: ms.toString() }); } catch {}
-  };
-
-  const handleCursorHideToggle = async () => {
-    const next = !cursorHide;
-    setCursorHide(next);
-    try { await invoke("update_config_field", { key: "cursor_hide_in_recording", value: next.toString() }); } catch {}
-  };
-
-  const handleTrailWidthChange = async (w: number) => {
-    setTrailWidth(w);
-    try { await invoke("update_config_field", { key: "trail_width", value: w.toString() }); } catch {}
   };
 
   const handlePreview = async () => {
@@ -488,123 +465,24 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
           </div>
         </Section>
 
-        {/* ═══ CURSOR BEHAVIOR (Advanced) ═══ */}
-        <Section icon="tune" title="Cursor behavior" accent="#8b949e" delay={0.2}>
-          {/* Toggle to show advanced options */}
-          <button
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="w-full flex items-center justify-between px-5 py-2.5 cursor-pointer"
-            style={{ borderBottom: showAdvanced ? "1px solid var(--border-default)" : "none" }}
-          >
-            <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>
-              Fine-tune trail length, colors, and cursor visibility
-            </span>
-            <motion.span
-              animate={{ rotate: showAdvanced ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
-              className="font-mono text-[10px]"
-              style={{ color: "var(--text-muted)" }}
-            >
-              ▾
-            </motion.span>
-          </button>
-
-          <AnimatePresence>
-            {showAdvanced && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25 }}
-                className="overflow-hidden"
-              >
-                {/* Secondary color (for right-click, glow gradient) */}
-                <div className="flex items-center justify-between px-5 py-2.5" style={{ borderBottom: "1px solid var(--border-default)" }}>
-                  <div>
-                    <span className="font-mono text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>Secondary color</span>
-                    <span className="font-mono text-[9px] ml-2" style={{ color: "var(--text-muted)" }}>right-click + glow gradient tail</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={secondaryColor}
-                      onChange={(e) => handleSecondaryColorChange(e.target.value)}
-                      className="w-5 h-5 cursor-pointer rounded"
-                      style={{ border: "1px solid var(--border-default)", background: "transparent" }}
-                    />
-                    <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{secondaryColor.toUpperCase()}</span>
-                  </div>
-                </div>
-
-                {/* Trail duration slider */}
-                <div className="px-5 py-2.5" style={{ borderBottom: "1px solid var(--border-default)" }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>Trail length</span>
-                    <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{trailDuration}ms</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={100}
-                    max={2000}
-                    step={50}
-                    value={trailDuration}
-                    onChange={(e) => handleTrailDurationChange(Number(e.target.value))}
-                    className="w-full cursor-pointer"
-                    style={{ accentColor: trailColor }}
-                  />
-                  <div className="flex justify-between mt-1">
-                    <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Short (100ms)</span>
-                    <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Long (2000ms)</span>
-                  </div>
-                </div>
-
-                {/* Trail width slider */}
-                <div className="px-5 py-2.5" style={{ borderBottom: "1px solid var(--border-default)" }}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>Trail thickness</span>
-                    <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{trailWidth.toFixed(1)}x</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.3}
-                    max={3.0}
-                    step={0.1}
-                    value={trailWidth}
-                    onChange={(e) => handleTrailWidthChange(Number(e.target.value))}
-                    className="w-full cursor-pointer"
-                    style={{ accentColor: trailColor }}
-                  />
-                  <div className="flex justify-between mt-1">
-                    <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Thin (0.3x)</span>
-                    <span className="font-mono text-[8px]" style={{ color: "var(--text-muted)" }}>Thick (3.0x)</span>
-                  </div>
-                </div>
-
-                {/* Cursor hide toggle */}
-                <div className="flex items-center justify-between px-5 py-2.5">
-                  <div>
-                    <span className="font-mono text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>Hide system cursor</span>
-                    <span className="font-mono text-[9px] ml-2" style={{ color: "var(--text-muted)" }}>show only trail effect in recording</span>
-                  </div>
-                  <button
-                    onClick={handleCursorHideToggle}
-                    className="w-9 h-5 rounded-full cursor-pointer relative transition-all duration-200"
-                    style={{
-                      background: cursorHide ? trailColor + "40" : "var(--border-default)",
-                      border: `1px solid ${cursorHide ? trailColor + "60" : "var(--border-default)"}`,
-                    }}
-                  >
-                    <motion.div
-                      animate={{ x: cursorHide ? 16 : 0 }}
-                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                      className="absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full"
-                      style={{ background: cursorHide ? trailColor : "var(--text-muted)" }}
-                    />
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+        {/* ═══ SECONDARY COLOR ═══ */}
+        <Section icon="tune" title="Right-click color" accent={secondaryColor} delay={0.2}>
+          <div className="flex items-center justify-between px-5 py-3">
+            <div>
+              <span className="font-mono text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>Secondary color</span>
+              <span className="font-mono text-[9px] ml-2" style={{ color: "var(--text-muted)" }}>used for right-click effects + glow gradient</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={secondaryColor}
+                onChange={(e) => handleSecondaryColorChange(e.target.value)}
+                className="w-5 h-5 cursor-pointer rounded"
+                style={{ border: "1px solid var(--border-default)", background: "transparent" }}
+              />
+              <span className="font-mono text-[10px]" style={{ color: "var(--text-muted)" }}>{secondaryColor.toUpperCase()}</span>
+            </div>
+          </div>
         </Section>
 
         <div className="h-6" />

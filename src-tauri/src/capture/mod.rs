@@ -245,6 +245,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
             let mut middle_was_down = false;
             let mut last_x: i32 = 0;
             let mut last_y: i32 = 0;
+            let mut last_key_state: [bool; 256] = [false; 256];
 
             tracing::info!("Mouse tracking thread started");
 
@@ -257,15 +258,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
             }
 
             // ═══ SYNC: Reset cursor timestamp origin to NOW (= first video frame) ═══
-            // This ensures cursor timestamps are perfectly aligned with video frames.
-            // Without this, there's a 200-500ms offset between start_collection() and
-            // first video frame, causing trail to appear "behind" cursor.
             crate::postprocess::reset_session_start();
-
-            // Pre-compute coordinate info
-            // Video is captured at MONITOR resolution (not config resolution)
-            // GetCursorPos returns screen coords = same coordinate space as video
-            // NO SCALING NEEDED
 
             while RECORDING_ACTIVE.load(Ordering::SeqCst) {
                 // Get cursor position (screen coordinates = video coordinates)
@@ -273,7 +266,6 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 let (mut vx, mut vy) = (last_x as f32, last_y as f32);
 
                 if unsafe { GetCursorPos(&mut point).is_ok() } {
-                    // Direct use — no scaling. Video is at monitor resolution.
                     vx = point.x as f32;
                     vy = point.y as f32;
 
@@ -300,6 +292,8 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
 
                 if left_down && !left_was_down {
                     crate::postprocess::record_click(vx, vy, "left");
+                    // ═══ AUTO-ZOOM: Capture window bounds on click ═══
+                    capture_window_bounds_on_click();
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -310,6 +304,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 }
                 if right_down && !right_was_down {
                     crate::postprocess::record_click(vx, vy, "right");
+                    capture_window_bounds_on_click();
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -320,6 +315,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 }
                 if middle_down && !middle_was_down {
                     crate::postprocess::record_click(vx, vy, "middle");
+                    capture_window_bounds_on_click();
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -329,12 +325,25 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                     }
                 }
 
+                // ═══ AUTO-ZOOM: Detect keyboard activity ═══
+                // Check a subset of common keys (letters, numbers, space, enter)
+                for vk in 0x08..=0x5A_u16 { // VK_BACK through VK_Z
+                    let key_down = unsafe { GetAsyncKeyState(vk as i32) } & 0x8000u16 as i16 != 0;
+                    let idx = vk as usize;
+                    if idx < 256 && key_down && !last_key_state[idx] {
+                        crate::postprocess::record_keyboard_event();
+                        break; // Only record one key event per poll cycle
+                    }
+                    if idx < 256 {
+                        last_key_state[idx] = key_down;
+                    }
+                }
+
                 left_was_down = left_down;
                 right_was_down = right_down;
                 middle_was_down = middle_down;
 
                 // ~120Hz polling for smoother cursor tracking
-                // Higher rate = more interpolation points = smoother trails
                 std::thread::sleep(Duration::from_millis(8));
             }
 
@@ -487,7 +496,13 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
     set_encoding_progress(100, "Complete");
 
     // ═══ Save cursor metadata and apply effects ═══
+    tracing::error!("══ stop_recording: calling finalize() ══");
     let final_output = if let Some(meta) = crate::postprocess::finalize() {
+        tracing::error!(
+            "══ finalize() returned Some: {} trail, {} clicks, trail='{}', click='{}' ══",
+            meta.cursor_trail.len(), meta.click_events.len(),
+            meta.trail_style, meta.click_effect
+        );
         // Save metadata
         if let Err(e) = crate::postprocess::save_metadata(&meta, &output_path) {
             tracing::warn!("Failed to save cursor metadata: {}", e);
@@ -495,17 +510,27 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
 
         // Apply trail + click effects to the video
         let effects_output = output_path.replace(".mp4", "_fx.mp4");
+        tracing::error!("══ calling apply_effects({}) ══", output_path);
         match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
-            Ok(effects_path) if effects_path != output_path => {
+            Ok(ref effects_path) if effects_path != &output_path => {
+                tracing::error!("══ apply_effects SUCCESS: {} → {} ══", effects_path, output_path);
                 // Effects were applied — swap files
                 let _ = std::fs::remove_file(&output_path);
-                let _ = std::fs::rename(&effects_path, &output_path);
+                let _ = std::fs::rename(effects_path, &output_path);
                 tracing::info!("Effects baked into final video");
                 output_path.clone()
             }
-            _ => output_path.clone(),
+            Ok(ref same_path) => {
+                tracing::error!("══ apply_effects RETURNED SAME PATH (no effects): {} ══", same_path);
+                output_path.clone()
+            }
+            Err(e) => {
+                tracing::error!("══ apply_effects ERROR: {} ══", e);
+                output_path.clone()
+            }
         }
     } else {
+        tracing::error!("══ finalize() returned None — no metadata! ══");
         output_path.clone()
     };
 
@@ -789,6 +814,37 @@ fn find_ffmpeg() -> Option<String> {
 /// Public wrapper for find_ffmpeg — used by commands module for GPU detection
 pub fn find_ffmpeg_pub() -> Option<String> {
     find_ffmpeg()
+}
+
+/// Capture the foreground window bounds and record them for auto-zoom
+fn capture_window_bounds_on_click() {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, GetWindowRect};
+    use windows::Win32::Foundation::RECT;
+
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            return;
+        }
+
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_ok() {
+            let x = rect.left;
+            let y = rect.top;
+            let width = rect.right - rect.left;
+            let height = rect.bottom - rect.top;
+
+            // Get window title
+            let mut title_buf: [u16; 256] = [0; 256];
+            let len = GetWindowTextW(hwnd, &mut title_buf);
+            let title = String::from_utf16_lossy(&title_buf[..len as usize]);
+
+            // Only record if window has reasonable dimensions
+            if width > 50 && height > 50 {
+                crate::postprocess::record_window_bounds(x, y, width, height, &title);
+            }
+        }
+    }
 }
 
 pub fn pause_recording() {

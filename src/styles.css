@@ -117,43 +117,55 @@
 /* ═══════════════════════════════════════════════════════
    LIGHT THEME
    ═══════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════
+   LIGHT THEME — Artisanal Utility (Stitch-generated)
+   Warm off-white base, muted sage green accents
+   No green-tinted surfaces — warm neutrals only
+   ═══════════════════════════════════════════════════════ */
 [data-theme="light"] {
-  --bg-base: #f4fbf2;
+  /* ─── Surfaces (Artisanal Utility — warm, not green) ─── */
+  --bg-base: #fcf9f8;
   --bg-surface: #ffffff;
-  --bg-elevated: #e9f0e6;
-  --bg-overlay: rgba(244, 251, 242, 0.90);
-  --surface-container-low: #eff6ec;
-  --surface-container: #e9f0e6;
-  --surface-container-high: #e3eae1;
-  --surface-container-highest: #dee4db;
-  --surface-variant: #dee4db;
+  --bg-elevated: #f0eded;
+  --bg-overlay: rgba(252, 249, 248, 0.92);
+  --surface-container-low: #f6f3f2;
+  --surface-container: #f0eded;
+  --surface-container-high: #eae7e7;
+  --surface-container-highest: #e5e2e1;
+  --surface-variant: #e5e2e1;
 
-  --text-primary: #2d342e;
-  --text-secondary: #5a615a;
-  --text-muted: #757d75;
+  /* ─── Text (warm charcoal, not green-gray) ─── */
+  --text-primary: #1c1b1b;
+  --text-secondary: #414942;
+  --text-muted: #717971;
 
-  --border-default: #adb4ab;
-  --border-strong: #757d75;
-  --border-focus: #006e3e;
+  /* ─── Borders (warm gray) ─── */
+  --border-default: #c1c9bf;
+  --border-strong: #717971;
+  --border-focus: #316342;
 
-  --accent-primary: #006e3e;
-  --accent-primary-hover: #005530;
-  --accent-primary-container: #00e88a;
-  --on-primary: #e7ffea;
-  --on-primary-container: #004e2b;
+  /* ─── Primary (muted sage green — easy on eyes) ─── */
+  --accent-primary: #316342;
+  --accent-primary-hover: #264d33;
+  --accent-primary-container: #4a7c59;
+  --on-primary: #ffffff;
+  --on-primary-container: #e1ffe5;
 
-  --accent-record: #bc1621;
-  --accent-record-glow: rgba(188, 22, 33, 0.15);
-  --accent-danger: #bc1621;
+  /* ─── Recording/Error ─── */
+  --accent-record: #ba1a1a;
+  --accent-record-glow: rgba(186, 26, 26, 0.15);
+  --accent-danger: #ba1a1a;
   --error-container: #ffdad6;
 
-  --accent-success: #006e3e;
-  --accent-warning: #bc1621;
-  --accent-info: #0d0f1a;
+  /* ─── Semantic ─── */
+  --accent-success: #316342;
+  --accent-warning: #ba1a1a;
+  --accent-info: #556158;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.10), 0 4px 12px rgba(0, 0, 0, 0.05);
+  /* ─── Shadows (ultra-diffused, warm) ─── */
+  --shadow-sm: 0 1px 3px rgba(28, 27, 27, 0.04);
+  --shadow-md: 0 4px 12px rgba(28, 27, 27, 0.06), 0 1px 4px rgba(28, 27, 27, 0.03);
+  --shadow-lg: 0 8px 24px rgba(28, 27, 27, 0.06), 0 4px 12px rgba(28, 27, 27, 0.04);
   --shadow-glow: none;
 
   color-scheme: light;
@@ -195,6 +207,10 @@ html, body {
   position: relative;
   z-index: 1;
 }
+/* Reduce noise in light mode — grainy on warm white */
+[data-theme="light"] .surface-textured::before {
+  opacity: 0.15;
+}
 
 /* ─── Scrollbar ─── */
 ::-webkit-scrollbar { width: 6px; }
@@ -216,7 +232,7 @@ html, body {
 /* ─── Selection ─── */
 ::selection {
   background: var(--accent-primary);
-  color: var(--text-primary);
+  color: var(--on-primary);
 }
 
 /* ─── Reduced Motion ─── */

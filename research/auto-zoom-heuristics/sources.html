@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sources — Auto-Zoom Research</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<div class="header">
+<h1>Full Source List & Methodology</h1>
+<span class="date">June 1, 2026</span>
+<div class="nav-links" style="margin-top:1rem">
+<a href="index.html">← Back to Main Report</a>
+</div>
+</div>
+
+<h2>Search Methodology</h2>
+<div class="card">
+<p><strong>Goal:</strong> Deep dive — expert-level understanding of auto-zoom heuristics for screen recording</p>
+<p><strong>Searches performed:</strong> 14 web searches across multiple angles</p>
+<p><strong>Source types covered:</strong> Official docs, GitHub repos, community products, technical blogs, OBS forum</p>
+<p><strong>Search queries used:</strong></p>
+<ul style="padding-left:1.25rem;font-size:0.85rem;color:var(--text-secondary)">
+<li>Cap screen recorder auto zoom implementation GitHub</li>
+<li>screen recording auto zoom focus detection open source</li>
+<li>Screen Studio auto zoom how it works heuristic algorithm</li>
+<li>FFmpeg zoompan filter post-processing screen recording cursor position</li>
+<li>Screenize auto zoom "spring physics" cursor activity zoom level</li>
+<li>CapSoftware Cap auto zoom cursor tracking Rust implementation</li>
+<li>Recordly screen recorder auto zoom cursor detection algorithm</li>
+<li>screen recording auto zoom active window detection heuristic click density</li>
+<li>obs-zoom-to-mouse lua script source code zoom algorithm</li>
+<li>FocuSee auto zoom algorithm how it works cursor click</li>
+<li>Windows GetForegroundWindow active window bounds recording zoom crop</li>
+<li>Rust Windows GetForegroundWindow GetWindowRect active window tracking</li>
+<li>FFmpeg crop filter dynamic per-frame coordinates video post-processing</li>
+<li>screen recording zoom "spring physics" easing smooth animation cursor follow</li>
+</ul>
+</div>
+
+<h2>All Sources by Type</h2>
+
+<h3><span class="badge badge-official">Official</span> Documentation & Products</h3>
+<table>
+<thead><tr><th>#</th><th>Source</th><th>Key Finding</th><th>Date</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><a href="https://www.screen.studio/guide/auto-zoom">Screen Studio Auto-Zoom Guide</a></td><td>"Automatically detects click positions and zooms in on those areas"</td><td>2026</td></tr>
+<tr><td>2</td><td><a href="https://focusee.imobie.com/guide/zoom-in-effect.htm">FocuSee Zoom-in Effect</a></td><td>Auto zoom based on mouse movements and click actions; 1.0x-4.0x range</td><td>Feb 2026</td></tr>
+<tr><td>3</td><td><a href="https://cap.so/features/studio-mode">Cap Studio Mode</a></td><td>"Automatically zoom in on important content areas during recording"</td><td>2026</td></tr>
+<tr><td>4</td><td><a href="https://lib.rs/crates/active-win-pos-rs">active-win-pos-rs</a></td><td>Cross-platform active window position, size, title, process ID</td><td>Jun 2026</td></tr>
+<tr><td>5</td><td><a href="https://ffmpeg.org/ffmpeg-filters.html">FFmpeg Filters Docs</a></td><td>zoompan filter reference — expression-based, designed for images</td><td>Jun 2026</td></tr>
+</tbody>
+</table>
+
+<h3><span class="badge badge-community">Community</span> Open-Source & Products</h3>
+<table>
+<thead><tr><th>#</th><th>Source</th><th>Key Finding</th><th>Date</th></tr></thead>
+<tbody>
+<tr><td>6</td><td><a href="https://github.com/webadderallorg/Recordly">Recordly (15.9k ⭐)</a></td><td>Auto zoom suggestions based on cursor activity; PixiJS rendering; timeline editor</td><td>May 2026</td></tr>
+<tr><td>7</td><td><a href="https://github.com/syi0808/screenize">Screenize (461 ⭐)</a></td><td>Two modes: follow-cursor (spring physics) + activity-planned (per-activity zoom)</td><td>Jul 2025</td></tr>
+<tr><td>8</td><td><a href="https://github.com/CapSoftware/Cap">Cap (Tauri+Rust)</a></td><td>GPU shader rendering; closest stack match to EasySpecy</td><td>2026</td></tr>
+<tr><td>9</td><td><a href="https://github.com/BlankSourceCode/obs-zoom-to-mouse">OBS Zoom-to-Mouse</a></td><td>Crop filter + mouse position interpolation; hotkey-triggered</td><td>Nov 2023</td></tr>
+<tr><td>10</td><td><a href="https://cursorful.com/">Cursorful</a></td><td>"Auto zoom triggered when 2+ clicks happen within 3 second time window"</td><td>2026</td></tr>
+<tr><td>11</td><td><a href="https://screenforgeai.com/">Screenforge</a></td><td>"Scans cursor movement, finds where action is densest, places zoom clips automatically"</td><td>May 2026</td></tr>
+<tr><td>12</td><td><a href="https://autozoom.app/">AutoZoom</a></td><td>AI-driven auto-zoom with motion blur, 3D effects, native Mac/Win</td><td>2026</td></tr>
+<tr><td>13</td><td><a href="https://chatgate.ai/post/retina">Retina (BlendPixel)</a></td><td>Spring-physics smoothing; drag segments bypass smoothing; months of heuristic tuning</td><td>May 2026</td></tr>
+<tr><td>14</td><td><a href="https://project-awesome.org/r/syi0808-screenize">Screenize on Project Awesome</a></td><td>Detailed feature description of two camera modes</td><td>2025</td></tr>
+<tr><td>15</td><td><a href="https://github.com/dimusic/active-win-pos-rs">active-win-pos-rs GitHub</a></td><td>Rust crate for window position/size/title on all platforms</td><td>Jun 2026</td></tr>
+</tbody>
+</table>
+
+<h3><span class="badge badge-blog">Blogs</span> & Technical Articles</h3>
+<table>
+<thead><tr><th>#</th><th>Source</th><th>Key Finding</th><th>Date</th></tr></thead>
+<tbody>
+<tr><td>16</td><td><a href="https://hellocode.co/blog/post/tracking-active-process-windows-rust/">Tracking Active Process in Windows with Rust</a></td><td>Complete Rust code for GetForegroundWindow + GetWindowTextW + process lookup</td><td>Nov 2023</td></tr>
+<tr><td>17</td><td><a href="https://www.trupeer.ai/blog/how-ai-auto-zoom-works-click-detection-and-cursor-tracking-explained">Trupeer: How AI Auto-Zoom Works</a></td><td>Click detection + cursor tracking; activity hotspot analysis</td><td>Apr 2026</td></tr>
+<tr><td>18</td><td><a href="https://obsproject.com/forum/resources/zoom-to-mouse-ultimate.2397/">OBS Zoom-to-Mouse-ULTIMATE</a></td><td>Independent zoom-in/out speeds; multiple easing curves; extra smoothing toggle</td><td>Jan 2026</td></tr>
+</tbody>
+</table>
+
+<h2>Cross-Reference Validation</h2>
+<div class="card">
+<p><strong>Claims verified across 3+ independent sources:</strong></p>
+<ul style="padding-left:1.25rem">
+<li>✅ Click-based zoom trigger (Screen Studio + Cursorful + FocuSee + Screenforge + ScreenSmooth + Recordly)</li>
+<li>✅ Spring-physics smoothing (Retina + Screenize + ScreenGrub + OBS Ultimate)</li>
+<li>✅ Post-processing > real-time for quality (Screenize + Screen Studio + FocuSee + Recordly)</li>
+<li>✅ Custom rendering pipeline > FFmpeg zoompan (Recordly + Cap + Screenize architecture)</li>
+</ul>
+<p style="margin-top:1rem"><strong>No contradictions found.</strong> All sources agree on the fundamental approach. Differences are in implementation details (spring parameters, minimum zoom duration, UI exposure).</p>
+</div>
+
+<div class="nav-links">
+<a href="index.html">← Back to Main Report</a>
+<a href="deep-dive.html">📖 Deep Dive: Rendering Approaches</a>
+</div>
+
+</body>
+</html>

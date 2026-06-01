@@ -25,17 +25,46 @@ pub struct ClickEvent {
     pub button: String,
 }
 
+/// Pre-computed confetti particle state at a specific frame (internal)
+#[derive(Debug, Clone)]
+struct ConfettiState {
+    x: f32,
+    y: f32,
+    size: f32,
+    color: (u8, u8, u8),
+    rotation: f32,
+    shape: u8,  // 0=rect, 1=circle, 2=triangle
+    alpha: f32,
+}
+
+/// Window bounds captured at click time (for auto-zoom)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowBoundsEvent {
+    pub timestamp_ms: u64,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub title: String,
+}
+
+/// Keyboard event timestamp (for auto-zoom typing detection)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyboardEvent {
+    pub timestamp_ms: u64,
+}
+
 /// Collected cursor + click metadata for a recording session
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RecordingMetadata {
     pub cursor_trail: Vec<CursorSample>,
     pub click_events: Vec<ClickEvent>,
+    pub window_events: Vec<WindowBoundsEvent>,
+    pub keyboard_events: Vec<KeyboardEvent>,
     pub trail_style: String,
     pub click_effect: String,
     pub trail_color: String,
     pub secondary_color: String,
-    pub trail_duration_ms: f64,
-    pub trail_width: f32,
 }
 
 static METADATA: Mutex<Option<RecordingMetadata>> = Mutex::new(None);
@@ -44,13 +73,15 @@ static SESSION_START: Mutex<Option<Instant>> = Mutex::new(None);
 /// Start collecting cursor metadata for a new recording session
 pub fn start_collection() {
     let config = crate::config::AppConfig::load();
+    tracing::info!(
+        "start_collection: trail='{}', click='{}', color='{}'",
+        config.trail_style, config.click_effect, config.cursor_trail_color
+    );
     *METADATA.lock().unwrap() = Some(RecordingMetadata {
         trail_style: config.trail_style.clone(),
         click_effect: config.click_effect.clone(),
         trail_color: config.cursor_trail_color.clone(),
         secondary_color: config.cursor_secondary_color.clone(),
-        trail_duration_ms: config.trail_duration_ms,
-        trail_width: config.trail_width,
         ..Default::default()
     });
     *SESSION_START.lock().unwrap() = Some(Instant::now());
@@ -101,6 +132,37 @@ pub fn record_click(x: f32, y: f32, button: &str) {
     }
 }
 
+/// Record window bounds at click time (for auto-zoom)
+pub fn record_window_bounds(x: i32, y: i32, width: i32, height: i32, title: &str) {
+    let start = SESSION_START.lock().unwrap();
+    if let Some(t) = *start {
+        let ms = t.elapsed().as_millis() as u64;
+        let mut meta = METADATA.lock().unwrap();
+        if let Some(ref mut m) = *meta {
+            m.window_events.push(WindowBoundsEvent {
+                timestamp_ms: ms,
+                x,
+                y,
+                width,
+                height,
+                title: title.chars().take(256).collect(),
+            });
+        }
+    }
+}
+
+/// Record a keyboard event timestamp (for auto-zoom typing detection)
+pub fn record_keyboard_event() {
+    let start = SESSION_START.lock().unwrap();
+    if let Some(t) = *start {
+        let ms = t.elapsed().as_millis() as u64;
+        let mut meta = METADATA.lock().unwrap();
+        if let Some(ref mut m) = *meta {
+            m.keyboard_events.push(KeyboardEvent { timestamp_ms: ms });
+        }
+    }
+}
+
 /// Finalize and return the collected metadata
 pub fn finalize() -> Option<RecordingMetadata> {
     let meta = METADATA.lock().unwrap().take();
@@ -130,17 +192,24 @@ pub fn save_metadata(meta: &RecordingMetadata, output_path: &str) -> Result<(), 
 pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Result<String, String> {
     let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found")?;
 
+    // ═══ ORIGINAL PIPELINE (overlay only — no zoom) ═══
+
+    tracing::info!(
+        "apply_effects (overlay): trail='{}', click='{}', samples={}, clicks={}",
+        meta.trail_style, meta.click_effect,
+        meta.cursor_trail.len(), meta.click_events.len()
+    );
+
     // Skip if no effects enabled
     if meta.trail_style == "none" && meta.click_effect == "none" {
         return Ok(input.to_string());
     }
     if meta.cursor_trail.is_empty() && meta.click_events.is_empty() {
+        tracing::info!("apply_effects skipped: no trail/click data");
         return Ok(input.to_string());
     }
 
-    tracing::info!(
-        "Applying effects: trail={}, click={}, {} samples, {} clicks",
-        meta.trail_style, meta.click_effect,
+    tracing::info!("apply_effects proceeding: {} trail samples, {} clicks",
         meta.cursor_trail.len(), meta.click_events.len()
     );
 
@@ -170,7 +239,11 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
     });
     let total_frames = ((video_duration_ms as f64 / 1000.0) * fps as f64).ceil() as u32;
 
+    tracing::info!("apply_effects: video_dur={}ms, fps={}, total_frames={}",
+        video_duration_ms, fps, total_frames
+    );
     if total_frames == 0 {
+        tracing::info!("apply_effects skipped: total_frames=0");
         return Ok(input.to_string());
     }
 
@@ -230,7 +303,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     let frame_size = (width * height * 4) as usize;
     let ms_per_frame = 1000.0 / fps as f64;
-    let trail_duration_ms: f64 = meta.trail_duration_ms.max(100.0); // Comet tail length in ms (configurable)
+    let trail_duration_ms: f64 = 600.0; // Comet tail length in ms (configurable)
 
     use std::io::Write;
 
@@ -276,13 +349,14 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
             };
 
             // Active clicks — with left/right button detection
+            let click_window_ms = trail_duration_ms.max(400.0);
             let active_clicks: Vec<(f32, f32, f64, bool)> = click_ref
                 .iter()
                 .filter_map(|click| {
                     let click_age_ms = frame_time_ms - click.timestamp_ms as f64;
-                    if click_age_ms >= 0.0 && click_age_ms < 600.0 {
+                    if click_age_ms >= 0.0 && click_age_ms < click_window_ms {
                         let is_right = click.button == "right";
-                        Some((click.x, click.y, click_age_ms / 600.0, is_right))
+                        Some((click.x, click.y, click_age_ms / click_window_ms, is_right))
                     } else {
                         None
                     }
@@ -292,6 +366,18 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
             (segment, active_clicks)
         })
         .collect();
+
+    // ═══ PRE-COMPUTE CONFETTI PARTICLES (SEQUENTIAL) ═══
+    // Confetti particles have persistent physics state across frames,
+    // so we simulate them sequentially once, then use the results in parallel rendering.
+    let confetti_per_frame = precompute_confetti(
+        &meta.click_events,
+        total_frames,
+        fps,
+        &meta.click_effect,
+        color,
+        secondary_color,
+    );
 
     tracing::info!(
         "Pre-computed {} frames, starting parallel render (batch=8)",
@@ -330,7 +416,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                         color,
                         secondary_color,
                         &meta.trail_style,
-                        meta.trail_width,
+                        1.0,
                     );
                 }
 
@@ -347,6 +433,12 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                         click_color,
                         &meta.click_effect,
                     );
+                }
+
+                // Confetti particles
+                let confetti_slice = &confetti_per_frame[frame_idx];
+                for cs in confetti_slice {
+                    render_confetti_particle(&mut frame_buf, width, height, cs);
                 }
 
                 // Recording start/stop markers
@@ -405,13 +497,13 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!("FFmpeg effects failed: {}", stderr);
+        tracing::warn!("FFmpeg effects failed: {}", &stderr[..stderr.len().min(500)]);
         let _ = std::fs::remove_dir_all(&trail_dir);
         return Ok(input.to_string());
     }
 
     let _ = std::fs::remove_dir_all(&trail_dir);
-    tracing::info!("Trail effects applied: {} frames rendered", total_frames);
+    tracing::info!("apply_effects complete: {} frames", total_frames);
     Ok(effects_path)
 }
 
@@ -755,57 +847,179 @@ fn render_smooth_trail(
 /// Render click effect onto RGBA frame buffer
 fn render_click_effect(
     buf: &mut [u8],
-    w: u32, h: u32,
-    cx: f32, cy: f32,
+    w: u32,
+    h: u32,
+    cx: f32,
+    cy: f32,
     progress: f64, // 0.0 = just clicked, 1.0 = fully faded
     color: (u8, u8, u8),
     style: &str,
 ) {
     let p = progress as f32;
-    if p >= 1.0 { return; }
+    if p >= 1.0 {
+        return;
+    }
+
+    // Scale factor for 1080p — effects designed for this resolution
+    let sf = (w as f32 / 1920.0).max(0.5);
 
     match style {
         "ripple" => {
-            // Expanding rings
-            for ring in 0..3 {
-                let ring_p = (p - ring as f32 * 0.12).max(0.0) / 0.7;
-                if ring_p >= 1.0 || ring_p <= 0.0 { continue; }
-                let radius = ring_p * 40.0;
-                let alpha = (1.0 - ring_p) * 0.5;
-                draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha);
+            // 4 expanding rings with staggered timing + bright flash
+            for ring in 0..4 {
+                let ring_p = (p - ring as f32 * 0.1).max(0.0) / 0.65;
+                if ring_p >= 1.0 || ring_p <= 0.0 {
+                    continue;
+                }
+                let radius = ring_p * 60.0 * sf;
+                let alpha = (1.0 - ring_p) * 0.7;
+                // Draw ring as glow + bright stroke
+                draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha * 0.3);
+                draw_glow_circle(
+                    buf,
+                    w,
+                    h,
+                    cx,
+                    cy,
+                    (radius - 3.0 * sf).max(1.0),
+                    color,
+                    alpha,
+                );
             }
-            // Center flash
-            if p < 0.15 {
-                let flash = 1.0 - p / 0.15;
-                draw_glow_circle(buf, w, h, cx, cy, 5.0, (255, 255, 255), flash * 0.8);
+            // Bright center flash
+            if p < 0.2 {
+                let flash = 1.0 - p / 0.2;
+                draw_glow_circle(buf, w, h, cx, cy, 12.0 * sf, (255, 255, 255), flash * 0.9);
+                draw_glow_circle(buf, w, h, cx, cy, 8.0 * sf, color, flash * 0.7);
             }
         }
         "spotlight" => {
-            let radius = 6.0 + p * 35.0;
-            let alpha = (1.0 - p) * 0.4;
+            let radius = (10.0 + p * 60.0) * sf;
+            let alpha = (1.0 - p) * 0.65;
+            // Outer glow
+            draw_glow_circle(buf, w, h, cx, cy, radius * 1.5, color, alpha * 0.15);
+            // Main spotlight
             draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha);
-            draw_glow_circle(buf, w, h, cx, cy, radius * 0.3, (255, 255, 255), alpha * 0.5);
-        }
-        "ring" => {
-            let radius = 4.0 + p * 30.0;
-            let alpha = (1.0 - p) * 0.6;
-            // Ring = outer circle minus inner
-            draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha * 0.3);
-            draw_glow_circle(buf, w, h, cx, cy, 3.0 * (1.0 - p), color, (1.0 - p) * 0.8);
-        }
-        "pulse" => {
-            for i in 0..4 {
-                let phase = (p * 1.5 + i as f32 * 0.18) % 1.0;
-                let radius = phase * 25.0;
-                let alpha = (1.0 - phase) * 0.4;
-                draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha);
+            // Bright inner core
+            draw_glow_circle(
+                buf,
+                w,
+                h,
+                cx,
+                cy,
+                radius * 0.4,
+                (255, 255, 255),
+                alpha * 0.7,
+            );
+            // Cross flare rays
+            if p < 0.5 {
+                let ray_alpha = (1.0 - p / 0.5) * 0.5;
+                let ray_len = (20.0 + p * 40.0) * sf;
+                for a in 0..6 {
+                    let angle = a as f32 * std::f32::consts::PI / 3.0 + p * 0.5;
+                    let rx = cx + angle.cos() * ray_len;
+                    let ry = cy + angle.sin() * ray_len;
+                    draw_glow_circle(buf, w, h, rx, ry, 4.0 * sf, color, ray_alpha);
+                }
             }
         }
+        "ring" => {
+            let radius = (8.0 + p * 50.0) * sf;
+            let alpha = (1.0 - p) * 0.8;
+            // Outer expanding ring
+            draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha * 0.3);
+            draw_glow_circle(
+                buf,
+                w,
+                h,
+                cx,
+                cy,
+                (radius - 3.0 * sf).max(1.0),
+                color,
+                alpha,
+            );
+            // Inner contracting ring
+            if p < 0.5 {
+                let inner_t = p / 0.5;
+                let inner_r = (30.0 * (1.0 - inner_t)) * sf;
+                let inner_alpha = (1.0 - inner_t) * 0.7;
+                draw_glow_circle(buf, w, h, cx, cy, inner_r, color, inner_alpha * 0.3);
+                draw_glow_circle(
+                    buf,
+                    w,
+                    h,
+                    cx,
+                    cy,
+                    (inner_r - 2.0 * sf).max(1.0),
+                    color,
+                    inner_alpha,
+                );
+            }
+            // Center dot
+            let dot_size = (6.0 * (1.0 - p)) * sf;
+            if dot_size > 0.5 {
+                draw_glow_circle(buf, w, h, cx, cy, dot_size, color, (1.0 - p) * 0.9);
+                draw_glow_circle(
+                    buf,
+                    w,
+                    h,
+                    cx,
+                    cy,
+                    dot_size * 0.5,
+                    (255, 255, 255),
+                    (1.0 - p) * 0.8,
+                );
+            }
+        }
+        "pulse" => {
+            for i in 0..5 {
+                let phase = (p * 1.5 + i as f32 * 0.18) % 1.0;
+                let radius = phase * 45.0 * sf;
+                let alpha = (1.0 - phase) * 0.6;
+                draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha * 0.3);
+                draw_glow_circle(
+                    buf,
+                    w,
+                    h,
+                    cx,
+                    cy,
+                    (radius - 2.0 * sf).max(1.0),
+                    color,
+                    alpha,
+                );
+            }
+            // Breathing center glow
+            let breathe = (p * std::f32::consts::PI * 8.0).sin() * 0.3 + 0.7;
+            let glow_size = (10.0 + breathe * 6.0) * sf;
+            draw_glow_circle(
+                buf,
+                w,
+                h,
+                cx,
+                cy,
+                glow_size,
+                color,
+                breathe * (1.0 - p) * 0.8,
+            );
+        }
+        "confetti" => {
+            // Confetti is handled separately via precompute_confetti
+        }
         _ => {
-            // Default ripple
-            let radius = p * 35.0;
-            let alpha = (1.0 - p) * 0.5;
+            // Default: visible expanding circle
+            let radius = (8.0 + p * 50.0) * sf;
+            let alpha = (1.0 - p) * 0.6;
             draw_glow_circle(buf, w, h, cx, cy, radius, color, alpha);
+            draw_glow_circle(
+                buf,
+                w,
+                h,
+                cx,
+                cy,
+                radius * 0.4,
+                (255, 255, 255),
+                alpha * 0.5,
+            );
         }
     }
 }
@@ -828,7 +1042,244 @@ fn hue_rotate_rgb(color: (u8, u8, u8), degrees: f32) -> (u8, u8, u8) {
            + g * (0.715 - 0.715 * cos_a + 0.715 * sin_a)
            + b * (0.072 + 0.928 * cos_a + 0.072 * sin_a);
 
-    ((nr.clamp(0.0, 1.0) * 255.0) as u8,
-     (ng.clamp(0.0, 1.0) * 255.0) as u8,
-     (nb.clamp(0.0, 1.0) * 255.0) as u8)
+    (
+        (nr.clamp(0.0, 1.0) * 255.0) as u8,
+        (ng.clamp(0.0, 1.0) * 255.0) as u8,
+        (nb.clamp(0.0, 1.0) * 255.0) as u8,
+    )
 }
+
+// ═══ CONFETTI CLICK EFFECT ═══
+// Post-processing particle system: deterministic, pre-simulated, parallel-rendered.
+
+/// Splitmix64 — deterministic pseudo-random generator (no external crate needed)
+fn splitmix64(seed: &mut u64) -> u64 {
+    *seed = seed.wrapping_add(0x9e3779b97f4a7c15);
+    let mut z = *seed;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    z ^ (z >> 31)
+}
+
+/// Get a deterministic f32 in [0, 1) from the RNG
+fn rand_f32(seed: &mut u64) -> f32 {
+    (splitmix64(seed) >> 11) as f32 / (1u64 << 53) as f32
+}
+
+/// Pre-simulate confetti particles for ALL frames.
+/// Returns Vec of length total_frames, each containing the confetti particles alive at that frame.
+/// This runs sequentially (confetti is a persistent particle system), but the results are used
+/// in the parallel frame render.
+fn precompute_confetti(
+    click_events: &[ClickEvent],
+    total_frames: u32,
+    fps: u32,
+    click_effect: &str,
+    primary_color: (u8, u8, u8),
+    _secondary_color: (u8, u8, u8),
+) -> Vec<Vec<ConfettiState>> {
+    if click_effect != "confetti" {
+        return vec![Vec::new(); total_frames as usize];
+    }
+
+    let ms_per_frame = 1000.0 / fps as f64;
+    let mut result = vec![Vec::new(); total_frames as usize];
+
+    // Color palette: primary click color + 6 rainbow colors (matching canvas version)
+    let rainbow: [(u8, u8, u8); 6] = [
+        (255, 68, 85),  // red
+        (68, 136, 255), // blue
+        (255, 204, 34), // yellow
+        (255, 68, 204), // pink
+        (68, 255, 204), // cyan
+        (255, 136, 68), // orange
+    ];
+
+    for click in click_events {
+        // Deterministic seed from click timestamp
+        let seed_base = (click.timestamp_ms as u64)
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(0xBEEF);
+        let click_frame = (click.timestamp_ms as f64 / ms_per_frame).round() as i64;
+
+        // Spawn 30 particles (matching canvas version)
+        for i in 0..30u32 {
+            let mut seed = seed_base.wrapping_add(i as u64 * 12345);
+
+            let angle = rand_f32(&mut seed) * std::f32::consts::PI * 2.0;
+            let speed = 2.5 + rand_f32(&mut seed) * 5.0;
+            let mut vx = angle.cos() * speed;
+            let mut vy = angle.sin() * speed - 2.5; // initial upward bias
+            let size = 2.0 + rand_f32(&mut seed) * 4.0;
+            let rot_speed = (rand_f32(&mut seed) - 0.5) * 0.25;
+            let color_idx = (rand_f32(&mut seed) * 7.0) as usize;
+            let pcolor = if color_idx == 0 {
+                primary_color
+            } else {
+                rainbow[(color_idx - 1).min(5)]
+            };
+            let pshape = (rand_f32(&mut seed) * 3.0) as u8; // 0=rect, 1=circle, 2=triangle
+            let max_age = 45 + (rand_f32(&mut seed) * 25.0) as u32;
+
+            let mut px = click.x;
+            let mut py = click.y;
+            let mut rotation = 0.0f32;
+
+            // Simulate this particle's lifetime frame by frame
+            for frame_offset in 0..max_age {
+                let global_frame = click_frame + frame_offset as i64;
+                if global_frame < 0 || global_frame >= total_frames as i64 {
+                    // Still advance physics even if out of bounds
+                    px += vx;
+                    py += vy;
+                    vy += 0.13;
+                    vx *= 0.985;
+                    rotation += rot_speed;
+                    continue;
+                }
+
+                let alpha = (1.0 - frame_offset as f32 / max_age as f32) * 0.9;
+                result[global_frame as usize].push(ConfettiState {
+                    x: px,
+                    y: py,
+                    size,
+                    color: pcolor,
+                    rotation,
+                    shape: pshape,
+                    alpha,
+                });
+
+                // Physics step (matching canvas: gravity=0.13, drag=0.985)
+                px += vx;
+                py += vy;
+                vy += 0.13;
+                vx *= 0.985;
+                rotation += rot_speed;
+            }
+        }
+    }
+
+    result
+}
+
+/// Render a single confetti particle onto the RGBA frame buffer
+fn render_confetti_particle(buf: &mut [u8], w: u32, h: u32, p: &ConfettiState) {
+    if p.alpha < 0.01 || p.size < 0.5 {
+        return;
+    }
+
+    match p.shape {
+        1 => {
+            // Circle — reuse existing glow circle
+            draw_glow_circle(buf, w, h, p.x, p.y, p.size * 0.5, p.color, p.alpha);
+        }
+        2 => {
+            // Triangle
+            let half = p.size * 0.5;
+            let cos_r = p.rotation.cos();
+            let sin_r = p.rotation.sin();
+            // Vertices: top, bottom-right, bottom-left (rotated)
+            let v0 = rotate_point(0.0, -half, cos_r, sin_r);
+            let v1 = rotate_point(half * 0.866, half * 0.5, cos_r, sin_r);
+            let v2 = rotate_point(-half * 0.866, half * 0.5, cos_r, sin_r);
+
+            let x1 = p.x + v0.0;
+            let y1 = p.y + v0.1;
+            let x2 = p.x + v1.0;
+            let y2 = p.y + v1.1;
+            let x3 = p.x + v2.0;
+            let y3 = p.y + v2.1;
+
+            // Bounding box
+            let min_x = x1.min(x2).min(x3).max(0.0) as u32;
+            let max_x = (x1.max(x2).max(x3) + 1.0).min(w as f32 - 1.0) as u32;
+            let min_y = y1.min(y2).min(y3).max(0.0) as u32;
+            let max_y = (y1.max(y2).max(y3) + 1.0).min(h as f32 - 1.0) as u32;
+
+            for py in min_y..=max_y {
+                for px in min_x..=max_x {
+                    if point_in_triangle(px as f32, py as f32, x1, y1, x2, y2, x3, y3) {
+                        let idx = ((py * w + px) * 4) as usize;
+                        if idx + 3 < buf.len() {
+                            blend_pixel(&mut buf[idx..idx + 4], p.color, p.alpha);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {
+            // Rectangle (rotated)
+            let half_w = p.size * 0.5;
+            let half_h = p.size * 0.25;
+            let cos_r = p.rotation.cos();
+            let sin_r = p.rotation.sin();
+            let max_r = (half_w + half_h) as i32 + 1;
+            let cx_i = p.x as i32;
+            let cy_i = p.y as i32;
+
+            for py in (cy_i - max_r).max(0)..=(cy_i + max_r).min(h as i32 - 1) {
+                for px in (cx_i - max_r).max(0)..=(cx_i + max_r).min(w as i32 - 1) {
+                    let dx = px as f32 - p.x;
+                    let dy = py as f32 - p.y;
+                    // Rotate point to rect's local space
+                    let rx = dx * cos_r + dy * sin_r;
+                    let ry = -dx * sin_r + dy * cos_r;
+                    if rx.abs() <= half_w && ry.abs() <= half_h {
+                        let idx = ((py as u32 * w + px as u32) * 4) as usize;
+                        if idx + 3 < buf.len() {
+                            blend_pixel(&mut buf[idx..idx + 4], p.color, p.alpha);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Rotate a point by angle (given precomputed cos/sin)
+fn rotate_point(x: f32, y: f32, cos_a: f32, sin_a: f32) -> (f32, f32) {
+    (x * cos_a - y * sin_a, x * sin_a + y * cos_a)
+}
+
+/// Point-in-triangle test using barycentric sign method
+fn point_in_triangle(
+    px: f32,
+    py: f32,
+    x1: f32,
+    y1: f32,
+    x2: f32,
+    y2: f32,
+    x3: f32,
+    y3: f32,
+) -> bool {
+    let d1 = sign(px, py, x1, y1, x2, y2);
+    let d2 = sign(px, py, x2, y2, x3, y3);
+    let d3 = sign(px, py, x3, y3, x1, y1);
+    let has_neg = (d1 < 0.0) || (d2 < 0.0) || (d3 < 0.0);
+    let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
+    !(has_neg && has_pos)
+}
+
+fn sign(px: f32, py: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
+    (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2)
+}
+
+/// Alpha-blend a color onto a pixel in the RGBA buffer
+fn blend_pixel(pixel: &mut [u8], color: (u8, u8, u8), alpha: f32) {
+    let src_a = alpha.max(0.0).min(1.0);
+    if src_a < 0.01 {
+        return;
+    }
+    let dst_a = pixel[3] as f32 / 255.0;
+    let out_a = src_a + dst_a * (1.0 - src_a);
+    if out_a > 0.0 {
+        pixel[0] =
+            ((color.0 as f32 * src_a + pixel[0] as f32 * dst_a * (1.0 - src_a)) / out_a) as u8;
+        pixel[1] =
+            ((color.1 as f32 * src_a + pixel[1] as f32 * dst_a * (1.0 - src_a)) / out_a) as u8;
+        pixel[2] =
+            ((color.2 as f32 * src_a + pixel[2] as f32 * dst_a * (1.0 - src_a)) / out_a) as u8;
+        pixel[3] = (out_a * 255.0) as u8;
+    }
+}
+

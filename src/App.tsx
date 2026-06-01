@@ -20,6 +20,9 @@ export default function App() {
   const recordingPhase = useStore((s) => s.recordingPhase);
   const config = useStore((s) => s.config);
   const audioLevels = useStore((s) => s.audioLevels);
+  const startAudioMonitor = useStore((s) => s.startAudioMonitor);
+  const stopAudioMonitor = useStore((s) => s.stopAudioMonitor);
+  const pollAudioLevels = useStore((s) => s.pollAudioLevels);
   const { theme, toggleTheme } = useThemeStore();
   const [version, setVersion] = useState("0.1.0");
 
@@ -36,6 +39,27 @@ export default function App() {
     });
     return () => { unlisten.then((fn) => fn()); };
   }, []);
+
+  // Audio monitor lifecycle — runs on ALL pages (not just Dashboard)
+  useEffect(() => {
+    startAudioMonitor();
+    return () => { stopAudioMonitor(); };
+  }, []);
+
+  // Poll audio levels at ~20Hz — global so sidebar meter works everywhere
+  useEffect(() => {
+    const interval = setInterval(pollAudioLevels, 50);
+    return () => clearInterval(interval);
+  }, [pollAudioLevels]);
+
+  // Stop monitor before recording (free device for AudioCapture), restart after
+  useEffect(() => {
+    if (recordingPhase === "recording") {
+      stopAudioMonitor();
+    } else if (recordingPhase === "idle" && config?.audio_enabled) {
+      startAudioMonitor();
+    }
+  }, [recordingPhase]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);

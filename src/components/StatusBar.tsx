@@ -121,7 +121,7 @@ export function SidebarStats({ audioSource, audioEnabled, levels }: SidebarStats
   const formatTime = (d: Date) => d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 overflow-hidden">
       {/* ═══ SYSTEM STATS ═══ */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 px-2">
         <StatItem
@@ -148,7 +148,7 @@ export function SidebarStats({ audioSource, audioEnabled, levels }: SidebarStats
 
       {/* ═══ LOUDNESS METER (horizontal layout) ═══ */}
       {audioEnabled && (
-        <div className="flex items-center gap-2 px-2">
+        <div className="px-2 overflow-hidden">
           <LoudnessMeterInline
             audioSource={audioSource}
             audioEnabled={audioEnabled}
@@ -336,7 +336,7 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
     : "var(--accent-primary)";
 
   return (
-    <div className="flex items-center gap-2 w-full">
+    <div className="flex items-center gap-2 w-full overflow-hidden">
       {/* Source label */}
       <span
         className="font-mono uppercase shrink-0"
@@ -348,8 +348,8 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
       {/* Horizontal meter */}
       <canvas
         ref={canvasRef}
-        className="flex-1"
-        style={{ height: 10, display: "block" }}
+        className="flex-1 min-w-0"
+        style={{ height: 10, display: "block", background: "transparent" }}
       />
 
       {/* dB readout */}

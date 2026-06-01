@@ -38,6 +38,8 @@ pub struct AppConfig {
     pub auto_zoom_enabled: bool,
     pub zoom_level: f32,
     pub zoom_dwell_ms: u32,
+    pub zoom_sensitivity: f32,
+    pub zoom_speed: f32,
 
     // Cursor effects
     pub cursor_trail_enabled: bool,
@@ -49,9 +51,6 @@ pub struct AppConfig {
     pub cursor_pack: String,
     pub trail_style: String,
     pub click_effect: String,
-    pub trail_duration_ms: f64, // 200-2000ms, default 600
-    pub cursor_hide_in_recording: bool,
-    pub trail_width: f32,
 
     // Hotkeys
     pub hotkey_start: String,
@@ -145,6 +144,8 @@ impl Default for AppConfig {
             auto_zoom_enabled: false,
             zoom_level: 2.0,
             zoom_dwell_ms: 1500,
+            zoom_sensitivity: 0.5,
+            zoom_speed: 1.0,
 
             cursor_trail_enabled: false,
             cursor_trail_color: "#00ff88".to_string(),
@@ -155,9 +156,6 @@ impl Default for AppConfig {
             cursor_pack: "default".to_string(),
             trail_style: "glow".to_string(),
             click_effect: "ripple".to_string(),
-            trail_duration_ms: 600.0,
-            cursor_hide_in_recording: false,
-            trail_width: 1.0,
 
             hotkey_start: "Ctrl+Shift+R".to_string(),
             hotkey_stop: "Ctrl+Shift+S".to_string(),

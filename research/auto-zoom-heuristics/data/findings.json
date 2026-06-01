@@ -1,0 +1,59 @@
+{
+  "topic": "Auto-Zoom Heuristics for Screen Recording Post-Processing",
+  "report_type": "deep_dive",
+  "date": "2026-06-01",
+  "sources": [
+    {"type": "official", "url": "https://www.screen.studio/guide/auto-zoom", "title": "Screen Studio Auto-Zoom Guide", "date": "2026", "reliability": "high"},
+    {"type": "official", "url": "https://focusee.imobie.com/guide/zoom-in-effect.htm", "title": "FocuSee Zoom-in Effect Guide", "date": "2026-02", "reliability": "high"},
+    {"type": "official", "url": "https://cap.so/features/studio-mode", "title": "Cap Studio Mode", "date": "2026", "reliability": "high"},
+    {"type": "official", "url": "https://lib.rs/crates/active-win-pos-rs", "title": "active-win-pos-rs Rust crate", "date": "2026-06", "reliability": "high"},
+    {"type": "official", "url": "https://ffmpeg.org/ffmpeg-filters.html", "title": "FFmpeg Filters Documentation", "date": "2026-06", "reliability": "high"},
+    {"type": "community", "url": "https://github.com/webadderallorg/Recordly", "title": "Recordly - Open Source Screen Recorder", "date": "2026-05", "reliability": "high"},
+    {"type": "community", "url": "https://github.com/syi0808/screenize", "title": "Screenize - macOS Screen Recorder", "date": "2025-07", "reliability": "high"},
+    {"type": "community", "url": "https://github.com/CapSoftware/Cap", "title": "Cap - Tauri+Rust Screen Recorder", "date": "2026", "reliability": "high"},
+    {"type": "community", "url": "https://github.com/BlankSourceCode/obs-zoom-to-mouse", "title": "OBS Zoom-to-Mouse Script", "date": "2023-11", "reliability": "medium"},
+    {"type": "community", "url": "https://cursorful.com/", "title": "Cursorful - Click-based auto zoom", "date": "2026", "reliability": "high"},
+    {"type": "community", "url": "https://screenforgeai.com/", "title": "Screenforge - Cursor hotspot density", "date": "2026-05", "reliability": "high"},
+    {"type": "community", "url": "https://chatgate.ai/post/retina", "title": "Retina - Spring-physics zoom", "date": "2026-05", "reliability": "medium"},
+    {"type": "community", "url": "https://project-awesome.org/r/syi0808-screenize", "title": "Screenize on Project Awesome", "date": "2025", "reliability": "medium"},
+    {"type": "community", "url": "https://autozoom.app/", "title": "AutoZoom App", "date": "2026", "reliability": "medium"},
+    {"type": "blog", "url": "https://hellocode.co/blog/post/tracking-active-process-windows-rust/", "title": "Tracking Active Process in Windows with Rust", "date": "2023-11", "reliability": "high"},
+    {"type": "blog", "url": "https://www.trupeer.ai/blog/how-ai-auto-zoom-works-click-detection-and-cursor-tracking-explained", "title": "How AI Auto-Zoom Works", "date": "2026-04", "reliability": "medium"},
+    {"type": "blog", "url": "https://obsproject.com/forum/resources/zoom-to-mouse-ultimate.2397/", "title": "OBS Zoom-to-Mouse-ULTIMATE", "date": "2026-01", "reliability": "high"},
+    {"type": "community", "url": "https://github.com/dimusic/active-win-pos-rs", "title": "active-win-pos-rs GitHub", "date": "2026-06", "reliability": "high"}
+  ],
+  "findings": [
+    {
+      "claim": "Mouse clicks are the universal primary trigger for auto-zoom in screen recording",
+      "evidence": ["Screen Studio auto-detects click positions", "Cursorful triggers on 2+ clicks in 3s", "FocuSee zooms where mouse clicks", "Screenforge uses cursor hotspot density"],
+      "confidence": "high",
+      "sources": ["Screen Studio", "Cursorful", "FocuSee", "Screenforge", "ScreenSmooth", "Recordly"]
+    },
+    {
+      "claim": "Spring-physics smoothing produces superior camera movement vs linear interpolation",
+      "evidence": ["Retina uses spring-physics with drag bypass", "Screenize uses spring physics for follow-cursor mode", "ScreenGrub uses spring-physics engine", "OBS Ultimate offers multiple easing curves"],
+      "confidence": "high",
+      "sources": ["Retina", "Screenize", "ScreenGrub", "OBS Zoom-to-Mouse-ULTIMATE"]
+    },
+    {
+      "claim": "Post-processing analysis produces better zoom than real-time detection",
+      "evidence": ["Screenize activity-planned mode analyzes full recording", "All high-quality products render in post", "Real-time can't look ahead for context"],
+      "confidence": "high",
+      "sources": ["Screenize", "Screen Studio", "FocuSee", "Recordly"]
+    },
+    {
+      "claim": "FFmpeg zoompan filter is inadequate for dynamic per-frame zoom on video",
+      "evidence": ["zoompan designed for images not video", "Expression-based coords can't reference external data", "All competitors use custom rendering pipelines"],
+      "confidence": "high",
+      "sources": ["FFmpeg docs", "Stack Overflow", "Recordly architecture", "Cap architecture"]
+    },
+    {
+      "claim": "Active window bounds can be tracked in Rust via active-win-pos-rs or direct Win32 API",
+      "evidence": ["active-win-pos-rs provides cross-platform window position/size", "GetForegroundWindow + GetWindowRect is the standard Win32 approach", "DwmGetWindowAttribute for accurate bounds"],
+      "confidence": "high",
+      "sources": ["active-win-pos-rs", "HelloCode blog", "x-win crate", "windows-rs"]
+    }
+  ],
+  "contradictions": [],
+  "recommendation": "Implement click-clustering as primary heuristic (2+ clicks in 3s window), active window bounds as secondary signal, spring-physics camera animation, and crop+scale in existing Rust post-processing pipeline. This leverages existing cursor trail infrastructure with minimal new code."
+}

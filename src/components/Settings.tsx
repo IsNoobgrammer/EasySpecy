@@ -352,7 +352,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           className="w-full py-3 font-mono text-xs uppercase font-bold cursor-pointer shadow-md flex items-center justify-center gap-2"
           style={{
             border: "none",
-            background: saved ? "var(--accent-success)" : "var(--accent-primary-container, #00e88a)",
+            background: saved ? "var(--accent-success)" : "var(--accent-primary-container, #4a7c59)",
             color: saved ? "#fff" : "var(--on-primary, #00391e)",
             borderRadius: "var(--radius-sm)",
             letterSpacing: "0.05em",

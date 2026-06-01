@@ -1,0 +1,34 @@
+{
+  "regions": [
+    {
+      "start_ms": 1700,
+      "end_ms": 5600,
+      "center_x": 360.0,
+      "center_y": 290.0,
+      "zoom_level": 4.0,
+      "trigger": "ClickCluster",
+      "priority": 4
+    },
+    {
+      "start_ms": 7800,
+      "end_ms": 11300,
+      "center_x": 800.2,
+      "center_y": 500.0,
+      "zoom_level": 1.25,
+      "trigger": "Typing",
+      "priority": 2
+    },
+    {
+      "start_ms": 13800,
+      "end_ms": 17900,
+      "center_x": 1200.0,
+      "center_y": 600.0,
+      "zoom_level": 3.0,
+      "trigger": "CircleGesture",
+      "priority": 5
+    }
+  ],
+  "source_width": 1920,
+  "source_height": 1080,
+  "fps": 30
+}
