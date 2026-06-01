@@ -95,6 +95,7 @@ pub fn get_windows() -> Vec<WindowInfo> {
 
 /// Capture a window thumbnail as base64 PNG using BitBlt from screen
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 pub fn capture_window_thumbnail(hwnd: isize, max_width: u32, max_height: u32) -> Result<String, String> {
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::Graphics::Gdi::{
@@ -207,6 +208,7 @@ pub fn capture_window_thumbnail(hwnd: isize, max_width: u32, max_height: u32) ->
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn write_png_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
     output.extend_from_slice(&(data.len() as u32).to_be_bytes());
     output.extend_from_slice(chunk_type);
