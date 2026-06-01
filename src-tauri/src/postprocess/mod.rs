@@ -202,6 +202,8 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
         "-c:v", "libx264",
         "-preset", "fast",
         "-crf", "18",
+        "-threads", "0",
+        "-thread_type", "frame+slice",
         "-c:a", "copy",
         "-shortest",
         &effects_path,
@@ -225,23 +227,24 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     use std::io::Write;
 
-    // ═══ PRE-COMPUTE PER-FRAME DATA ═══
-    // Compute trail segments and active clicks ONCE, then render in parallel.
-    // Eliminates per-frame binary search + segment building.
+    // ═══ PRE-COMPUTE PER-FRAME DATA (PARALLEL) ═══
+    // Each frame's trail segment + click data is independent → parallel compute.
+    let smooth_path_ref = &smooth_path;
+    let click_ref = &meta.click_events;
     let pre_computed: Vec<(Vec<(f32, f32, f64)>, Vec<(f32, f32, f64)>)> = (0..total_frames)
-        .into_iter()
+        .into_par_iter()
         .map(|frame_idx| {
             let frame_time_ms = frame_idx as f64 * ms_per_frame;
-            let head_idx = find_path_index_at_time(&smooth_path, frame_time_ms);
+            let head_idx = find_path_index_at_time(smooth_path_ref, frame_time_ms);
 
             // Trail segment
             let segment: Vec<(f32, f32, f64)> = if head_idx > 0 {
                 let tail_start_time = (frame_time_ms - trail_duration_ms).max(0.0);
-                let tail_idx = find_path_index_at_time(&smooth_path, tail_start_time);
+                let tail_idx = find_path_index_at_time(smooth_path_ref, tail_start_time);
                 if head_idx > tail_idx {
                     (tail_idx..=head_idx)
                         .map(|i| {
-                            let p = &smooth_path[i];
+                            let p = &smooth_path_ref[i];
                             let age = 1.0 - ((i - tail_idx) as f64 / (head_idx - tail_idx) as f64);
                             (p.0, p.1, age)
                         })
@@ -253,9 +256,8 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                 Vec::new()
             };
 
-            // Active clicks
-            let active_clicks: Vec<(f32, f32, f64)> = meta
-                .click_events
+            // Active clicks — binary search since click_events are sorted by timestamp
+            let active_clicks: Vec<(f32, f32, f64)> = click_ref
                 .iter()
                 .filter_map(|click| {
                     let click_age_ms = frame_time_ms - click.timestamp_ms as f64;
@@ -278,7 +280,11 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     // ═══ PARALLEL BATCH RENDER → FFmpeg PIPE ═══
     // Render 8 frames in parallel, write in order. Each frame is independent.
-    let batch_size = 8;
+    // Use all available CPU cores for batch rendering
+    let batch_size = std::thread::available_parallelism()
+        .map(|n| n.get() * 2) // 2x cores — each frame is independent, slight oversubscription helps
+        .unwrap_or(8)
+        .max(8);
 
     for batch_start in (0..total_frames as usize).step_by(batch_size) {
         let batch_end = (batch_start + batch_size).min(total_frames as usize);
@@ -515,6 +521,10 @@ fn catmull_rom(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
 
 /// Draw anti-aliased circle with glow onto RGBA buffer
 fn draw_glow_circle(buf: &mut [u8], w: u32, h: u32, cx: f32, cy: f32, radius: f32, color: (u8, u8, u8), alpha: f32) {
+    // Skip negligible alpha — avoids touching pixels for invisible glows
+    if alpha < 0.005 || radius < 0.5 {
+        return;
+    }
     let r2 = radius * radius;
     let x_min = ((cx - radius - 2.0).max(0.0)) as u32;
     let x_max = ((cx + radius + 2.0).min(w as f32 - 1.0)) as u32;
@@ -522,6 +532,8 @@ fn draw_glow_circle(buf: &mut [u8], w: u32, h: u32, cx: f32, cy: f32, radius: f3
     let y_max = ((cy + radius + 2.0).min(h as f32 - 1.0)) as u32;
 
     for py in y_min..=y_max {
+        // Row-stride: precompute row base index (avoids multiply per pixel)
+        let row_base = (py * w * 4) as usize;
         for px in x_min..=x_max {
             let dx = px as f32 - cx;
             let dy = py as f32 - cy;
@@ -531,7 +543,7 @@ fn draw_glow_circle(buf: &mut [u8], w: u32, h: u32, cx: f32, cy: f32, radius: f3
                 // Inside circle — full alpha with soft edge
                 let edge_factor = 1.0 - (dist_sq / r2).sqrt();
                 let a = (alpha * edge_factor * 255.0) as u8;
-                let idx = ((py * w + px) * 4) as usize;
+                let idx = row_base + (px * 4) as usize;
                 if idx + 3 < buf.len() {
                     // Alpha-blend (premultiplied)
                     let src_a = a as f32 / 255.0;
