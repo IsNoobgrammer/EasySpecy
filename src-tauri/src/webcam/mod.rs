@@ -298,10 +298,12 @@ pub fn composite_webcam_on_video(
         "-map".into(), "[out]".into(),
         "-map".into(), "0:a?".into(),
         "-c:v".into(), "libx264".into(),
-        "-preset".into(), "fast".into(),
+        "-preset".into(), "ultrafast".into(),
         "-crf".into(), "18".into(),
+        "-threads".into(), "0".into(),
         "-c:a".into(), "copy".into(),
         "-pix_fmt".into(), "yuv420p".into(),
+        "-progress".into(), "pipe:1".into(),
         output_path.clone(),
     ];
 
@@ -313,18 +315,11 @@ pub fn composite_webcam_on_video(
     let mut cmd = std::process::Command::new(&ffmpeg);
     cmd.args(&args);
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-
-    let output = cmd.output()
-        .map_err(|e| format!("FFmpeg webcam composite failed: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!("Masked overlay failed, trying simple overlay: {}", stderr);
+    let webcam_duration_ms = duration_secs * 1000.0;
+    if let Err(e) = crate::capture::run_ffmpeg_with_progress(
+        cmd, webcam_duration_ms, 25, 35, "Webcam overlay..."
+    ) {
+        tracing::warn!("Masked overlay failed, trying simple overlay: {}", e);
         return composite_simple_overlay(video_path, webcam_dir, config, duration_secs);
     }
 
@@ -375,29 +370,22 @@ fn composite_simple_overlay(
         "-map".into(), "[out]".into(),
         "-map".into(), "0:a?".into(),
         "-c:v".into(), "libx264".into(),
-        "-preset".into(), "fast".into(),
+        "-preset".into(), "ultrafast".into(),
         "-crf".into(), "18".into(),
+        "-threads".into(), "0".into(),
         "-c:a".into(), "copy".into(),
         "-pix_fmt".into(), "yuv420p".into(),
+        "-progress".into(), "pipe:1".into(),
         output_path.clone(),
     ];
 
     let mut cmd = std::process::Command::new(&ffmpeg);
     cmd.args(&args);
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-
-    let output = cmd.output()
-        .map_err(|e| format!("FFmpeg simple overlay failed: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Webcam overlay failed: {}", stderr));
-    }
+    let webcam_duration_ms = duration_secs * 1000.0;
+    crate::capture::run_ffmpeg_with_progress(
+        cmd, webcam_duration_ms, 25, 35, "Webcam overlay..."
+    )?;
 
     Ok(output_path)
 }

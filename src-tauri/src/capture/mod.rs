@@ -421,6 +421,84 @@ fn set_encoding_progress(progress: u32, stage: &str) {
     *ENCODING_STAGE.lock().unwrap() = stage.to_string();
 }
 
+/// Run an FFmpeg command that has `-progress pipe:1`, parsing real-time progress
+/// and mapping it to an encoding progress range [range_start..range_end].
+/// Returns Ok(()) on success, Err on FFmpeg failure.
+pub(crate) fn run_ffmpeg_with_progress(
+    mut cmd: std::process::Command,
+    total_duration_ms: f64,
+    range_start: u32,
+    range_end: u32,
+    stage: &str,
+) -> Result<(), String> {
+    cmd.stdout(std::process::Stdio::piped())
+       .stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let mut child = cmd.spawn().map_err(|e| format!("FFmpeg spawn error: {}", e))?;
+
+    // Drain stderr on a background thread to prevent pipe buffer deadlock
+    let stderr = child.stderr.take();
+    let stderr_handle = stderr.map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            use std::io::Read;
+            let _ = s.read_to_string(&mut buf);
+            buf
+        })
+    });
+
+    // Parse stdout (-progress pipe:1) for real-time progress
+    let stdout = child.stdout.take().ok_or("FFmpeg no stdout")?;
+    let reader = std::io::BufReader::new(stdout);
+    use std::io::BufRead;
+
+    let range_size = range_end.saturating_sub(range_start) as f64;
+    let mut last_pct = 0u32;
+
+    for line in reader.lines() {
+        let line = line.unwrap_or_default();
+        let line = line.trim();
+
+        if let Some(val) = line.strip_prefix("out_time_ms=") {
+            if total_duration_ms > 0.0 {
+                if let Ok(us) = val.parse::<f64>() {
+                    let ms = us / 1000.0;
+                    let frac = (ms / total_duration_ms).clamp(0.0, 1.0);
+                    let pct = range_start + (frac * range_size) as u32;
+                    if pct > last_pct && pct <= 100 {
+                        last_pct = pct;
+                        set_encoding_progress(pct, stage);
+                    }
+                }
+            }
+        } else if line.starts_with("progress=end") {
+            set_encoding_progress(range_end, stage);
+        }
+    }
+
+    let status = child.wait().map_err(|e| format!("FFmpeg wait error: {}", e))?;
+    let stderr_out = stderr_handle
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default();
+
+    if !status.success() {
+        return Err(format!("FFmpeg failed: {}", stderr_out));
+    }
+
+    // Log encode speed if available
+    if let Some(speed_line) = stderr_out.lines().rev().find(|l| l.starts_with("speed=")) {
+        tracing::info!("FFmpeg encode speed: {}", speed_line);
+    }
+
+    Ok(())
+}
+
 /// Stop recording, merge audio+video if needed, crop if region is set.
 /// This is a blocking call — should be run on a background thread from the command layer.
 pub fn stop_recording() -> Result<RecordingResult, String> {
@@ -533,8 +611,8 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         processed_video
     };
 
-    // Step 3: Merge video + audio
-    set_encoding_progress(30, "Encoding video...");
+    // Step 3: Merge video + audio (real-time progress 35-85%)
+    set_encoding_progress(35, "Encoding video...");
     if has_audio {
         let audio_file = audio_path.unwrap();
         if std::path::Path::new(&audio_file).exists()
@@ -686,14 +764,15 @@ fn crop_video(input: &str, output: &str, region: &region::CaptureRegion) -> Resu
 /// Forces both streams to start at exactly t=0 with no gap.
 /// Re-encodes video with setpts=PTS-STARTPTS to reset timestamps.
 /// Uses configured encoder (H264/H265/VP9) and quality settings.
+/// Reports real-time progress via -progress pipe:1.
 fn merge_audio_video(video: &str, audio: &str, output: &str) -> Result<(), String> {
     let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
     let config = crate::config::AppConfig::load();
 
     tracing::info!("Merge: video={} + audio={} -> {}", video, audio, output);
 
-    let video_duration = probe_video_duration(&ffmpeg, video);
-    tracing::info!("Video actual duration: {:?}ms", video_duration);
+    let video_duration_ms = probe_video_duration(&ffmpeg, video).unwrap_or(0.0);
+    tracing::info!("Video actual duration: {:?}ms", video_duration_ms);
 
     let encoder = config.ffmpeg_encoder().to_string();
     let crf = config.ffmpeg_crf().to_string();
@@ -737,6 +816,7 @@ fn merge_audio_video(video: &str, audio: &str, output: &str) -> Result<(), Strin
         "-vsync".into(), "cfr".into(),
         "-c:a".into(), "aac".into(),
         "-b:a".into(), "192k".into(),
+        "-threads".into(), "0".into(),
         "-shortest".into(),
         "-progress".into(), "pipe:1".into(),
         output.into(),
@@ -745,31 +825,15 @@ fn merge_audio_video(video: &str, audio: &str, output: &str) -> Result<(), Strin
     let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
     let mut cmd = std::process::Command::new(&ffmpeg);
-    cmd.args(&args_ref)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    cmd.args(&args_ref);
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
+    run_ffmpeg_with_progress(cmd, video_duration_ms, 35, 85, "Encoding video...")?;
 
-    let child = cmd.spawn().map_err(|e| format!("FFmpeg spawn error: {}", e))?;
-    let output_result = child.wait_with_output().map_err(|e| format!("FFmpeg wait error: {}", e))?;
-
-    // Parse progress from stdout for logging
-    let stdout = String::from_utf8_lossy(&output_result.stdout);
-    if let Some(speed_line) = stdout.lines().rev().find(|l| l.starts_with("speed=")) {
-        tracing::info!("FFmpeg encode speed: {}", speed_line);
-    }
-
-    if !output_result.status.success() {
-        let stderr = String::from_utf8_lossy(&output_result.stderr);
-        return Err(format!("FFmpeg merge failed: {}", stderr));
-    }
-
-    tracing::info!("Merge complete: encoder={}, quality={:?}", encoder, config.video_quality);
+    tracing::info!(
+        "Merge complete: encoder={}, quality={:?}",
+        encoder,
+        config.video_quality
+    );
     Ok(())
 }
 
