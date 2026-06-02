@@ -2,7 +2,7 @@
 import { motion } from "motion/react";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
-import { Customization } from "./components/Customization";
+
 import { ToastContainer } from "./components/Toast";
 import { Icon } from "./components/Icon";
 import { SidebarStats } from "./components/StatusBar";
@@ -12,7 +12,7 @@ import { ContextMenuProvider, useAppContextMenu } from "./components/ContextMenu
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
-type Page = "dashboard" | "settings" | "customization";
+type Page = "dashboard" | "settings";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -121,7 +121,7 @@ export default function App() {
         {/* Nav Items */}
         <nav className="flex-1 mt-2 space-y-1">
           <NavItem icon="folder_open" label="Library" active={page === "dashboard"} onClick={() => setPage("dashboard")} />
-          <NavItem icon="palette" label="Customization" active={page === "customization"} onClick={() => setPage("customization")} />
+
           <NavItem icon="settings" label="Settings" active={page === "settings"} onClick={() => setPage("settings")} />
         </nav>
 
@@ -172,8 +172,6 @@ export default function App() {
         <div className="flex-1 relative overflow-hidden">
           {page === "settings" ? (
             <Settings onBack={() => setPage("dashboard")} />
-          ) : page === "customization" ? (
-            <Customization onBack={() => setPage("dashboard")} />
           ) : (
             <Dashboard onOpenSettings={() => setPage("settings")} />
           )}

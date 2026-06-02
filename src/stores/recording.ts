@@ -35,14 +35,18 @@ export interface AppConfig {
   auto_zoom_enabled: boolean;
   zoom_level: number;
   zoom_dwell_ms: number;
+  zoom_speed: number;
+  zoom_sensitivity: number;
   cursor_trail_enabled: boolean;
   cursor_trail_color: string;
   cursor_trail_size: number;
   cursor_smoothing: boolean;
+  trail_length: number;
   cursor_size_multiplier: number;
   cursor_pack: string;
   trail_style: string;
   click_effect: string;
+  cursor_secondary_color: string;
   hotkey_start: string;
   hotkey_stop: string;
   hotkey_pause: string;

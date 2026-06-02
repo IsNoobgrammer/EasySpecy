@@ -518,3 +518,26 @@ pub fn destroy_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[derive(serde::Serialize)]
+pub struct WebcamDeviceInfo {
+    pub index: String,
+    pub name: String,
+}
+
+#[tauri::command]
+pub fn get_webcam_devices() -> Result<Vec<WebcamDeviceInfo>, String> {
+    use nokhwa::utils::ApiBackend;
+    let devices = nokhwa::query(ApiBackend::Auto)
+        .map_err(|e| format!("Failed to query webcam devices: {}", e))?;
+    
+    let mut list = Vec::new();
+    for d in devices {
+        list.push(WebcamDeviceInfo {
+            index: d.index().to_string(),
+            name: d.human_name(),
+        });
+    }
+    Ok(list)
+}
+

@@ -230,7 +230,7 @@ export function useRecordingContextMenu() {
 }
 
 /** Build context menu items for general app area */
-export function useAppContextMenu(navigate: (page: "dashboard" | "settings" | "customization") => void) {
+export function useAppContextMenu(navigate: (page: "dashboard" | "settings") => void) {
   return {
     onContextMenu: (e: React.MouseEvent) => {
       showContextMenu(e, [
@@ -240,12 +240,7 @@ export function useAppContextMenu(navigate: (page: "dashboard" | "settings" | "c
           icon: "settings",
           onClick: () => navigate("settings"),
         },
-        {
-          id: "customization",
-          label: "Customization",
-          icon: "palette",
-          onClick: () => navigate("customization"),
-        },
+
         { id: "sep-1", label: "", separator: true, onClick: () => {} },
         {
           id: "theme",

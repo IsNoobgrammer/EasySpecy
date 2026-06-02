@@ -1,21 +1,80 @@
-﻿import { Icon } from "./Icon";
-import { useState, useEffect, useId, useRef } from "react";
+import { Icon } from "./Icon";
+import { useState, useEffect, useId, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
 import { useThemeStore } from "../lib/theme";
 import { WebcamPreview } from "./WebcamPreview";
+import { invoke } from "@tauri-apps/api/core";
+import {
+  TrailRenderer, ClickEffectRenderer, drawPreviewBackground,
+  type TrailStyle, type ClickEffect,
+} from "../lib/effects";
+
+interface CursorPackInfo {
+  id: string;
+  name: string;
+  description: string;
+  author: string;
+  is_builtin: boolean;
+}
+
+const TRAIL_STYLES: { id: TrailStyle; label: string; desc: string }[] = [
+  { id: "glow", label: "Glow", desc: "Soft luminous bloom that reacts to speed" },
+  { id: "particles", label: "Spark", desc: "Embers and fireflies that orbit the cursor" },
+  { id: "ribbon", label: "Ribbon", desc: "Multi-layered flowing band with shimmer" },
+  { id: "dots", label: "Dots", desc: "Connected halos with white-hot cores" },
+  { id: "aurora", label: "Aurora", desc: "Rainbow wave with flowing light layers" },
+  { id: "none", label: "Off", desc: "No trail effect" },
+];
+
+const CLICK_EFFECTS: { id: ClickEffect; label: string; desc: string }[] = [
+  { id: "ripple", label: "Ripple", desc: "Expanding water rings with flash" },
+  { id: "spotlight", label: "Spotlight", desc: "Radial flare with cross rays" },
+  { id: "ring", label: "Ring", desc: "Double ring — expand and contract" },
+  { id: "pulse", label: "Pulse", desc: "Breathing energy waves" },
+  { id: "confetti", label: "Confetti", desc: "Burst of mixed-shape particles" },
+  { id: "none", label: "None", desc: "No click effect" },
+];
 
 export function Settings({ onBack }: { onBack: () => void }) {
-  const { config, saveConfig, loadAudioDevices, audioDevices } = useStore();
+  const {
+    config, saveConfig, loadAudioDevices, audioDevices,
+    audioLevels, startAudioMonitor, stopAudioMonitor, pollAudioLevels
+  } = useStore();
   const { theme, toggleTheme } = useThemeStore();
   const [local, setLocal] = useState<AppConfig | null>(null);
   const [saved, setSaved] = useState(false);
   const [showWebcamPreview, setShowWebcamPreview] = useState(false);
+  
+  // Lists
+  const [cursorPacks, setCursorPacks] = useState<CursorPackInfo[]>([]);
+  const [previewActive, setPreviewActive] = useState(false);
 
+  // Load configuration and systems
   useEffect(() => {
     if (config) setLocal({ ...config });
     loadAudioDevices();
+    
+    invoke<CursorPackInfo[]>("get_cursor_packs")
+      .then(setCursorPacks)
+      .catch((err) => console.error("Failed to load cursor packs:", err));
   }, [config]);
+
+  // Handle active audio monitoring VU meter
+  useEffect(() => {
+    let active = true;
+    if (local?.audio_enabled) {
+      startAudioMonitor();
+      const interval = setInterval(() => {
+        if (active) pollAudioLevels();
+      }, 100);
+      return () => {
+        active = false;
+        clearInterval(interval);
+        stopAudioMonitor();
+      };
+    }
+  }, [local?.audio_enabled]);
 
   const handleSave = async () => {
     if (!local) return;
@@ -24,12 +83,15 @@ export function Settings({ onBack }: { onBack: () => void }) {
     setTimeout(() => setSaved(false), 1500);
   };
 
+  const update = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) =>
+    setLocal((prev) => (prev ? { ...prev, [key]: value } : prev));
+
   if (!local) {
     return (
-      <div className="flex items-center justify-center h-full" style={{ background: "var(--bg-base)" }}>
+      <div className="flex items-center justify-center h-full" style={{ background: "#0d0f1a" }}>
         <motion.div
           className="font-mono text-sm"
-          style={{ color: "var(--text-muted)", letterSpacing: "0.05em" }}
+          style={{ color: "#849587", letterSpacing: "0.05em" }}
           animate={{ opacity: [0.4, 1, 0.4] }}
           transition={{ duration: 1.5, repeat: Infinity }}
         >
@@ -39,50 +101,74 @@ export function Settings({ onBack }: { onBack: () => void }) {
     );
   }
 
-  const update = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) =>
-    setLocal((prev) => (prev ? { ...prev, [key]: value } : prev));
+  // Live 30s cursor preview trigger
+  const handleCursorPreview = async () => {
+    if (previewActive) {
+      await invoke("restore_cursors").catch(() => {});
+      setPreviewActive(false);
+    } else {
+      await invoke("apply_cursor_pack", { packId: local.cursor_pack }).catch(() => {});
+      setPreviewActive(true);
+      setTimeout(async () => {
+        await invoke("restore_cursors").catch(() => {});
+        setPreviewActive(false);
+      }, 30000);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "var(--bg-base)" }}>
+    <div className="flex flex-col h-full bg-[#0d0f1a] text-[#e1e1f2] relative overflow-hidden">
+      {/* Noise layer background */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.02'/%3E%3C/svg%3E")`,
+          mixBlendMode: "overlay",
+          opacity: 0.1,
+        }}
+      />
+
       {/* ═══ HEADER ═══ */}
       <header
-        className="flex items-center justify-between px-6 py-3 sticky top-0 z-50 backdrop-blur-md"
-        style={{ borderBottom: "var(--border-width) solid var(--border-default)", background: "oklch(from var(--bg-base) l c h / 0.85)" }}
+        className="flex items-center justify-between px-6 py-3 sticky top-0 z-50 backdrop-blur-md border-b border-[#2d314d]"
+        style={{ background: "rgba(17, 19, 30, 0.85)" }}
       >
         <motion.button
           onClick={onBack}
-          className="flex items-center gap-2 font-mono text-xs cursor-pointer"
-          style={{ color: "var(--text-secondary)", letterSpacing: "0.03em" }}
-          whileHover={{ x: -3, color: "var(--text-primary)" }}
+          className="flex items-center gap-2 font-mono text-xs cursor-pointer text-[#bacbbc]"
+          whileHover={{ x: -3, color: "#e1e1f2" }}
           whileTap={{ scale: 0.95 }}
         >
-          <Icon name="arrow_back" size={16} /> Back
+          <Icon name="arrow_back" size={16} /> Back to Dashboard
         </motion.button>
-        <span className="font-mono text-sm font-semibold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>
+        <span className="font-mono text-sm font-semibold uppercase tracking-widest text-[#e1e1f2]">
           Settings
         </span>
         <motion.button
           onClick={toggleTheme}
-          className="font-mono text-xs px-2 py-1 cursor-pointer flex items-center gap-1.5"
-          style={{ border: "var(--border-thin) solid var(--border-default)", color: "var(--text-muted)", borderRadius: "var(--radius-sm)" }}
-          whileHover={{ scale: 1.05, borderColor: "var(--border-strong)" }}
+          className="font-mono text-xs px-2.5 py-1 cursor-pointer flex items-center gap-1.5 border border-[#2d314d] text-[#bacbbc] rounded"
+          whileHover={{ scale: 1.05, borderColor: "#3b4a3f" }}
           whileTap={{ scale: 0.95 }}
         >
-          <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} size={14} />
+          <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} size={14} style={{ color: "#00e88a" }} />
           {theme === "dark" ? "Light" : "Dark"}
         </motion.button>
       </header>
 
       {/* ═══ CONTENT ═══ */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-xl mx-auto space-y-4">
+      <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">
+        <div className="max-w-3xl mx-auto space-y-6">
 
           {/* ── Video Section ── */}
           <Card title="Video" icon="videocam" index={0}>
             <Row label="Resolution" desc="Output video dimensions">
               <Select
                 value={`${local.resolution_width}x${local.resolution_height}`}
-                onChange={(v) => { const [w, h] = v.split("x").map(Number); update("resolution_width", w); update("resolution_height", h); }}
+                onChange={(v) => {
+                  const [w, h] = v.split("x").map(Number);
+                  update("resolution_width", w);
+                  update("resolution_height", h);
+                }}
                 options={[
                   { label: "480p — 854×480", value: "854x480" },
                   { label: "720p — 1280×720", value: "1280x720" },
@@ -90,14 +176,14 @@ export function Settings({ onBack }: { onBack: () => void }) {
                 ]}
               />
             </Row>
-            <Row label="Frame Rate" desc="Frames per second">
+            <Row label="Frame Rate" desc="Frames per second of the output video">
               <Segmented
                 value={local.fps}
                 options={[{ label: "24", value: 24 }, { label: "30", value: 30 }, { label: "60", value: 60 }]}
                 onChange={(v) => update("fps", v)}
               />
             </Row>
-            <Row label="Capture Mode" desc="What to record">
+            <Row label="Capture Mode" desc="Full display recording or region-specific bounds">
               <Select
                 value={local.recording_mode}
                 onChange={(v) => update("recording_mode", v as AppConfig["recording_mode"])}
@@ -107,11 +193,55 @@ export function Settings({ onBack }: { onBack: () => void }) {
                 ]}
               />
             </Row>
+            
+            <div className="pt-2 border-t border-[#2d314d]/40 space-y-4">
+              <Row label="Video Encoder" desc="Select video codec format (libx264 is default)">
+                <Select
+                  value={local.video_encoder}
+                  onChange={(v) => update("video_encoder", v as any)}
+                  options={[
+                    { label: "AV1 (SVT-AV1)", value: "AV1" },
+                    { label: "AV1 NVENC (RTX 40xx)", value: "AV1_NVENC" },
+                    { label: "H.264 CPU", value: "H264" },
+                    { label: "H.264 NVENC GPU", value: "H264_NVENC" },
+                    { label: "H.265 CPU", value: "H265" },
+                    { label: "H.265 NVENC GPU", value: "H265_NVENC" },
+                    { label: "VP9 CPU", value: "VP9" },
+                  ]}
+                />
+              </Row>
+              <Row label="Encoding Quality" desc="Quality preset level for encoding complexity">
+                <Select
+                  value={local.video_quality}
+                  onChange={(v) => update("video_quality", v as any)}
+                  options={[
+                    { label: "Low (Speed)", value: "Low" },
+                    { label: "Medium (Balanced)", value: "Medium" },
+                    { label: "High (HQ)", value: "High" },
+                    { label: "Ultra (Lossless)", value: "Ultra" },
+                    { label: "Insane (AV1 Max)", value: "Insane" },
+                    { label: "Custom Bitrate", value: "Custom" },
+                  ]}
+                />
+              </Row>
+              {local.video_quality === "Custom" && (
+                <Row label="Custom Bitrate" desc="Specify output target video bitrate">
+                  <Slider
+                    value={local.video_bitrate_kbps}
+                    min={500}
+                    max={30000}
+                    step={100}
+                    onChange={(v) => update("video_bitrate_kbps", v)}
+                    suffix=" kbps"
+                  />
+                </Row>
+              )}
+            </div>
           </Card>
 
           {/* ── Audio Section ── */}
           <Card title="Audio" icon="mic" index={1}>
-            <Row label="Record Audio" desc="Capture audio alongside video">
+            <Row label="Record Audio" desc="Toggle to capture system or microphone inputs">
               <Toggle checked={local.audio_enabled} onChange={(v) => update("audio_enabled", v)} />
             </Row>
             <AnimatePresence>
@@ -121,56 +251,58 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden"
+                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
                 >
-                  <div className="space-y-3 pt-1">
-                    <Row label="Source" desc="What audio to capture">
-                      <Segmented
-                        value={local.audio_source}
-                        options={[
-                          { label: "Mic", value: "Mic" },
-                          { label: "System", value: "System" },
-                          { label: "Both", value: "Both" },
-                        ]}
-                        onChange={(v) => update("audio_source", v as AppConfig["audio_source"])}
-                      />
+                  <Row label="Audio Source" desc="Capture microphone, system output, or both">
+                    <Segmented
+                      value={local.audio_source}
+                      options={[
+                        { label: "Mic", value: "Mic" },
+                        { label: "System", value: "System" },
+                        { label: "Both", value: "Both" },
+                      ]}
+                      onChange={(v) => update("audio_source", v as AppConfig["audio_source"])}
+                    />
+                  </Row>
+                  <Row label="Sample Rate" desc="Bit rate quality of the captured sound streams">
+                    <Select
+                      value={local.audio_sample_rate}
+                      onChange={(v) => update("audio_sample_rate", Number(v))}
+                      options={[
+                        { label: "22050 Hz — Low", value: 22050 },
+                        { label: "44100 Hz — CD Quality", value: 44100 },
+                        { label: "48000 Hz — Studio", value: 48000 },
+                      ]}
+                    />
+                  </Row>
+                  <Row label="Microphone Device" desc="Select system microphone input">
+                    <Select
+                      value={local.audio_device}
+                      onChange={(v) => update("audio_device", v)}
+                      options={[
+                        { label: "System Default", value: "default" },
+                        ...audioDevices.map((d) => ({ label: d, value: d })),
+                      ]}
+                    />
+                  </Row>
+                  <Row label="Microphone Gain" desc="Volume level multiplier boost (1.0 = standard)">
+                    <Slider value={local.mic_gain} min={0} max={3} step={0.1} onChange={(v) => update("mic_gain", v)} suffix="×" />
+                  </Row>
+                  {(local.audio_source === "Both" || local.audio_source === "System") && (
+                    <Row label="System Volume" desc="Gain level multiplier for system sound outputs">
+                      <Slider value={local.system_volume} min={0} max={1} step={0.05} onChange={(v) => update("system_volume", v)} suffix="" />
                     </Row>
-                    <Row label="Sample Rate" desc="Audio quality">
-                      <Select
-                        value={local.audio_sample_rate}
-                        onChange={(v) => update("audio_sample_rate", Number(v))}
-                        options={[
-                          { label: "22050 Hz — Low", value: 22050 },
-                          { label: "44100 Hz — CD Quality", value: 44100 },
-                          { label: "48000 Hz — Studio", value: 48000 },
-                        ]}
-                      />
+                  )}
+                  
+                  {/* Advanced Noise Controls */}
+                  <div className="pt-3 border-t border-[#2d314d]/30 space-y-4">
+                    <Row label="Noise Gate Threshold" desc="Mutes mic when signal goes below threshold (0 = off)">
+                      <Slider value={local.noise_gate_threshold} min={0} max={1} step={0.02} onChange={(v) => update("noise_gate_threshold", v)} suffix="" />
                     </Row>
-                    <Row label="Input Device" desc="Microphone to use">
-                      <Select
-                        value={local.audio_device}
-                        onChange={(v) => update("audio_device", v)}
-                        options={[
-                          { label: "System Default", value: "default" },
-                          ...audioDevices.map((d) => ({ label: d, value: d })),
-                        ]}
-                      />
-                    </Row>
-                    <Row label="Mic Gain" desc="Boost or reduce mic volume (1.0 = normal)">
-                      <Slider value={local.mic_gain} min={0} max={3} step={0.1} onChange={(v) => update("mic_gain", v)} suffix="×" />
-                    </Row>
-                    {(local.audio_source === "Both" || local.audio_source === "System") && (
-                      <Row label="System Volume" desc="System audio level in mix">
-                        <Slider value={local.system_volume} min={0} max={1} step={0.05} onChange={(v) => update("system_volume", v)} suffix="" />
-                      </Row>
-                    )}
-                    <Row label="Noise Gate" desc="Suppress background noise (0 = off, 1 = aggressive)">
-                      <Slider value={local.noise_gate_threshold} min={0} max={1} step={0.05} onChange={(v) => update("noise_gate_threshold", v)} suffix="" />
-                    </Row>
-                    <Row label="Noise Mode" desc="Algorithm for noise reduction">
+                    <Row label="Denoising Algorithm" desc="Noise reduction algorithm type">
                       <Select
                         value={local.noise_reduction_mode}
-                        onChange={(v) => update("noise_reduction_mode", v as AppConfig["noise_reduction_mode"])}
+                        onChange={(v) => update("noise_reduction_mode", v as any)}
                         options={[
                           { label: "Off — No processing", value: "Off" },
                           { label: "Gate — Energy gate only", value: "Gate" },
@@ -180,116 +312,59 @@ export function Settings({ onBack }: { onBack: () => void }) {
                         ]}
                       />
                     </Row>
-                    <Row label="Noise Reduction" desc="Strength of noise removal (0 = off, 1 = max)">
+                    <Row label="Noise Reduction Strength" desc="Level of background hiss suppression (0 = off, 1 = max)">
                       <Slider value={local.noise_reduction} min={0} max={1} step={0.05} onChange={(v) => update("noise_reduction", v)} suffix="" />
                     </Row>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Card>
 
-          {/* ── Auto-Zoom Section ── */}
-          <Card title="Auto-Zoom" icon="zoom_in" index={2} badge="Post-processing">
-            <Row label="Enabled" desc="Zoom toward click positions after recording">
-              <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
-            </Row>
-            <AnimatePresence>
-              {local.auto_zoom_enabled && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden"
-                >
-                  <div className="space-y-3 pt-1">
-                    <Row label="Zoom Level" desc="How much to zoom in">
-                      <Segmented
-                        value={local.zoom_level}
-                        options={[
-                          { label: "1.5×", value: 1.5 },
-                          { label: "2×", value: 2 },
-                          { label: "2.5×", value: 2.5 },
-                          { label: "3×", value: 3 },
-                        ]}
-                        onChange={(v) => update("zoom_level", v as number)}
-                      />
-                    </Row>
-                    <Row label="Hold Duration" desc="Time to stay zoomed in">
-                      <Select
-                        value={local.zoom_dwell_ms}
-                        onChange={(v) => update("zoom_dwell_ms", Number(v))}
-                        options={[
-                          { label: "1 second", value: 1000 },
-                          { label: "1.5 seconds", value: 1500 },
-                          { label: "2 seconds", value: 2000 },
-                          { label: "3 seconds", value: 3000 },
-                        ]}
-                      />
-                    </Row>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Card>
-
-          {/* ── Cursor Effects ── */}
-          <Card title="Cursor Effects" icon="auto_fix_high" index={3} badge="Post-processing">
-            <Row label="Cursor Pack" desc="Replace cursor style during recording">
-              <CursorPackSelector value={local.cursor_pack || "default"} onChange={(v) => update("cursor_pack" as any, v)} />
-            </Row>
-            <Row label="Trail Effect" desc="Glowing trail follows cursor path">
-              <Toggle checked={local.cursor_trail_enabled} onChange={(v) => update("cursor_trail_enabled", v)} />
-            </Row>
-            <AnimatePresence>
-              {local.cursor_trail_enabled && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden"
-                >
-                  <div className="space-y-3 pt-1">
-                    <Row label="Trail Color" desc="Color of the cursor trail">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={local.cursor_trail_color}
-                          onChange={(e) => update("cursor_trail_color", e.target.value)}
-                          className="w-8 h-8 cursor-pointer"
-                          style={{ border: "var(--border-width) solid var(--border-default)", background: "transparent" }}
-                        />
-                        <span className="font-mono text-xs" style={{ color: "var(--text-muted)" }}>
-                          {local.cursor_trail_color.toUpperCase()}
+                  {/* Active Loudness Meter Visualization */}
+                  <div className="bg-[#090b14]/50 border border-[#2d314d]/30 p-3 rounded-lg space-y-3">
+                    <div className="space-y-1">
+                      <div className="flex justify-between font-mono text-[9px] text-[#bacbbc]">
+                        <span>MIC LEVEL MONITOR</span>
+                        <span className={audioLevels.micDb > -12 ? "text-red-400 font-bold" : audioLevels.micDb > -24 ? "text-yellow-400 font-bold" : "text-[#00e88a]"}>
+                          {audioLevels.micDb > -60 ? `${audioLevels.micDb.toFixed(0)} dB` : "Silent"}
                         </span>
                       </div>
-                    </Row>
-                    <Row label="Cursor Size" desc="Enlarge cursor in output">
-                      <Segmented
-                        value={local.cursor_size_multiplier}
-                        options={[
-                          { label: "1×", value: 1 },
-                          { label: "1.5×", value: 1.5 },
-                          { label: "2×", value: 2 },
-                          { label: "3×", value: 3 },
-                        ]}
-                        onChange={(v) => update("cursor_size_multiplier", v as number)}
-                      />
-                    </Row>
-                    <Row label="Smoothing" desc="Smooth out jittery cursor movements">
-                      <Toggle checked={local.cursor_smoothing} onChange={(v) => update("cursor_smoothing", v)} />
-                    </Row>
+                      <div className="h-2 w-full bg-[#1b1e2e] rounded-full overflow-hidden relative border border-[#2d314d]/20">
+                        <div
+                          className="h-full rounded-full transition-all duration-75"
+                          style={{
+                            width: `${Math.max(0, Math.min(100, ((audioLevels.micDb + 60) / 60) * 100))}%`,
+                            background: "linear-gradient(to right, #00e88a 65%, #ffd000 85%, #ff4444 100%)",
+                          }}
+                        />
+                      </div>
+                    </div>
+                    
+                    {(local.audio_source === "Both" || local.audio_source === "System") && (
+                      <div className="space-y-1">
+                        <div className="flex justify-between font-mono text-[9px] text-[#bacbbc]">
+                          <span>SYSTEM LEVEL MONITOR</span>
+                          <span className={audioLevels.sysDb > -12 ? "text-red-400 font-bold" : audioLevels.sysDb > -24 ? "text-yellow-400 font-bold" : "text-[#c0c1ff]"}>
+                            {audioLevels.sysDb > -60 ? `${audioLevels.sysDb.toFixed(0)} dB` : "Silent"}
+                          </span>
+                        </div>
+                        <div className="h-2 w-full bg-[#1b1e2e] rounded-full overflow-hidden relative border border-[#2d314d]/20">
+                          <div
+                            className="h-full rounded-full transition-all duration-75"
+                            style={{
+                              width: `${Math.max(0, Math.min(100, ((audioLevels.sysDb + 60) / 60) * 100))}%`,
+                              background: "linear-gradient(to right, #c0c1ff 65%, #ffcc00 85%, #ff4444 100%)",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
           </Card>
 
-          {/* ── Webcam ── */}
-          <Card title="Webcam" icon="videocam" index={4}>
-            <Row label="Enabled" desc="Overlay webcam on recording">
+          {/* ── Webcam Section ── */}
+          <Card title="Webcam Overlay" icon="photo_camera" index={2}>
+            <Row label="Enable Webcam Overlay" desc="Picture-in-Picture webcam overlay on the final recording">
               <Toggle checked={local.webcam_enabled} onChange={(v) => update("webcam_enabled", v)} />
             </Row>
             <AnimatePresence>
@@ -299,190 +374,280 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden"
+                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
                 >
-                  <div className="space-y-3 pt-1">
-                    {/* Preview button */}
-                    <motion.button
-                      onClick={() => setShowWebcamPreview(true)}
-                      className="w-full py-2.5 font-mono text-xs uppercase font-semibold cursor-pointer flex items-center justify-center gap-2"
-                      style={{
-                        background: "var(--accent-primary-container, #00e88a)",
-                        color: "var(--on-primary, #00391e)",
-                        border: "none",
-                        borderRadius: "var(--radius-sm)",
-                        letterSpacing: "0.05em",
-                      }}
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <Icon name="open_in_new" size={14} />
-                      Open Preview & Position
-                    </motion.button>
+                  <motion.button
+                    onClick={() => setShowWebcamPreview(true)}
+                    className="w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 border border-[#00e88a] text-[#00391e] rounded shadow-lg"
+                    style={{ background: "#00e88a" }}
+                    whileHover={{ scale: 1.01, boxShadow: "0 0 15px rgba(0, 232, 138, 0.3)" }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <Icon name="visibility" size={14} /> Open Webcam Preview & Settings
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Card>
 
-                    <Row label="Shape" desc="Webcam overlay shape">
-                      <Segmented
-                        value={local.webcam_shape}
-                        options={[
-                          { label: "Circle", value: "Circle" },
-                          { label: "Rounded", value: "Rounded" },
-                          { label: "Squircle", value: "Squircle" },
-                        ]}
-                        onChange={(v) => update("webcam_shape", v as AppConfig["webcam_shape"])}
+          {/* ── Auto-Zoom Section ── */}
+          <Card title="Auto-Zoom" icon="zoom_in" index={3} badge="Post-processing">
+            <Row label="Enable Auto-Zoom" desc="Automatically pan and zoom towards mouse click positions in post-processing">
+              <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
+            </Row>
+            <AnimatePresence>
+              {local.auto_zoom_enabled && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                >
+                  <Row label="Zoom Factor" desc="How close to zoom in on targets">
+                    <Segmented
+                      value={local.zoom_level}
+                      options={[
+                        { label: "1.5×", value: 1.5 },
+                        { label: "2.0×", value: 2.0 },
+                        { label: "2.5×", value: 2.5 },
+                        { label: "3.0×", value: 3.0 },
+                      ]}
+                      onChange={(v) => update("zoom_level", v as number)}
+                    />
+                  </Row>
+                  <Row label="Dwell Hold Duration" desc="Time window to hold zoom at target click coordinates">
+                    <Select
+                      value={local.zoom_dwell_ms}
+                      onChange={(v) => update("zoom_dwell_ms", Number(v))}
+                      options={[
+                        { label: "500ms — Quick snap", value: 500 },
+                        { label: "1.0s — Standard", value: 1000 },
+                        { label: "1.5s — Longer hold", value: 1500 },
+                        { label: "2.0s — Continuous", value: 2000 },
+                      ]}
+                    />
+                  </Row>
+                  <Row label="Pan Smoothing Speed" desc="How quickly the camera glides to zoom targets">
+                    <Slider value={local.zoom_speed} min={0.5} max={3.0} step={0.1} onChange={(v) => update("zoom_speed", v)} suffix=" s" />
+                  </Row>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Card>
+
+          {/* ── Cursor & Click Effects Redesign ── */}
+          <Card title="Cursor & Click Effects" icon="mouse" index={4} badge="Post-processing">
+            <Row label="Cursor Custom Pack" desc="Visual pointer pack override used in post-processing">
+              <Select
+                value={local.cursor_pack || "default"}
+                onChange={(v) => update("cursor_pack", v)}
+                options={[
+                  { label: "System OS Default", value: "default" },
+                  ...cursorPacks.map((p) => ({ label: p.name, value: p.id })),
+                ]}
+              />
+            </Row>
+            
+            <div className="flex justify-between items-center py-2.5 px-4 bg-[#151828]/50 border border-[#2d314d]/40 rounded-lg">
+              <div className="flex flex-col">
+                <span className="font-mono text-xs font-semibold">Test Cursor Swaps Live</span>
+                <span className="font-mono text-[9px] text-[#bacbbc]">Applies selected pack to cursor for 30 seconds</span>
+              </div>
+              <motion.button
+                onClick={handleCursorPreview}
+                className="font-mono text-[10px] px-3.5 py-1.5 cursor-pointer font-bold uppercase rounded border transition-colors"
+                style={{
+                  borderColor: previewActive ? "#ff44cc" : "#00e88a",
+                  color: previewActive ? "#ff44cc" : "#00e88a",
+                  background: previewActive ? "rgba(255, 68, 204, 0.08)" : "rgba(0, 232, 138, 0.04)"
+                }}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                {previewActive ? "■ STOP PREVIEW" : "▶ TEST SYSTEM CURSOR"}
+              </motion.button>
+            </div>
+
+            <Row label="Enable Trail Effect" desc="Render neon spline trail behind cursor tracks">
+              <Toggle checked={local.cursor_trail_enabled} onChange={(v) => update("cursor_trail_enabled", v)} />
+            </Row>
+            
+            <AnimatePresence>
+              {local.cursor_trail_enabled && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                >
+                  <Row label="Trail Style Pattern" desc="Visual effect render style for the trail path">
+                    <Select
+                      value={local.trail_style || "glow"}
+                      onChange={(v) => update("trail_style", v)}
+                      options={TRAIL_STYLES.map((s) => ({ label: s.label, value: s.id }))}
+                    />
+                  </Row>
+                  <Row label="Trail Primary Color" desc="Color of the cursor movement trail">
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="color"
+                        value={local.cursor_trail_color}
+                        onChange={(e) => update("cursor_trail_color", e.target.value)}
+                        className="w-7 h-7 cursor-pointer border border-[#2d314d] bg-transparent"
                       />
-                    </Row>
-                    <Row label="Size" desc="Webcam overlay dimensions">
-                      <Select
-                        value={local.webcam_size}
-                        onChange={(v) => update("webcam_size", Number(v))}
-                        options={[
-                          { label: "150px — Small", value: 150 },
-                          { label: "200px — Medium", value: 200 },
-                          { label: "250px — Large", value: 250 },
-                          { label: "300px — Extra Large", value: 300 },
-                        ]}
+                      <span className="font-mono text-xs uppercase" style={{ color: local.cursor_trail_color }}>
+                        {local.cursor_trail_color}
+                      </span>
+                    </div>
+                  </Row>
+                  <Row label="Secondary Right-Click Color" desc="Color for right clicks and glow gradients">
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="color"
+                        value={local.cursor_secondary_color || "#ff4488"}
+                        onChange={(e) => update("cursor_secondary_color", e.target.value)}
+                        className="w-7 h-7 cursor-pointer border border-[#2d314d] bg-transparent"
                       />
-                    </Row>
-                    <Row label="Border Width" desc="Overlay border thickness">
-                      <div className="flex items-center gap-2 w-full">
-                        <input
-                          type="range"
-                          min={0}
-                          max={8}
-                          value={local.webcam_border_width}
-                          onChange={(e) => update("webcam_border_width", Number(e.target.value))}
-                          className="flex-1"
-                          style={{ accentColor: "var(--accent-primary)" }}
-                        />
-                        <span className="font-mono w-4 text-right" style={{ fontSize: "0.65rem", color: "var(--accent-primary)" }}>
-                          {local.webcam_border_width}
-                        </span>
-                      </div>
-                    </Row>
-                    <Row label="Border Color" desc="Overlay border color">
-                      <div className="flex gap-1.5 flex-wrap">
-                        {["#00e88a","#3b82f6","#a855f7","#ec4899","#f97316","#06b6d4","#ffffff","#eab308"].map((c) => (
-                          <motion.button
-                            key={c}
-                            onClick={() => update("webcam_border_color", c)}
-                            className="w-6 h-6 cursor-pointer"
-                            style={{
-                              background: c,
-                              borderRadius: "50%",
-                              border: local.webcam_border_color === c ? "2px solid var(--text-primary)" : "1px solid var(--border-default)",
-                              boxShadow: local.webcam_border_color === c ? "0 0 0 2px var(--accent-primary)" : "none",
-                            }}
-                            whileHover={{ scale: 1.15 }}
-                            whileTap={{ scale: 0.9 }}
-                          />
-                        ))}
-                      </div>
-                    </Row>
-                    <Row label="Opacity" desc="Overlay transparency">
-                      <div className="flex items-center gap-2 w-full">
-                        <input
-                          type="range"
-                          min={30}
-                          max={100}
-                          value={Math.round(local.webcam_opacity * 100)}
-                          onChange={(e) => update("webcam_opacity", Number(e.target.value) / 100)}
-                          className="flex-1"
-                          style={{ accentColor: "var(--accent-primary)" }}
-                        />
-                        <span className="font-mono w-8 text-right" style={{ fontSize: "0.65rem", color: "var(--accent-primary)" }}>
-                          {Math.round(local.webcam_opacity * 100)}%
-                        </span>
-                      </div>
-                    </Row>
-                    <Row label="Sharpen" desc="Enhance edge detail (0 = off, 1 = max)">
-                      <Slider value={local.webcam_sharpen} min={0} max={1} step={0.05} onChange={(v) => update("webcam_sharpen", v)} suffix="" />
-                    </Row>
-                    <Row label="Brightness" desc="Adjust image brightness (-50 to 50)">
-                      <Slider value={local.webcam_brightness} min={-50} max={50} step={1} onChange={(v) => update("webcam_brightness", Math.round(v))} suffix="" />
-                    </Row>
-                    <Row label="Contrast" desc="Adjust image contrast (0.5 = low, 2.0 = high)">
-                      <Slider value={local.webcam_contrast} min={0.5} max={2} step={0.05} onChange={(v) => update("webcam_contrast", v)} suffix="×" />
-                    </Row>
+                      <span className="font-mono text-xs uppercase" style={{ color: local.cursor_secondary_color || "#ff4488" }}>
+                        {local.cursor_secondary_color || "#ff4488"}
+                      </span>
+                    </div>
+                  </Row>
+                  <Row label="Trail Length" desc="Adjust duration length of cursor trail spline visibility">
+                    <Slider value={local.trail_length || 0.5} min={0.1} max={1.0} step={0.05} onChange={(v) => update("trail_length", v)} suffix="" />
+                  </Row>
+                  <Row label="Cursor Scale Multiplier" desc="Scale factor sizes of cursor pointer in output">
+                    <Segmented
+                      value={local.cursor_size_multiplier}
+                      options={[
+                        { label: "1.0×", value: 1.0 },
+                        { label: "1.5×", value: 1.5 },
+                        { label: "2.0×", value: 2.0 },
+                        { label: "3.0×", value: 3.0 },
+                      ]}
+                      onChange={(v) => update("cursor_size_multiplier", v as number)}
+                    />
+                  </Row>
+                  <Row label="Motion Path Smoothing" desc="Filters mouse jitter for fluid post-processed moves">
+                    <Toggle checked={local.cursor_smoothing} onChange={(v) => update("cursor_smoothing", v)} />
+                  </Row>
+                  <Row label="Click Highlight Effect" desc="Render animation wave on mouse clicks">
+                    <Select
+                      value={local.click_effect || "ripple"}
+                      onChange={(v) => update("click_effect", v)}
+                      options={CLICK_EFFECTS.map((s) => ({ label: s.label, value: s.id }))}
+                    />
+                  </Row>
+
+                  {/* Interactive Cursor Trail Canvas Preview */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between font-mono text-[9px] text-[#bacbbc]">
+                      <span>INTERACTIVE CANVAS EFFECT PREVIEW</span>
+                      <span>{local.trail_style.toUpperCase()} · {local.click_effect.toUpperCase()}</span>
+                    </div>
+                    <div className="relative overflow-hidden border border-dashed border-[#2d314d] rounded-xl bg-[#090b14]/50">
+                      <MiniPreview
+                        trailStyle={local.trail_style as TrailStyle}
+                        clickEffect={local.click_effect as ClickEffect}
+                        color={local.cursor_trail_color}
+                      />
+                    </div>
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
           </Card>
 
-          {/* Webcam Preview Overlay */}
-          <AnimatePresence>
-            {showWebcamPreview && local && (
-              <WebcamPreview
-                initial={{
-                  x: local.webcam_x,
-                  y: local.webcam_y,
-                  size: local.webcam_size,
-                  shape: local.webcam_shape.toLowerCase() as "circle" | "rounded" | "squircle",
-                  borderColor: local.webcam_border_color,
-                  borderWidth: local.webcam_border_width,
-                  opacity: local.webcam_opacity,
-                }}
-                recordingWidth={local.resolution_width}
-                recordingHeight={local.resolution_height}
-                onSave={(cfg) => {
-                  update("webcam_x", cfg.x);
-                  update("webcam_y", cfg.y);
-                  update("webcam_size", cfg.size);
-                  update("webcam_shape", cfg.shape.charAt(0).toUpperCase() + cfg.shape.slice(1) as AppConfig["webcam_shape"]);
-                  update("webcam_border_color", cfg.borderColor);
-                  update("webcam_border_width", cfg.borderWidth);
-                  update("webcam_opacity", cfg.opacity);
-                  setShowWebcamPreview(false);
-                }}
-                onCancel={() => setShowWebcamPreview(false)}
-              />
-            )}
-          </AnimatePresence>
-
-          {/* ── Hotkeys ── */}
-          <Card title="Hotkeys" icon="keyboard" index={5}>
-            <Row label="Start Recording" desc="Keyboard shortcut to begin">
+          {/* ── Hotkeys Section ── */}
+          <Card title="Global Hotkeys" icon="keyboard" index={5}>
+            <Row label="Start Recording" desc="Global keyboard shortcut to trigger capture starting">
               <HotkeyRecorder value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} />
             </Row>
-            <Row label="Stop Recording" desc="Keyboard shortcut to stop">
+            <Row label="Stop Recording" desc="Global keyboard shortcut to trigger capture stopping">
               <HotkeyRecorder value={local.hotkey_stop} onChange={(v) => update("hotkey_stop", v)} />
             </Row>
-            <Row label="Pause / Resume" desc="Keyboard shortcut to pause">
+            <Row label="Pause / Resume" desc="Global keyboard shortcut to trigger capture pausing">
               <HotkeyRecorder value={local.hotkey_pause} onChange={(v) => update("hotkey_pause", v)} />
             </Row>
           </Card>
 
-          {/* ── General ── */}
-          <Card title="General" icon="settings" index={6}>
-            <Row label="Output Directory" desc="Where recordings are saved">
+          {/* ── General Section ── */}
+          <Card title="General Settings" icon="settings" index={6}>
+            <Row label="Output Capture Directory" desc="Absolute directory path where recorded video packages save to">
               <Input value={local.output_dir} onChange={(v) => update("output_dir", v)} />
             </Row>
-            <Row label="Minimize to Tray" desc="Keep running in background">
+            <Row label="Minimize to System Tray" desc="Toggles hiding dashboard UI into taskbar tray on recording start">
               <Toggle checked={local.minimize_to_tray} onChange={(v) => update("minimize_to_tray", v)} />
             </Row>
-            <Row label="Copy Path on Save" desc="Copy file path to clipboard">
+            <Row label="Copy Path to Clipboard" desc="Auto-copy absolute target file path after stopping recordings">
               <Toggle checked={local.copy_path_on_save} onChange={(v) => update("copy_path_on_save", v)} />
             </Row>
           </Card>
         </div>
       </div>
 
-      {/* ═══ SAVE BUTTON ═══ */}
-      <div className="px-6 py-4" style={{ borderTop: "var(--border-width) solid var(--border-default)", background: "oklch(from var(--bg-base) l c h / 0.5)" }}>
+      {/* Webcam Preview Overlay Modal Wrapper */}
+      <AnimatePresence>
+        {showWebcamPreview && (
+          <WebcamPreview
+            initial={{
+              x: local.webcam_x,
+              y: local.webcam_y,
+              size: local.webcam_size,
+              shape: local.webcam_shape.toLowerCase() as any,
+              borderColor: local.webcam_border_color,
+              borderWidth: local.webcam_border_width,
+              opacity: local.webcam_opacity,
+              device: local.webcam_device,
+              sharpen: local.webcam_sharpen,
+              brightness: local.webcam_brightness,
+              contrast: local.webcam_contrast,
+            }}
+            recordingWidth={local.resolution_width}
+            recordingHeight={local.resolution_height}
+            onSave={(cfg) => {
+              update("webcam_x", cfg.x);
+              update("webcam_y", cfg.y);
+              update("webcam_size", cfg.size);
+              update("webcam_shape", cfg.shape.charAt(0).toUpperCase() + cfg.shape.slice(1) as any);
+              update("webcam_border_color", cfg.borderColor);
+              update("webcam_border_width", cfg.borderWidth);
+              update("webcam_opacity", cfg.opacity);
+              update("webcam_device", cfg.device);
+              update("webcam_sharpen", cfg.sharpen);
+              update("webcam_brightness", cfg.brightness);
+              update("webcam_contrast", cfg.contrast);
+              setShowWebcamPreview(false);
+            }}
+            onCancel={() => setShowWebcamPreview(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ═══ SAVE BUTTON FOOTER ═══ */}
+      <div className="px-6 py-4 bg-[#11131e] border-t border-[#2d314d] flex justify-center z-40 shadow-2xl">
         <motion.button
           onClick={handleSave}
-          className="w-full py-3 font-mono text-xs uppercase font-bold cursor-pointer shadow-md flex items-center justify-center gap-2"
+          className="max-w-3xl w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 shadow-lg rounded"
           style={{
             border: "none",
-            background: saved ? "var(--accent-success)" : "var(--accent-primary-container, #4a7c59)",
-            color: saved ? "#fff" : "var(--on-primary, #00391e)",
-            borderRadius: "var(--radius-sm)",
-            letterSpacing: "0.05em",
+            background: saved ? "#00e88a" : "linear-gradient(135deg, #00e88a, #85ffb4)",
+            color: "#00391e"
           }}
-          whileHover={{ scale: 1.01, y: -1, boxShadow: "var(--shadow-lg)", borderColor: "var(--border-strong)" }}
+          whileHover={{ scale: 1.01, boxShadow: "0 0 25px rgba(0, 232, 138, 0.25)" }}
           whileTap={{ scale: 0.98 }}
         >
-          {saved ? "✓ SAVED SUCCESSFULLY" : "SAVE SETTINGS"}
+          {saved ? (
+            <span className="flex items-center gap-1.5">
+              <Icon name="check_circle" size={16} /> CONFIGURATION SAVED SUCCESSFULLY
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <Icon name="save" size={16} /> SAVE ALL SETTINGS
+            </span>
+          )}
         </motion.button>
       </div>
     </div>
@@ -490,7 +655,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
 }
 
 /* ═══════════════════════════════════════════════════════
-   COMPONENTS
+   SETTINGS SUB-COMPONENTS
    ═══════════════════════════════════════════════════════ */
 
 function Card({
@@ -502,43 +667,27 @@ function Card({
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.05, duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-      className="shadow-sm overflow-hidden"
-      style={{
-        border: "var(--border-width) solid var(--border-default)",
-        background: "var(--bg-surface)",
-        borderRadius: "var(--radius-md)",
-      }}
+      transition={{ delay: index * 0.05, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      className="border-2 border-[#2d314d] rounded-xl overflow-hidden hover:border-[#3b4a3f] transition-colors"
+      style={{ background: "#151828" }}
     >
       {/* Card Header */}
-      <div
-        className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: "var(--border-thin) solid var(--border-default)", background: "oklch(from var(--bg-surface) l c h / 0.3)" }}
-      >
+      <div className="flex items-center justify-between px-5 py-3 border-b border-[#2d314d] bg-black/10">
         <div className="flex items-center gap-2">
-                    <Icon name={icon} size={18} style={{ color: "var(--accent-primary)" }} />
-          <span className="font-mono text-xs font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
+          <Icon name={icon} size={18} style={{ color: "#00e88a" }} />
+          <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#e1e1f2]">
             {title}
           </span>
         </div>
         {badge && (
-          <span
-            className="font-mono px-2 py-0.5"
-            style={{
-              fontSize: "0.55rem",
-              color: "var(--text-muted)",
-              border: "var(--border-thin) solid var(--border-default)",
-              borderRadius: "var(--radius-xs)",
-              letterSpacing: "0.05em",
-            }}
-          >
+          <span className="font-mono text-[9px] px-2 py-0.5 rounded-full font-bold text-[#00e88a] bg-[#00e88a]/10 border border-[#00e88a]/20">
             {badge}
           </span>
         )}
       </div>
 
       {/* Card Body */}
-      <div className="px-4 py-3.5 space-y-4">
+      <div className="px-5 py-4 space-y-4">
         {children}
       </div>
     </motion.div>
@@ -549,11 +698,9 @@ function Row({ label, desc, children }: { label: string; desc?: string; children
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex-1 min-w-0">
-        <div className="font-mono text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-          {label}
-        </div>
+        <div className="font-mono text-xs font-semibold text-[#e1e1f2]">{label}</div>
         {desc && (
-          <div className="font-mono mt-0.5" style={{ color: "var(--text-muted)", fontSize: "0.58rem", lineHeight: 1.4 }}>
+          <div className="font-mono mt-1 text-[#bacbbc] text-[10px] leading-relaxed">
             {desc}
           </div>
         )}
@@ -571,19 +718,10 @@ function Select({ value, onChange, options }: {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[160px] outline-none transition-colors duration-200"
-      style={{
-        border: "var(--border-width) solid var(--border-default)",
-        background: "var(--bg-base)",
-        color: "var(--text-primary)",
-        borderRadius: "var(--radius-sm)",
-        boxShadow: "var(--shadow-sm)",
-      }}
-      onFocus={(e) => e.target.style.borderColor = "var(--border-focus)"}
-      onBlur={(e) => e.target.style.borderColor = "var(--border-default)"}
+      className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[170px] outline-none border border-[#2d314d] bg-[#090b14] text-[#e1e1f2] rounded focus:border-[#00e88a]"
     >
       {options.map((o) => (
-        <option key={o.value} value={o.value} style={{ background: "var(--bg-elevated)", color: "var(--text-primary)" }}>{o.label}</option>
+        <option key={o.value} value={o.value} className="bg-[#11131e] text-[#e1e1f2]">{o.label}</option>
       ))}
     </select>
   );
@@ -594,30 +732,24 @@ function Segmented<T extends string | number>({ value, options, onChange }: {
 }) {
   const layoutId = useId();
   return (
-    <div className="flex p-0.5 relative gap-0.5" style={{ border: "var(--border-width) solid var(--border-default)", background: "var(--bg-base)", borderRadius: "var(--radius-sm)" }}>
+    <div className="flex p-1 bg-[#090b14] rounded-lg border border-[#2d314d] gap-1">
       {options.map((opt) => (
         <motion.button
           key={String(opt.value)}
           onClick={() => onChange(opt.value)}
-          className="px-3 py-1 font-mono text-[10px] cursor-pointer relative z-10 font-bold"
+          className="px-3.5 py-1 font-mono text-[10px] cursor-pointer relative z-10 font-bold uppercase rounded"
           style={{
-            color: opt.value === value ? "var(--bg-base)" : "var(--text-secondary)",
-            border: "none",
+            color: opt.value === value ? "#00391e" : "#bacbbc",
             background: "transparent",
-            letterSpacing: "0.03em",
           }}
-          whileHover={opt.value !== value ? { color: "var(--text-primary)" } : {}}
+          whileHover={opt.value !== value ? { color: "#e1e1f2" } : {}}
           whileTap={{ scale: 0.96 }}
         >
           <span className="relative z-20">{opt.label}</span>
           {opt.value === value && (
             <motion.div
               layoutId={layoutId}
-              className="absolute inset-0 z-0 shadow-sm"
-              style={{
-                background: "var(--accent-primary)",
-                borderRadius: "calc(var(--radius-sm) - 3px)",
-              }}
+              className="absolute inset-0 z-0 bg-[#00e88a] rounded"
               transition={{ type: "spring", stiffness: 450, damping: 28 }}
             />
           )}
@@ -633,27 +765,57 @@ function Input({ value, onChange }: { value: string; onChange: (v: string) => vo
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-1.5 font-mono text-xs min-w-[160px] outline-none transition-colors duration-200"
-      style={{
-        border: "var(--border-width) solid var(--border-default)",
-        background: "var(--bg-base)",
-        color: "var(--text-primary)",
-        borderRadius: "var(--radius-sm)",
-        boxShadow: "var(--shadow-sm)",
-      }}
-      onFocus={(e) => e.target.style.borderColor = "var(--border-focus)"}
-      onBlur={(e) => e.target.style.borderColor = "var(--border-default)"}
+      className="px-3 py-1.5 font-mono text-xs min-w-[200px] outline-none border border-[#2d314d] bg-[#090b14] text-[#e1e1f2] rounded focus:border-[#00e88a]"
     />
+  );
+}
+
+function Slider({ value, min, max, step, onChange, suffix }: {
+  value: number; min: number; max: number; step: number; onChange: (v: number) => void; suffix?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 min-w-[170px]">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+      />
+      <span className="font-mono text-[10px] min-w-[40px] text-right text-[#bacbbc]">
+        {value.toFixed(step < 0.1 ? 2 : 0)}{suffix}
+      </span>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <motion.button
+      onClick={() => onChange(!checked)}
+      className="relative cursor-pointer w-11 h-6 rounded-full border"
+      style={{
+        borderColor: checked ? "#00e88a" : "#2d314d",
+        background: checked ? "#00e88a" : "#090b14",
+      }}
+      whileTap={{ scale: 0.95 }}
+    >
+      <motion.div
+        className="absolute top-0.5 w-4.5 h-4.5 rounded-full"
+        style={{ background: checked ? "#00391e" : "#e1e1f2" }}
+        animate={{ left: checked ? 22 : 2 }}
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      />
+    </motion.button>
   );
 }
 
 function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [isRecording, setIsRecording] = useState(false);
   const [tempModifiers, setTempModifiers] = useState({
-    ctrl: false,
-    shift: false,
-    alt: false,
-    super: false,
+    ctrl: false, shift: false, alt: false, super: false
   });
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -667,7 +829,6 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
       const key = e.key;
       const isModifier = ["Control", "Shift", "Alt", "Meta", "OS"].includes(key);
 
-      // Track current modifiers state in real-time
       const newModifiers = {
         ctrl: e.ctrlKey || key === "Control",
         shift: e.shiftKey || key === "Shift",
@@ -690,27 +851,23 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
       }
 
       if (!isModifier) {
-        // A non-modifier key was pressed - compile shortcut
         const parts: string[] = [];
         if (newModifiers.ctrl) parts.push("Ctrl");
         if (newModifiers.shift) parts.push("Shift");
         if (newModifiers.alt) parts.push("Alt");
         if (newModifiers.super) parts.push("Super");
 
-        // Format key name nicely
         let keyName = key;
         if (key === " ") {
           keyName = "Space";
         } else if (key.length === 1) {
           keyName = key.toUpperCase();
         } else if (key.startsWith("Arrow")) {
-          keyName = key.replace("Arrow", ""); // Up, Down, Left, Right
+          keyName = key.replace("Arrow", "");
         }
 
         parts.push(keyName);
-        const shortcutString = parts.join("+");
-
-        onChange(shortcutString);
+        onChange(parts.join("+"));
         setIsRecording(false);
         buttonRef.current?.blur();
       }
@@ -719,8 +876,6 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
     const handleKeyUp = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
-
-      // Update modifier states when they are released
       setTempModifiers({
         ctrl: e.ctrlKey,
         shift: e.shiftKey,
@@ -731,46 +886,27 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
 
     window.addEventListener("keydown", handleKeyDown, true);
     window.addEventListener("keyup", handleKeyUp, true);
-
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("keyup", handleKeyUp, true);
     };
   }, [isRecording, onChange]);
 
-  const handleClick = () => {
-    setIsRecording(true);
-    setTempModifiers({ ctrl: false, shift: false, alt: false, super: false });
-  };
-
-  const handleBlur = () => {
-    setIsRecording(false);
-  };
-
   return (
     <div className="relative">
       <motion.button
         ref={buttonRef}
-        onClick={handleClick}
-        onBlur={handleBlur}
-        className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[160px] text-center outline-none select-none transition-all duration-200"
+        onClick={() => { setIsRecording(true); setTempModifiers({ ctrl: false, shift: false, alt: false, super: false }); }}
+        onBlur={() => setIsRecording(false)}
+        className="px-3.5 py-1.5 font-mono text-xs cursor-pointer min-w-[170px] text-center border rounded outline-none transition-colors"
         style={{
-          border: "var(--border-width) solid " + (isRecording ? "var(--border-focus)" : "var(--border-default)"),
-          background: isRecording ? "oklch(from var(--border-focus) l c h / 0.08)" : "var(--bg-base)",
-          color: isRecording ? "var(--border-focus)" : "var(--text-primary)",
-          borderRadius: "var(--radius-sm)",
-          boxShadow: isRecording ? "0 0 10px oklch(from var(--border-focus) l c h / 0.15)" : "var(--shadow-sm)",
+          borderColor: isRecording ? "#00e88a" : "#2d314d",
+          background: isRecording ? "rgba(0, 232, 138, 0.08)" : "#090b14",
+          color: isRecording ? "#00e88a" : "#e1e1f2",
         }}
         whileTap={{ scale: 0.98 }}
       >
-        {isRecording ? (
-          <span className="flex items-center justify-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse-dot" />
-            Listening...
-          </span>
-        ) : (
-          value || "None"
-        )}
+        {isRecording ? "Listening..." : value || "None"}
       </motion.button>
 
       <AnimatePresence>
@@ -779,55 +915,28 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
             initial={{ opacity: 0, y: 4, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.95 }}
-            transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute top-full mt-2 left-1/2 -translate-x-1/2 flex gap-1 p-1 bg-elevated border border-default shadow-lg z-50 rounded"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "var(--border-thin) solid var(--border-default)",
-              borderRadius: "var(--radius-sm)",
-              boxShadow: "var(--shadow-lg)",
-            }}
+            className="absolute top-full mt-2 left-1/2 -translate-x-1/2 flex gap-1 p-1 bg-[#11131e] border border-[#2d314d] shadow-2xl z-50 rounded"
           >
-            <span
-              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
-              style={{
-                background: tempModifiers.ctrl ? "var(--accent-primary)" : "var(--bg-base)",
-                color: tempModifiers.ctrl ? "var(--bg-base)" : "var(--text-muted)",
-                border: tempModifiers.ctrl ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
-              }}
-            >
-              Ctrl
-            </span>
-            <span
-              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
-              style={{
-                background: tempModifiers.shift ? "var(--accent-primary)" : "var(--bg-base)",
-                color: tempModifiers.shift ? "var(--bg-base)" : "var(--text-muted)",
-                border: tempModifiers.shift ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
-              }}
-            >
-              Shift
-            </span>
-            <span
-              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
-              style={{
-                background: tempModifiers.alt ? "var(--accent-primary)" : "var(--bg-base)",
-                color: tempModifiers.alt ? "var(--bg-base)" : "var(--text-muted)",
-                border: tempModifiers.alt ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
-              }}
-            >
-              Alt
-            </span>
-            <span
-              className="px-1.5 py-0.5 rounded text-[10px] transition-colors duration-150 font-bold"
-              style={{
-                background: tempModifiers.super ? "var(--accent-primary)" : "var(--bg-base)",
-                color: tempModifiers.super ? "var(--bg-base)" : "var(--text-muted)",
-                border: tempModifiers.super ? "var(--border-thin) solid var(--accent-primary)" : "var(--border-thin) dashed var(--border-default)",
-              }}
-            >
-              Win
-            </span>
+            {["Ctrl", "Shift", "Alt", "Win"].map((mod) => {
+              const active = 
+                (mod === "Ctrl" && tempModifiers.ctrl) ||
+                (mod === "Shift" && tempModifiers.shift) ||
+                (mod === "Alt" && tempModifiers.alt) ||
+                (mod === "Win" && tempModifiers.super);
+              return (
+                <span
+                  key={mod}
+                  className="px-1.5 py-0.5 rounded text-[9px] font-bold border transition-colors duration-150"
+                  style={{
+                    background: active ? "#00e88a" : "transparent",
+                    color: active ? "#00391e" : "#bacbbc",
+                    borderColor: active ? "#00e88a" : "#2d314d"
+                  }}
+                >
+                  {mod}
+                </span>
+              );
+            })}
           </motion.div>
         )}
       </AnimatePresence>
@@ -835,137 +944,93 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
   );
 }
 
-function Slider({ value, min, max, step, onChange, suffix }: {
-  value: number; min: number; max: number; step: number; onChange: (v: number) => void; suffix?: string;
+// ─── Mini preview canvas for effect cards ────────────────────────
+function MiniPreview({
+  trailStyle, clickEffect, color,
+}: {
+  trailStyle?: TrailStyle;
+  clickEffect?: ClickEffect;
+  color: string;
 }) {
-  return (
-    <div className="flex items-center gap-2 min-w-[160px]">
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="flex-1 h-1.5 cursor-pointer accent-[var(--accent-primary)]"
-        style={{ background: "var(--bg-base)", borderRadius: "var(--radius-full)" }}
-      />
-      <span className="font-mono text-[10px] min-w-[36px] text-right" style={{ color: "var(--text-muted)" }}>
-        {value.toFixed(step < 0.1 ? 2 : 1)}{suffix}
-      </span>
-    </div>
-  );
-}
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <motion.button
-      onClick={() => onChange(!checked)}
-      className="relative cursor-pointer"
-      style={{
-        width: 44,
-        height: 24,
-        border: `var(--border-width) solid ${checked ? "var(--accent-primary)" : "var(--border-default)"}`,
-        background: checked ? "var(--accent-primary)" : "var(--bg-base)",
-        borderRadius: "var(--radius-full)",
-      }}
-      whileTap={{ scale: 0.95 }}
-    >
-      <motion.div
-        className="absolute top-0.5"
-        style={{ width: 16, height: 16, background: "var(--text-primary)", borderRadius: "var(--radius-full)" }}
-        animate={{ left: checked ? 22 : 2 }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
-      />
-    </motion.button>
-  );
-}
-
-function CursorPackSelector({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  const packs = [
-    { id: "default", name: "System Default", desc: "No change", color: "#8b949e" },
-    { id: "macos", name: "macOS", desc: "Apple-style", color: "#ffffff" },
-    { id: "posy", name: "Posy's", desc: "Community fav", color: "#ffffff" },
-    { id: "neon_green", name: "Neon Green", desc: "Bright glow", color: "#00ff88" },
-    { id: "neon_pink", name: "Neon Pink", desc: "Hot pink", color: "#ff44cc" },
-    { id: "minimal_dot", name: "Minimal Dot", desc: "Clean circle", color: "#ffffff" },
-    { id: "crosshair", name: "Crosshair", desc: "Precision", color: "#ff4444" },
-    { id: "retro_pixel", name: "Retro Pixel", desc: "8-bit style", color: "#ffff00" },
-    { id: "glass_arrow", name: "Glass", desc: "Translucent", color: "#ccccff" },
-    { id: "easyspecy", name: "EasySpecy", desc: "Branded", color: "#00e88a" },
-  ];
-
-  const selected = packs.find(p => p.id === value) || packs[0];
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const trailRef = useRef(new TrailRenderer());
+  const clickRef = useRef(new ClickEffectRenderer());
+  const timeRef = useRef(0);
+  const hasInteracted = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    if (trailStyle) { trailRef.current.setStyle(trailStyle); trailRef.current.setColor(color); }
+    if (clickEffect) { clickRef.current.setStyle(clickEffect); clickRef.current.setColor(color); }
+  }, [trailStyle, clickEffect, color]);
+
+  useEffect(() => {
+    if (!clickEffect || clickEffect === "none") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    clickRef.current.startAutoSimulate(canvas);
+    return () => { clickRef.current.stopAutoSimulate(); };
+  }, [clickEffect]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d")!;
+    let raf: number;
+
+    const animate = () => {
+      timeRef.current++;
+      const w = canvas.width;
+      const h = canvas.height;
+
+      ctx.clearRect(0, 0, w, h);
+      drawPreviewBackground(ctx, w, h);
+
+      trailRef.current.update();
+      trailRef.current.draw(ctx, w, h);
+
+      if (trailStyle && trailStyle !== "none" && !hasInteracted.current) {
+        const pulse = 0.4 + Math.sin(timeRef.current * 0.04) * 0.15;
+        ctx.font = "11px 'JetBrains Mono', monospace";
+        ctx.fillStyle = `rgba(255,255,255,${pulse})`;
+        ctx.textAlign = "center";
+        ctx.fillText("move cursor here to test trail", w / 2, h / 2 + 4);
+        ctx.textAlign = "left";
+      }
+
+      clickRef.current.update();
+      clickRef.current.draw(ctx, w, h);
+
+      raf = requestAnimationFrame(animate);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+    animate();
+    return () => cancelAnimationFrame(raf);
+  }, [trailStyle, clickEffect]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!trailStyle || trailStyle === "none") return;
+    hasInteracted.current = true;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (e.currentTarget.width / rect.width);
+    const y = (e.clientY - rect.top) * (e.currentTarget.height / rect.height);
+    trailRef.current.addPoint(x, y);
+  }, [trailStyle]);
+
+  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!clickEffect || clickEffect === "none") return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (e.currentTarget.width / rect.width);
+    const y = (e.clientY - rect.top) * (e.currentTarget.height / rect.height);
+    clickRef.current.addClick(x, y);
+  }, [clickEffect]);
 
   return (
-    <div ref={ref} className="relative">
-      <motion.button
-        onClick={() => setOpen(!open)}
-        className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[160px] flex items-center gap-2 outline-none"
-        style={{
-          border: `var(--border-width) solid ${open ? "var(--accent-primary)" : "var(--border-default)"}`,
-          background: "var(--bg-base)",
-          color: "var(--text-primary)",
-          borderRadius: "var(--radius-sm)",
-          boxShadow: "var(--shadow-sm)",
-        }}
-        whileTap={{ scale: 0.98 }}
-      >
-        <span className="w-3 h-3 rounded-full" style={{ background: selected.color, border: "1px solid rgba(255,255,255,0.2)" }} />
-        <span className="flex-1 text-left">{selected.name}</span>
-        <span style={{ fontSize: "0.5rem", color: "var(--text-muted)", transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▼</span>
-      </motion.button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: 4, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 4, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute right-0 top-full mt-1 z-50 w-[220px] max-h-[280px] overflow-y-auto"
-            style={{
-              border: "var(--border-thin) solid var(--border-strong)",
-              background: "var(--bg-elevated)",
-              boxShadow: "var(--shadow-lg)",
-              borderRadius: "var(--radius-sm)",
-            }}
-          >
-            {packs.map((pack) => (
-              <motion.button
-                key={pack.id}
-                className="w-full px-3 py-2 flex items-center gap-2.5 cursor-pointer text-left"
-                style={{
-                  color: pack.id === value ? "var(--text-primary)" : "var(--text-secondary)",
-                  background: pack.id === value ? "var(--bg-surface)" : "transparent",
-                  borderBottom: "var(--border-thin) solid var(--border-default)",
-                }}
-                whileHover={{ background: "var(--bg-surface)", color: "var(--text-primary)" }}
-                onClick={() => { onChange(pack.id); setOpen(false); }}
-              >
-                <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: pack.color, border: "1px solid rgba(255,255,255,0.15)", boxShadow: `0 0 6px ${pack.color}40` }} />
-                <div className="flex-1 min-w-0">
-                  <div className="font-mono text-[11px] font-semibold">{pack.name}</div>
-                  <div className="font-mono text-[9px]" style={{ color: "var(--text-muted)" }}>{pack.desc}</div>
-                </div>
-                {pack.id === value && <span style={{ color: "var(--accent-primary)", fontSize: "12px" }}>✓</span>}
-              </motion.button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <canvas
+      ref={canvasRef}
+      width={700}
+      height={140}
+      className="w-full cursor-crosshair block rounded-lg h-[140px]"
+      onMouseMove={handleMouseMove}
+      onClick={handleClick}
+    />
   );
 }

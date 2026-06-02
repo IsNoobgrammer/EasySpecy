@@ -103,6 +103,7 @@ pub fn run() {
             commands::start_audio_monitor_cmd,
             commands::stop_audio_monitor_cmd,
             commands::get_audio_levels,
+            commands::get_webcam_devices,
         ])
         .setup(|app| {
             // Store AppHandle globally for background thread access (cursor events)
