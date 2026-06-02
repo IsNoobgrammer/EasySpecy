@@ -167,7 +167,20 @@ export function Settings({ onBack }: { onBack: () => void }) {
                     <Row label="Noise Gate" desc="Suppress background noise (0 = off, 1 = aggressive)">
                       <Slider value={local.noise_gate_threshold} min={0} max={1} step={0.05} onChange={(v) => update("noise_gate_threshold", v)} suffix="" />
                     </Row>
-                    <Row label="Noise Reduction" desc="Remove constant hiss/hum (0 = off, 1 = max)">
+                    <Row label="Noise Mode" desc="Algorithm for noise reduction">
+                      <Select
+                        value={local.noise_reduction_mode}
+                        onChange={(v) => update("noise_reduction_mode", v as AppConfig["noise_reduction_mode"])}
+                        options={[
+                          { label: "Off — No processing", value: "Off" },
+                          { label: "Gate — Energy gate only", value: "Gate" },
+                          { label: "Spectral — Gate + hiss removal", value: "Spectral" },
+                          { label: "RNN — Gate + AI denoising (best)", value: "RNN" },
+                          { label: "Full — Gate + RNN + spectral", value: "Full" },
+                        ]}
+                      />
+                    </Row>
+                    <Row label="Noise Reduction" desc="Strength of noise removal (0 = off, 1 = max)">
                       <Slider value={local.noise_reduction} min={0} max={1} step={0.05} onChange={(v) => update("noise_reduction", v)} suffix="" />
                     </Row>
                   </div>
@@ -380,6 +393,15 @@ export function Settings({ onBack }: { onBack: () => void }) {
                           {Math.round(local.webcam_opacity * 100)}%
                         </span>
                       </div>
+                    </Row>
+                    <Row label="Sharpen" desc="Enhance edge detail (0 = off, 1 = max)">
+                      <Slider value={local.webcam_sharpen} min={0} max={1} step={0.05} onChange={(v) => update("webcam_sharpen", v)} suffix="" />
+                    </Row>
+                    <Row label="Brightness" desc="Adjust image brightness (-50 to 50)">
+                      <Slider value={local.webcam_brightness} min={-50} max={50} step={1} onChange={(v) => update("webcam_brightness", Math.round(v))} suffix="" />
+                    </Row>
+                    <Row label="Contrast" desc="Adjust image contrast (0.5 = low, 2.0 = high)">
+                      <Slider value={local.webcam_contrast} min={0.5} max={2} step={0.05} onChange={(v) => update("webcam_contrast", v)} suffix="×" />
                     </Row>
                   </div>
                 </motion.div>

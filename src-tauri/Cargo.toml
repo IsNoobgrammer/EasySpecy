@@ -43,6 +43,7 @@ crc32fast = "1.4"
 rayon = "1.10"
 nokhwa = { version = "0.10", features = ["input-native"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+nnnoiseless = "0.5.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"

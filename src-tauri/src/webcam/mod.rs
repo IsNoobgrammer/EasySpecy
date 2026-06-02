@@ -518,9 +518,31 @@ fn webcam_capture_loop(
                     }
                 };
 
+                // ═══ Webcam post-processing ═══
+                let config = crate::config::AppConfig::load();
+                let mut processed = decoded;
+
+                // Brightness adjustment
+                if config.webcam_brightness != 0 {
+                    processed = image::imageops::brighten(&processed, config.webcam_brightness);
+                }
+
+                // Contrast adjustment
+                if (config.webcam_contrast - 1.0).abs() > 0.01 {
+                    processed = image::imageops::contrast(&processed, config.webcam_contrast);
+                }
+
+                // Sharpen (unsharpen mask)
+                if config.webcam_sharpen > 0.01 {
+                    // Map 0.0-1.0 to sigma 0.5-3.0 and threshold 1-5
+                    let sigma = 0.5 + config.webcam_sharpen * 2.5;
+                    let threshold = (5.0 - config.webcam_sharpen * 4.0) as i32;
+                    processed = image::imageops::unsharpen(&processed, sigma, threshold);
+                }
+
                 // Resize (square) to the configured overlay size
                 let resized = image::imageops::resize(
-                    &decoded, target_size, target_size, image::imageops::FilterType::Triangle,
+                    &processed, target_size, target_size, image::imageops::FilterType::Triangle,
                 );
 
                 // Send to writer thread (non-blocking if buffer has space)

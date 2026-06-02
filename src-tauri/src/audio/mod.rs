@@ -683,11 +683,63 @@ fn convert_channels(input: &[f32], from_ch: u32, to_ch: u32) -> Vec<f32> {
 // MIC POST-PROCESSING: Noise reduction + loudness normalization
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// RNN-based noise suppression using nnnoiseless.
+/// Processes audio through a recurrent neural network trained on speech+noise.
+/// Converts to mono for RNN processing, then mixes back based on strength.
+fn rnn_denoise(input: &[f32], _sample_rate: u32, channels: u32, strength: f32) -> Vec<f32> {
+    use nnnoiseless::DenoiseState;
+
+    let ch = channels as usize;
+    let frame_size = DenoiseState::FRAME_SIZE; // 480 samples
+
+    // Convert to mono for RNN processing
+    let mono: Vec<f32> = if ch > 1 {
+        input.chunks(ch).map(|frame| frame.iter().sum::<f32>() / ch as f32).collect()
+    } else {
+        input.to_vec()
+    };
+
+    let mut denoise_state = DenoiseState::new();
+    let mut output_mono = vec![0.0f32; mono.len()];
+    let mut input_frame = [0.0f32; 480];
+    let mut output_frame = [0.0f32; 480];
+    
+    // Process in 480-sample chunks
+    for (chunk_idx, chunk) in mono.chunks(frame_size).enumerate() {
+        let len = chunk.len().min(frame_size);
+        input_frame[..len].copy_from_slice(&chunk[..len]);
+        if len < frame_size {
+            input_frame[len..].fill(0.0);
+        }
+        
+        denoise_state.process_frame(&mut output_frame, &input_frame);
+        
+        let offset = chunk_idx * frame_size;
+        for i in 0..len {
+            output_mono[offset + i] = output_frame[i];
+        }
+    }
+
+    // Mix denoised mono back with original based on strength
+    // strength 0.0 = original, 1.0 = fully denoised
+    let mut output = Vec::with_capacity(input.len());
+    for (i, &orig) in input.iter().enumerate() {
+        let mono_idx = i / ch;
+        let denoised_sample = if mono_idx < output_mono.len() { output_mono[mono_idx] } else { orig };
+        let mixed = orig * (1.0 - strength) + denoised_sample * strength;
+        output.push(mixed.clamp(-1.0, 1.0));
+    }
+
+    output
+}
+
 /// Full mic processing pipeline for "Both" mode:
-/// 1. Estimate noise floor from first 200ms (assumed to be silence/ambient)
-/// 2. Apply noise gate (kill anything below threshold)
-/// 3. Apply spectral subtraction (remove constant noise profile)
-/// 4. Normalize loudness to match system audio RMS
+/// Uses NoiseReductionMode to select processing strategy:
+/// - Off: pass through unchanged
+/// - Gate: noise gate only
+/// - Spectral: noise gate + spectral subtraction
+/// - RNN: noise gate + nnnoiseless RNN denoising
+/// - Full: noise gate + RNN + spectral cleanup
 fn process_mic_audio(
     mic: &[f32],
     sys: &[f32],
@@ -701,32 +753,53 @@ fn process_mic_audio(
     let config = crate::config::AppConfig::load();
     let ch = channels as usize;
     let frames_per_ms = sample_rate as usize / 1000;
+    let mode = &config.noise_reduction_mode;
 
-    // ═══ Step 1: Estimate noise floor from first 200ms ═══
+    // Skip ALL processing if Off
+    if *mode == crate::config::NoiseReductionMode::Off {
+        return mic.to_vec();
+    }
+
+    // ═══ Step 1: Estimate noise floor (always needed for gate) ═══
     let noise_samples = (200 * frames_per_ms * ch).min(mic.len());
     let noise_rms = rms(&mic[..noise_samples]);
 
-    // Use config noise_gate_threshold to scale sensitivity (0.0 = off, 1.0 = aggressive)
-    let gate_multiplier = 1.0 + config.noise_gate_threshold * 4.0; // maps 0..1 to 1x..5x
-    let noise_threshold = noise_rms * gate_multiplier;
-
     tracing::info!(
-        "Mic processing: noise_rms={:.6}, gate_threshold={:.6} (sensitivity={:.1})",
-        noise_rms, noise_threshold, config.noise_gate_threshold
+        "Mic processing: mode={:?}, noise_rms={:.6}, gate={:.1}, reduction={:.1}",
+        mode, noise_rms, config.noise_gate_threshold, config.noise_reduction
     );
 
-    // ═══ Step 2: Noise gate (skip if threshold is 0) ═══
+    // ═══ Step 2: Noise gate (used in all modes except Off) ═══
     let gated = if config.noise_gate_threshold > 0.01 {
+        let gate_multiplier = 1.0 + config.noise_gate_threshold * 4.0;
+        let noise_threshold = noise_rms * gate_multiplier;
         noise_gate(mic, noise_threshold, sample_rate, channels)
     } else {
         mic.to_vec()
     };
 
-    // ═══ Step 3: Spectral noise reduction (skip if reduction is 0) ═══
-    let denoised = if config.noise_reduction > 0.01 {
-        spectral_subtract(&gated, noise_rms, sample_rate, channels, config.noise_reduction)
-    } else {
-        gated
+    // ═══ Step 3: Noise reduction based on mode ═══
+    let denoised = match mode {
+        crate::config::NoiseReductionMode::Off => gated,
+        crate::config::NoiseReductionMode::Gate => gated,
+        crate::config::NoiseReductionMode::Spectral => {
+            if config.noise_reduction > 0.01 {
+                spectral_subtract(&gated, noise_rms, sample_rate, channels, config.noise_reduction)
+            } else {
+                gated
+            }
+        }
+        crate::config::NoiseReductionMode::RNN => {
+            rnn_denoise(&gated, sample_rate, channels, config.noise_reduction)
+        }
+        crate::config::NoiseReductionMode::Full => {
+            let rnn = rnn_denoise(&gated, sample_rate, channels, config.noise_reduction);
+            if config.noise_reduction > 0.01 {
+                spectral_subtract(&rnn, noise_rms, sample_rate, channels, config.noise_reduction * 0.5)
+            } else {
+                rnn
+            }
+        }
     };
 
     // ═══ Step 4: Apply mic gain from config ═══

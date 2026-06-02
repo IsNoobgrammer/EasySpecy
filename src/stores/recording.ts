@@ -18,6 +18,7 @@ export interface AppConfig {
   system_volume: number;
   noise_gate_threshold: number;
   noise_reduction: number;
+  noise_reduction_mode: "Off" | "Gate" | "Spectral" | "RNN" | "Full";
   webcam_enabled: boolean;
   webcam_device: string;
   webcam_position: "TopLeft" | "TopRight" | "BottomLeft" | "BottomRight";
@@ -28,6 +29,9 @@ export interface AppConfig {
   webcam_opacity: number;
   webcam_x: number;
   webcam_y: number;
+  webcam_sharpen: number;
+  webcam_brightness: number;
+  webcam_contrast: number;
   auto_zoom_enabled: boolean;
   zoom_level: number;
   zoom_dwell_ms: number;

@@ -27,6 +27,7 @@ pub struct AppConfig {
     pub system_volume: f32,         // System audio volume in mix (0.0 - 1.0, default 0.55)
     pub noise_gate_threshold: f32,  // Noise gate sensitivity (0.0 = off, 1.0 = aggressive, default 0.5)
     pub noise_reduction: f32,       // Noise reduction strength (0.0 = off, 1.0 = max, default 0.6)
+    pub noise_reduction_mode: NoiseReductionMode, // Off, Gate, Spectral, RNN, Full
 
     // Webcam
     pub webcam_enabled: bool,
@@ -39,6 +40,9 @@ pub struct AppConfig {
     pub webcam_opacity: f32,
     pub webcam_x: i32,
     pub webcam_y: i32,
+    pub webcam_sharpen: f32,        // Sharpen strength (0.0 = off, 1.0 = max, default 0.3)
+    pub webcam_brightness: i32,     // Brightness offset (-50 to 50, default 5)
+    pub webcam_contrast: f32,       // Contrast multiplier (0.5 - 2.0, default 1.1)
 
     // Auto-zoom
     pub auto_zoom_enabled: bool,
@@ -82,6 +86,15 @@ pub enum WebcamShape {
     Circle,
     Rounded,
     Squircle,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NoiseReductionMode {
+    Off,       // No processing at all
+    Gate,      // Noise gate only (energy-based)
+    Spectral,  // Noise gate + spectral subtraction
+    RNN,       // Noise gate + nnnoiseless (RNN-based, best quality)
+    Full,      // Noise gate + RNN + spectral cleanup
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -148,6 +161,7 @@ impl Default for AppConfig {
             system_volume: 0.55,
             noise_gate_threshold: 0.5,
             noise_reduction: 0.6,
+            noise_reduction_mode: NoiseReductionMode::RNN,
 
             webcam_enabled: false,
             webcam_device: "default".to_string(),
@@ -159,6 +173,9 @@ impl Default for AppConfig {
             webcam_opacity: 1.0,
             webcam_x: 860,
             webcam_y: 440,
+            webcam_sharpen: 0.3,
+            webcam_brightness: 5,
+            webcam_contrast: 1.1,
 
             auto_zoom_enabled: false,
             zoom_level: 2.0,
