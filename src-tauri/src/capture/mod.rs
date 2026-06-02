@@ -12,6 +12,7 @@
 
 use crate::audio::AudioCapture;
 use crate::region;
+use tauri::Emitter;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

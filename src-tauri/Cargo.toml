@@ -31,6 +31,7 @@ toml = "0.8"
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 cpal = "0.15"
 dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
@@ -42,23 +43,10 @@ crc32fast = "1.4"
 rayon = "1.10"
 nokhwa = { version = "0.10", features = ["input-native"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-nnnoiseless = "0.5"
-flume = "0.11"
-crossbeam-utils = "0.8"
-dasp = "0.11"
-rubato = "0.16"
-sysinfo = "0.39"
-resvg = "0.47"
-usvg = "0.47"
-tiny-skia = "0.12"
-cosmic-text = "0.12"
-muda = "0.19"
-tray-icon = "0.24"
-rav1e = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_UI_Input"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = "0.2"

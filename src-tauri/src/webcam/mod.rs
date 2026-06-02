@@ -397,12 +397,17 @@ fn webcam_capture_loop(
         return Err("Webcam returned zero resolution".into());
     }
 
-    // Verify camera works with a test frame
+    // Verify camera works with a test frame (must DECODE, not just read raw bytes)
     match camera.frame() {
-        Ok(frame) => {
-            let buf_len = frame.buffer().len();
-            tracing::info!("Webcam test frame OK: {} bytes ({}x{})", buf_len, cam_w, cam_h);
-        }
+        Ok(frame) => match frame.decode_image::<RgbFormat>() {
+            Ok(img) => {
+                tracing::info!("Webcam test frame OK: decoded {}x{}", img.width(), img.height());
+            }
+            Err(e) => {
+                camera.stop_stream().ok();
+                return Err(format!("Webcam test frame decode failed: {}", e));
+            }
+        },
         Err(e) => {
             camera.stop_stream().ok();
             return Err(format!("Webcam test frame failed: {}", e));
@@ -444,36 +449,32 @@ fn webcam_capture_loop(
         match camera.frame() {
             Ok(frame) => {
                 let frame_path = format!("{}/webcam_{:06}.png", output_dir, frame_idx);
-                let raw = frame.buffer();
-                let frame_res = frame.resolution();
-                let fw = frame_res.width();
-                let fh = frame_res.height();
 
-                let expected_rgb = (fw * fh * 3) as usize;
-                let expected_rgba = (fw * fh * 4) as usize;
-
-                let rgba: Vec<u8> = if raw.len() == expected_rgb {
-                    let mut rgba = Vec::with_capacity(expected_rgba);
-                    for chunk in raw.chunks(3) {
-                        if chunk.len() >= 3 {
-                            rgba.extend_from_slice(&[chunk[0], chunk[1], chunk[2], 255]);
+                // ═══ DECODE the frame to RGB ═══
+                // nokhwa's frame.buffer() returns RAW bytes in the camera's NATIVE
+                // FourCC (YUYV / NV12 / MJPEG / etc.) — NOT decoded RGB. The previous
+                // code compared raw.len() against w*h*3 (RGB) which almost never
+                // matched for real cameras, so EVERY frame was skipped and the final
+                // video had no webcam. decode_image() converts whatever the camera
+                // delivers into a proper RGB image buffer.
+                let decoded = match frame.decode_image::<RgbFormat>() {
+                    Ok(img) => img,
+                    Err(e) => {
+                        if frame_idx == 0 {
+                            tracing::warn!("Webcam frame decode failed: {}", e);
                         }
+                        std::thread::sleep(Duration::from_millis(5));
+                        continue;
                     }
-                    rgba
-                } else if raw.len() == expected_rgba {
-                    raw.to_vec()
-                } else {
-                    continue;
                 };
 
-                if let Some(img) = image::RgbaImage::from_raw(fw, fh, rgba) {
-                    let resized = image::imageops::resize(
-                        &img, target_size, target_size, image::imageops::FilterType::Triangle,
-                    );
-                    if resized.save(&frame_path).is_ok() {
-                        frame_idx += 1;
-                        WEBCAM_FRAME_COUNT.store(frame_idx, Ordering::Relaxed);
-                    }
+                // Resize (square) to the configured overlay size and save as PNG.
+                let resized = image::imageops::resize(
+                    &decoded, target_size, target_size, image::imageops::FilterType::Triangle,
+                );
+                if resized.save(&frame_path).is_ok() {
+                    frame_idx += 1;
+                    WEBCAM_FRAME_COUNT.store(frame_idx, Ordering::Relaxed);
                 }
             }
             Err(_) => {

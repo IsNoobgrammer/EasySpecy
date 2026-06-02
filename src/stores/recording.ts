@@ -89,12 +89,6 @@ export interface AudioLevels {
   sysDb: number;
 }
 
-export interface KeyEvent {
-  key: string;
-  timestamp_ms: number;
-  duration_ms: number;
-}
-
 type RecordingPhase = "idle" | "recording" | "encoding";
 type SelectorMode = "none" | "region";
 
@@ -115,7 +109,6 @@ interface AppState {
   encodingStage: string;
   estimatedMbPerMin: number;
   audioLevels: AudioLevels;
-  keyboardEvents: KeyEvent[];
 
   loadConfig: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
@@ -140,7 +133,6 @@ interface AppState {
   startAudioMonitor: () => Promise<void>;
   stopAudioMonitor: () => Promise<void>;
   pollAudioLevels: () => Promise<void>;
-  pollKeyboardEvents: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -160,7 +152,6 @@ export const useStore = create<AppState>((set, get) => ({
   encodingStage: "",
   estimatedMbPerMin: 0,
   audioLevels: { micRms: 0, micPeak: 0, micDb: -60, sysRms: 0, sysPeak: 0, sysDb: -60 },
-  keyboardEvents: [],
 
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
@@ -232,8 +223,6 @@ export const useStore = create<AppState>((set, get) => ({
       set({ selectorMode: "none" });
       // Start recording and WAIT for capture to be armed
       get().addToast("Initializing capture...", "info");
-      // Stop monitor first to avoid racing on atomics
-      await invoke("stop_audio_monitor_cmd");
       await invoke("start_recording", { outputPath: null });
       // Only now is capture truly active
       set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
@@ -261,9 +250,6 @@ export const useStore = create<AppState>((set, get) => ({
     // FullScreen — start and WAIT for capture to be armed
     try {
       get().addToast("Initializing capture...", "info");
-      // Stop monitor FIRST so recording streams have exclusive device access
-      // and don't race on the same atomics
-      await invoke("stop_audio_monitor_cmd");
       // This now blocks until the first video frame is captured
       // and audio is armed — guaranteeing perfect sync
       await invoke("start_recording", { outputPath: null });
@@ -287,10 +273,6 @@ export const useStore = create<AppState>((set, get) => ({
       const result = await invoke<RecordingResult>("stop_recording");
       clearInterval(progressInterval);
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, lastRecording: result, encodingProgress: 100, encodingStage: "Done" });
-      // Restart audio monitor now that recording streams are freed
-      if (get().config?.audio_enabled) {
-        await invoke("start_audio_monitor_cmd");
-      }
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
       get().addToast(`Saved! ${dur}s, ${sizeMB}MB`, "success", { label: "Open", onClick: () => get().openPath(result.output_path) });
@@ -370,13 +352,6 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const levels = await invoke<{ mic_rms: number; mic_peak: number; mic_db: number; sys_rms: number; sys_peak: number; sys_db: number }>("get_audio_levels");
       set({ audioLevels: { micRms: levels.mic_rms, micPeak: levels.mic_peak, micDb: levels.mic_db, sysRms: levels.sys_rms, sysPeak: levels.sys_peak, sysDb: levels.sys_db } });
-    } catch {}
-  },
-
-  pollKeyboardEvents: async () => {
-    try {
-      const events = await invoke<KeyEvent[]>("get_keyboard_events");
-      set({ keyboardEvents: events });
     } catch {}
   },
 }));

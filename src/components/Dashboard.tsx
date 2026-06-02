@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
 import { RegionSelector } from "./RegionSelector";
 import { Footer } from "./StatusBar";
-import { KeyboardOverlay } from "./KeyboardOverlay";
 import { useRecordingContextMenu } from "./ContextMenu";
 
 function formatDuration(ms: number): string {
@@ -556,9 +555,6 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
         {/* ═══ RECORDING HISTORY ═══ */}
         <HistoryPanel entries={history} onOpen={openPath} onClear={clearHistory} />
       </div>
-
-      {/* ═══ KEYBOARD OVERLAY ═══ */}
-      <KeyboardOverlay />
 
       {/* ═══ FOOTER ═══ */}
       <Footer isRecording={isRecording} />

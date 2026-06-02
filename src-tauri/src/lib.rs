@@ -4,7 +4,6 @@ mod commands;
 mod config;
 pub mod cursors;
 mod history;
-mod keyboard;
 mod postprocess;
 mod region;
 pub mod sync_verifier;
@@ -23,15 +22,48 @@ pub fn app_handle() -> Option<&'static AppHandle> {
     APP_HANDLE.get()
 }
 
+/// Get the directory next to the exe (release folder)
+fn exe_log_dir() -> std::path::PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let log_dir = exe_dir.join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    log_dir
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+    // ═══ LOG TO BOTH STDERR + FILE ═══
+    // File goes to <exe_dir>/logs/easyspecy.log (next to the release binary)
+    let log_dir = exe_log_dir();
+    let file_appender = tracing_appender::rolling::never(&log_dir, "easyspecy.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    // Keep _guard alive for the entire process — dropping it flushes logs
+    // We leak it intentionally since this is the app's main run function
+    std::mem::forget(_guard);
+
+    use tracing_subscriber::prelude::*;
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let stderr_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_target(false);
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking)
+        .with_target(false)
+        .with_ansi(false); // No color codes in log file
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stderr_layer)
+        .with(file_layer)
         .init();
 
-    tracing::info!("EasySpecy starting...");
+    tracing::info!("EasySpecy starting... (logs → {})", log_dir.display());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -71,9 +103,6 @@ pub fn run() {
             commands::start_audio_monitor_cmd,
             commands::stop_audio_monitor_cmd,
             commands::get_audio_levels,
-            commands::start_keyboard_capture_cmd,
-            commands::stop_keyboard_capture_cmd,
-            commands::get_keyboard_events,
         ])
         .setup(|app| {
             // Store AppHandle globally for background thread access (cursor events)
