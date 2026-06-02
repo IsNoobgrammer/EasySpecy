@@ -258,7 +258,10 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
     // Start cursor metadata collection for post-processing
     crate::postprocess::start_collection();
 
-
+    // Start keyboard capture for overlay if enabled
+    if config.keyboard_overlay_enabled {
+        crate::keyboard::start_keyboard_capture();
+    }
     // ═══ WAIT until capture is actually armed (first video frame received) ═══
     // This is the key fix: frontend won't show "recording" until we're ACTUALLY recording.
     // Timeout after 10s to avoid hanging forever if something goes wrong.
@@ -298,6 +301,9 @@ pub fn get_encoding_progress() -> (u32, String) {
 
 #[tauri::command]
 pub async fn stop_recording() -> Result<capture::RecordingResult, String> {
+    // Stop keyboard capture
+    crate::keyboard::stop_keyboard_capture();
+
     // ═══ Restore cursors so user sees normal cursor during encoding ═══
     if let Err(e) = crate::cursors::restore_cursors() {
         tracing::warn!("Cursor restore failed: {}", e);
@@ -539,5 +545,10 @@ pub fn get_webcam_devices() -> Result<Vec<WebcamDeviceInfo>, String> {
         });
     }
     Ok(list)
+}
+
+#[tauri::command]
+pub fn get_keyboard_events() -> Vec<crate::keyboard::KeyEvent> {
+    crate::keyboard::get_keyboard_events()
 }
 

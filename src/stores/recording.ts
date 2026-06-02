@@ -53,6 +53,27 @@ export interface AppConfig {
   minimize_to_tray: boolean;
   copy_path_on_save: boolean;
   recording_mode: "FullScreen" | "Region";
+
+  // Keyboard overlay settings
+  keyboard_overlay_enabled: boolean;
+  keyboard_overlay_font_family: string;
+  keyboard_overlay_font_size: number;
+  keyboard_overlay_opacity: number;
+  keyboard_overlay_x: number;
+  keyboard_overlay_y: number;
+  keyboard_overlay_corner_radius: number;
+  keyboard_overlay_border_width: number;
+  keyboard_overlay_border_color: string;
+  keyboard_overlay_background_color: string;
+  keyboard_overlay_text_color: string;
+  keyboard_overlay_theme: string;
+  keyboard_overlay_key_mappings: string;
+}
+
+export interface KeyEvent {
+  key: string;
+  timestamp_ms: number;
+  duration_ms: number;
 }
 
 export interface RecordingResult {
@@ -141,6 +162,8 @@ interface AppState {
   startAudioMonitor: () => Promise<void>;
   stopAudioMonitor: () => Promise<void>;
   pollAudioLevels: () => Promise<void>;
+  keyboardEvents: KeyEvent[];
+  pollKeyboardEvents: () => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -160,6 +183,14 @@ export const useStore = create<AppState>((set, get) => ({
   encodingStage: "",
   estimatedMbPerMin: 0,
   audioLevels: { micRms: 0, micPeak: 0, micDb: -60, sysRms: 0, sysPeak: 0, sysDb: -60 },
+  keyboardEvents: [],
+
+  pollKeyboardEvents: async () => {
+    try {
+      const keyboardEvents = await invoke<KeyEvent[]>("get_keyboard_events");
+      set({ keyboardEvents });
+    } catch {}
+  },
 
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
@@ -233,7 +264,7 @@ export const useStore = create<AppState>((set, get) => ({
       get().addToast("Initializing capture...", "info");
       await invoke("start_recording", { outputPath: null });
       // Only now is capture truly active
-      set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       get().addToast(`Recording region: ${region.width}×${region.height}`, "success");
     } catch (e) {
       await invoke("exit_region_mode").catch(() => {});
@@ -262,7 +293,7 @@ export const useStore = create<AppState>((set, get) => ({
       // and audio is armed — guaranteeing perfect sync
       await invoke("start_recording", { outputPath: null });
       // Only NOW do we start the timer — capture is truly active
-      set({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       get().addToast("Recording started", "success");
     } catch (e) { get().addToast(`Start failed: ${e}`, "error"); }
   },

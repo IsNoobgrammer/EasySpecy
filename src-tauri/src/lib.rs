@@ -4,6 +4,7 @@ mod commands;
 mod config;
 pub mod cursors;
 mod history;
+mod keyboard;
 mod postprocess;
 mod region;
 pub mod sync_verifier;
@@ -104,6 +105,7 @@ pub fn run() {
             commands::stop_audio_monitor_cmd,
             commands::get_audio_levels,
             commands::get_webcam_devices,
+            commands::get_keyboard_events,
         ])
         .setup(|app| {
             // Store AppHandle globally for background thread access (cursor events)
