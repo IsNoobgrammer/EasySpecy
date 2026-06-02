@@ -492,7 +492,9 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
 
     // Step 2: Webcam overlay compositing (before audio merge)
     set_encoding_progress(25, "Webcam overlay...");
-    let webcam_dir = crate::webcam::stop_webcam_capture();
+    let (webcam_dir, webcam_elapsed) = crate::webcam::stop_webcam_capture();
+    // Use webcam's own elapsed time for FPS calculation (more accurate than video duration)
+    let webcam_duration = if webcam_elapsed > 0.1 { webcam_elapsed } else { duration };
     let processed_video = if let Some(ref wdir) = webcam_dir {
         let config_loaded = crate::config::AppConfig::load();
         let shape = match config_loaded.webcam_shape {
@@ -508,7 +510,7 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         );
         match mask_path {
             Ok(mask) => {
-                match crate::webcam::composite_webcam_on_video(&processed_video, wdir, &mask.to_string_lossy(), &config_loaded) {
+                match crate::webcam::composite_webcam_on_video(&processed_video, wdir, &mask.to_string_lossy(), &config_loaded, webcam_duration) {
                     Ok(webcam_video) => {
                         let _ = std::fs::remove_file(&processed_video);
                         crate::webcam::cleanup_webcam();

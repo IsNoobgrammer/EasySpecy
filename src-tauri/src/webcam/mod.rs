@@ -1,11 +1,13 @@
 //! Webcam capture + compositing for PiP overlay
 //!
-//! Architecture (sync-manager pattern):
+//! Architecture (sync-manager pattern + producer-consumer):
 //! 1. start_webcam_capture() spawns thread that opens camera IMMEDIATELY
 //! 2. Thread verifies camera works (test frame), signals WEBCAM_READY
 //! 3. Thread waits for CAPTURE_ARMED (sync point with video + audio)
-//! 4. When armed, captures frames at ~30fps as PNGs in temp dir
-//! 5. On stop, composites webcam onto video using FFmpeg overlay with shape mask
+//! 4. When armed, captures frames as fast as camera delivers (native FPS)
+//! 5. PNG encoding/saving offloaded to a writer thread (producer-consumer)
+//! 6. On stop, computes actual FPS from frame_count / elapsed_time
+//! 7. Composites webcam onto video using FFmpeg with the computed FPS
 //!
 //! Sync flow: camera opens → WEBCAM_READY → wait for CAPTURE_ARMED → capture frames
 //! If camera fails to open, WEBCAM_ERROR is set and reported to user.
@@ -28,6 +30,8 @@ static WEBCAM_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 static WEBCAM_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 static WEBCAM_DIR: Mutex<Option<String>> = Mutex::new(None);
+/// Instant when webcam was armed (set in arm_webcam)
+static WEBCAM_ARMED_TIME: Mutex<Option<Instant>> = Mutex::new(None);
 
 // ═══ PUBLIC API ═══
 
@@ -58,6 +62,7 @@ pub fn start_webcam_capture(config: &AppConfig) -> Result<(), String> {
     WEBCAM_ACTIVE.store(true, Ordering::SeqCst);
     WEBCAM_READY.store(false, Ordering::SeqCst);
     *WEBCAM_ERROR.lock().unwrap() = None;
+    *WEBCAM_ARMED_TIME.lock().unwrap() = None;
 
     let device_str = config.webcam_device.clone();
     let target_size = config.webcam_size;
@@ -101,6 +106,7 @@ pub fn arm_webcam() {
     if !WEBCAM_ACTIVE.load(Ordering::SeqCst) {
         return;
     }
+    *WEBCAM_ARMED_TIME.lock().unwrap() = Some(Instant::now());
     WEBCAM_ARMED.store(true, Ordering::SeqCst);
     tracing::info!("Webcam ARMED — synced with video frame 0");
 }
@@ -111,11 +117,19 @@ pub fn get_webcam_error() -> Option<String> {
 }
 
 /// Stop webcam capture and wait for thread to finish.
-/// Returns the directory containing webcam frames.
-pub fn stop_webcam_capture() -> Option<String> {
+/// Returns (Option<webcam_dir>, elapsed_seconds_since_armed).
+/// The elapsed time is used to compute actual webcam FPS for compositing.
+pub fn stop_webcam_capture() -> (Option<String>, f64) {
     if !WEBCAM_ACTIVE.load(Ordering::SeqCst) {
-        return None;
+        return (None, 0.0);
     }
+
+    // Compute elapsed time BEFORE signaling stop (so we don't include post-stop work)
+    let elapsed = WEBCAM_ARMED_TIME
+        .lock()
+        .unwrap()
+        .map(|t| t.elapsed().as_secs_f64())
+        .unwrap_or(0.0);
 
     WEBCAM_STOP.store(true, Ordering::SeqCst);
 
@@ -126,15 +140,19 @@ pub fn stop_webcam_capture() -> Option<String> {
     }
 
     let frame_count = WEBCAM_FRAME_COUNT.load(Ordering::Relaxed);
-    tracing::info!("Webcam capture stopped: {} frames", frame_count);
+    let actual_fps = if elapsed > 0.1 { frame_count as f64 / elapsed } else { 30.0 };
+    tracing::info!(
+        "Webcam capture stopped: {} frames in {:.2}s = {:.1} fps",
+        frame_count, elapsed, actual_fps
+    );
 
     WEBCAM_ACTIVE.store(false, Ordering::SeqCst);
 
     if frame_count == 0 {
-        return None;
+        return (None, elapsed);
     }
 
-    WEBCAM_DIR.lock().unwrap().clone()
+    (WEBCAM_DIR.lock().unwrap().clone(), elapsed)
 }
 
 /// Generate shape mask PNG for FFmpeg compositing.
@@ -214,11 +232,14 @@ pub fn generate_shape_mask(
 }
 
 /// Composite webcam onto video using FFmpeg.
+/// `duration_secs` is the wall-clock recording duration (from armed to stop),
+/// used to compute the actual webcam FPS so playback matches real-time.
 pub fn composite_webcam_on_video(
     video_path: &str,
     webcam_dir: &str,
     mask_path: &str,
     config: &AppConfig,
+    duration_secs: f64,
 ) -> Result<String, String> {
     let output_path = std::env::temp_dir()
         .join("easyspecy")
@@ -233,13 +254,25 @@ pub fn composite_webcam_on_video(
 
     let webcam_pattern = format!("{}/webcam_%06d.png", webcam_dir);
 
+    // ═══ Compute actual webcam FPS from frame count / elapsed time ═══
+    let frame_count = WEBCAM_FRAME_COUNT.load(Ordering::Relaxed);
+    let webcam_fps = if duration_secs > 0.1 {
+        frame_count as f64 / duration_secs
+    } else {
+        30.0
+    };
+    tracing::info!(
+        "Webcam composite: {} frames / {:.2}s = {:.2} fps (video fps)",
+        frame_count, duration_secs, webcam_fps
+    );
+
     let filter = if opacity < 1.0 {
         format!(
             "[1:v]scale={s}:{s},format=rgba[cam];\
              [2:v]scale={s}:{s},format=rgba[mask];\
              [cam][mask]alphamerge[masked];\
              [masked]colorchannelmixer=aa={op}[faded];\
-             [0:v][faded]overlay={x}:{y}:shortest=1[out]",
+             [0:v][faded]overlay={x}:{y}[out]",
             s = size, op = opacity, x = x, y = y
         )
     } else {
@@ -247,16 +280,18 @@ pub fn composite_webcam_on_video(
             "[1:v]scale={s}:{s},format=rgba[cam];\
              [2:v]scale={s}:{s},format=rgba[mask];\
              [cam][mask]alphamerge[masked];\
-             [0:v][masked]overlay={x}:{y}:shortest=1[out]",
+             [0:v][masked]overlay={x}:{y}[out]",
             s = size, x = x, y = y
         )
     };
 
     let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found")?;
 
+    let fps_str = format!("{:.2}", webcam_fps);
+
     let args: Vec<String> = vec![
         "-y".into(), "-i".into(), video_path.into(),
-        "-framerate".into(), "30".into(),
+        "-framerate".into(), fps_str,
         "-i".into(), webcam_pattern,
         "-i".into(), mask_path.into(),
         "-filter_complex".into(), filter,
@@ -271,19 +306,26 @@ pub fn composite_webcam_on_video(
     ];
 
     tracing::info!(
-        "Compositing webcam overlay: {} frames at ({}, {})",
-        WEBCAM_FRAME_COUNT.load(Ordering::Relaxed), x, y
+        "Compositing webcam overlay: {} frames at ({}, {}), fps={:.2}",
+        frame_count, x, y, webcam_fps
     );
 
-    let output = std::process::Command::new(&ffmpeg)
-        .args(&args)
-        .output()
+    let mut cmd = std::process::Command::new(&ffmpeg);
+    cmd.args(&args);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let output = cmd.output()
         .map_err(|e| format!("FFmpeg webcam composite failed: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         tracing::warn!("Masked overlay failed, trying simple overlay: {}", stderr);
-        return composite_simple_overlay(video_path, webcam_dir, config);
+        return composite_simple_overlay(video_path, webcam_dir, config, duration_secs);
     }
 
     tracing::info!("Webcam overlay composited successfully");
@@ -295,6 +337,7 @@ fn composite_simple_overlay(
     video_path: &str,
     webcam_dir: &str,
     config: &AppConfig,
+    duration_secs: f64,
 ) -> Result<String, String> {
     let output_path = std::env::temp_dir()
         .join("easyspecy")
@@ -311,13 +354,22 @@ fn composite_simple_overlay(
 
     let filter = format!(
         "[1:v]scale={s}:{s},format=rgba[cam];\
-         [0:v][cam]overlay={x}:{y}:shortest=1[out]",
+         [0:v][cam]overlay={x}:{y}[out]",
         s = size, x = x, y = y
     );
 
+    // Compute actual FPS
+    let frame_count = WEBCAM_FRAME_COUNT.load(Ordering::Relaxed);
+    let webcam_fps = if duration_secs > 0.1 {
+        frame_count as f64 / duration_secs
+    } else {
+        30.0
+    };
+    let fps_str = format!("{:.2}", webcam_fps);
+
     let args: Vec<String> = vec![
         "-y".into(), "-i".into(), video_path.into(),
-        "-framerate".into(), "30".into(),
+        "-framerate".into(), fps_str,
         "-i".into(), webcam_pattern,
         "-filter_complex".into(), filter,
         "-map".into(), "[out]".into(),
@@ -330,9 +382,16 @@ fn composite_simple_overlay(
         output_path.clone(),
     ];
 
-    let output = std::process::Command::new(&ffmpeg)
-        .args(&args)
-        .output()
+    let mut cmd = std::process::Command::new(&ffmpeg);
+    cmd.args(&args);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let output = cmd.output()
         .map_err(|e| format!("FFmpeg simple overlay failed: {}", e))?;
 
     if !output.status.success() {
@@ -354,6 +413,8 @@ pub fn cleanup_webcam() {
 
 // ═══ INTERNAL: CAPTURE LOOP ═══
 // Opens camera IMMEDIATELY, signals READY, then waits for ARMED.
+// Uses producer-consumer: capture thread grabs frames as fast as possible,
+// writer thread handles PNG encoding + disk I/O in the background.
 
 fn webcam_capture_loop(
     output_dir: &str,
@@ -429,9 +490,25 @@ fn webcam_capture_loop(
 
     tracing::info!("Webcam CAPTURE_ARMED — recording frames");
 
-    // ═══ PHASE 4: Capture frames ═══
-    let frame_interval = Duration::from_millis(33); // ~30fps
-    let mut last_frame_time = Instant::now();
+    // ═══ PHASE 4: Producer-consumer capture ═══
+    // Capture thread grabs frames as fast as the camera delivers.
+    // Writer thread handles PNG encoding + disk I/O asynchronously.
+
+    let (tx, rx) = std::sync::mpsc::sync_channel::<(image::RgbImage, u32)>(6);
+    let writer_dir = output_dir.to_string();
+
+    // Spawn writer thread
+    let writer_handle = std::thread::Builder::new()
+        .name("webcam-writer".into())
+        .spawn(move || {
+            while let Ok((img, idx)) = rx.recv() {
+                let frame_path = format!("{}/webcam_{:06}.png", writer_dir, idx);
+                let _ = img.save(&frame_path);
+            }
+        })
+        .map_err(|e| format!("Failed to spawn webcam writer: {}", e))?;
+
+    // Capture loop — grab frames as fast as camera delivers
     let mut frame_idx: u32 = 0;
 
     loop {
@@ -439,24 +516,9 @@ fn webcam_capture_loop(
             break;
         }
 
-        let now = Instant::now();
-        if now.duration_since(last_frame_time) < frame_interval {
-            std::thread::sleep(Duration::from_millis(1));
-            continue;
-        }
-        last_frame_time = now;
-
         match camera.frame() {
             Ok(frame) => {
-                let frame_path = format!("{}/webcam_{:06}.png", output_dir, frame_idx);
-
-                // ═══ DECODE the frame to RGB ═══
-                // nokhwa's frame.buffer() returns RAW bytes in the camera's NATIVE
-                // FourCC (YUYV / NV12 / MJPEG / etc.) — NOT decoded RGB. The previous
-                // code compared raw.len() against w*h*3 (RGB) which almost never
-                // matched for real cameras, so EVERY frame was skipped and the final
-                // video had no webcam. decode_image() converts whatever the camera
-                // delivers into a proper RGB image buffer.
+                // Decode the frame to RGB
                 let decoded = match frame.decode_image::<RgbFormat>() {
                     Ok(img) => img,
                     Err(e) => {
@@ -468,17 +530,28 @@ fn webcam_capture_loop(
                     }
                 };
 
-                // Resize (square) to the configured overlay size and save as PNG.
+                // Resize (square) to the configured overlay size
                 let resized = image::imageops::resize(
                     &decoded, target_size, target_size, image::imageops::FilterType::Triangle,
                 );
-                if resized.save(&frame_path).is_ok() {
-                    frame_idx += 1;
-                    WEBCAM_FRAME_COUNT.store(frame_idx, Ordering::Relaxed);
+
+                // Send to writer thread (non-blocking if buffer has space)
+                match tx.try_send((resized, frame_idx)) {
+                    Ok(()) => {
+                        frame_idx += 1;
+                        WEBCAM_FRAME_COUNT.store(frame_idx, Ordering::Relaxed);
+                    }
+                    Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                        // Writer is busy — drop this frame to keep capture running
+                        // This prevents capture from stalling on disk I/O
+                    }
+                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                        break;
+                    }
                 }
             }
             Err(_) => {
-                std::thread::sleep(Duration::from_millis(10));
+                std::thread::sleep(Duration::from_millis(5));
             }
         }
 
@@ -486,6 +559,10 @@ fn webcam_capture_loop(
             tracing::info!("Webcam: {} frames captured", frame_idx);
         }
     }
+
+    // Signal writer thread to finish
+    drop(tx);
+    let _ = writer_handle.join();
 
     camera.stop_stream().ok();
     tracing::info!("Webcam capture loop ended ({} frames)", frame_idx);
