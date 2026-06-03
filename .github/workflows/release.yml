@@ -1,0 +1,168 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # FFmpeg download URL (gyan.dev — stable, free, no auth)
+  FFMPEG_URL: "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+  FFMPEG_ARCHIVE: "ffmpeg-release-essentials.zip"
+  # The zip extracts to a folder like "ffmpeg-7.1-essentials_build"
+  # We use a glob to find ffmpeg.exe inside it
+  FFMPEG_EXE_GLOB: "ffmpeg-*/bin/ffmpeg.exe"
+
+jobs:
+  build-windows:
+    name: Build Windows (NSIS Installer + Portable ZIP)
+    runs-on: windows-latest
+    steps:
+      # ── Checkout ──────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Toolchains ────────────────────────────────────────────
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ── Download FFmpeg (external, NOT from GitHub) ───────────
+      - name: Cache FFmpeg
+        id: cache-ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/resources/ffmpeg.exe
+          key: ffmpeg-essentials-win64-v1
+
+      - name: Download FFmpeg
+        if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "Downloading FFmpeg from gyan.dev..."
+          Invoke-WebRequest -Uri "${{ env.FFMPEG_URL }}" -OutFile "${{ env.FFMPEG_ARCHIVE }}" -UseBasicParsing
+          Write-Host "Extracting..."
+          Expand-Archive -Path "${{ env.FFMPEG_ARCHIVE }}" -DestinationPath "ffmpeg-extracted" -Force
+          $ffmpegExe = Get-ChildItem -Path "ffmpeg-extracted" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if (-not $ffmpegExe) { throw "ffmpeg.exe not found in archive" }
+          Write-Host "Found ffmpeg.exe at: $($ffmpegExe.FullName)"
+          New-Item -ItemType Directory -Force -Path "src-tauri/resources" | Out-Null
+          Copy-Item -Path $ffmpegExe.FullName -Destination "src-tauri/resources/ffmpeg.exe"
+          Write-Host "FFmpeg placed at src-tauri/resources/ffmpeg.exe"
+          Remove-Item -Recurse -Force "ffmpeg-extracted", "${{ env.FFMPEG_ARCHIVE }}"
+
+      - name: Verify FFmpeg
+        shell: pwsh
+        run: |
+          $f = "src-tauri/resources/ffmpeg.exe"
+          if (-not (Test-Path $f)) { throw "ffmpeg.exe missing from resources!" }
+          $size = (Get-Item $f).Length / 1MB
+          Write-Host "ffmpeg.exe present — $([math]::Round($size, 1)) MB"
+
+      # ── Build Tauri app ───────────────────────────────────────
+      - name: Build Tauri (NSIS installer)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "EasySpecy ${{ github.ref_name }}"
+          releaseBody: "See release assets for downloads."
+          releaseDraft: true
+          prerelease: false
+          args: "--bundles nsis"
+
+      # ── Collect NSIS installer ────────────────────────────────
+      - name: Collect NSIS installer
+        id: collect-nsis
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Filter "*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "NSIS installer not found!" }
+          Write-Host "NSIS installer: $($installer.FullName) — $([math]::Round($installer.Length / 1MB, 1)) MB"
+          echo "installer_path=$($installer.FullName)" >> $env:GITHUB_OUTPUT
+          echo "installer_name=$($installer.Name)" >> $env:GITHUB_OUTPUT
+
+      # ── Build Portable ZIP ────────────────────────────────────
+      - name: Prepare portable directory
+        shell: pwsh
+        run: |
+          $portableDir = "portable/EasySpecy"
+          $resourcesDir = "$portableDir/resources"
+          New-Item -ItemType Directory -Force -Path $resourcesDir | Out-Null
+
+          # Copy the built binary
+          $exe = "src-tauri/target/release/easyspecy.exe"
+          if (-not (Test-Path $exe)) { throw "easyspecy.exe not found at $exe" }
+          Copy-Item $exe "$portableDir/EasySpecy.exe"
+
+          # Copy FFmpeg into resources/ (consistent with NSIS installer structure)
+          Copy-Item "src-tauri/resources/ffmpeg.exe" "$resourcesDir/ffmpeg.exe"
+
+          # Copy any additional resources the app needs (cursors, etc.)
+          if (Test-Path "src-tauri/resources/cursors") {
+            Copy-Item -Recurse "src-tauri/resources/cursors" "$resourcesDir/cursors"
+          }
+
+          Write-Host "Portable directory contents:"
+          Get-ChildItem -Recurse $portableDir | ForEach-Object { Write-Host "  $_" }
+
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "portable/EasySpecy" -DestinationPath "EasySpecy-Portable.zip" -Force
+          $zip = Get-Item "EasySpecy-Portable.zip"
+          Write-Host "Portable ZIP: $([math]::Round($zip.Length / 1MB, 1)) MB"
+
+      # ── Upload Release Assets ─────────────────────────────────
+      - name: Upload NSIS installer to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.collect-nsis.outputs.installer_path }}
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Portable ZIP to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: EasySpecy-Portable.zip
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Summary ───────────────────────────────────────────────
+      - name: Build summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "═══════════════════════════════════════"
+          Write-Host "  EasySpecy Release Build Complete"
+          Write-Host "═══════════════════════════════════════"
+          Write-Host "  Tag: ${{ github.ref_name }}"
+          $nsis = "src-tauri/target/release/bundle/nsis"
+          if (Test-Path $nsis) {
+            Get-ChildItem $nsis -Filter "*.exe" | ForEach-Object {
+              Write-Host "  NSIS:     $($_.Name) — $([math]::Round($_.Length / 1MB, 1)) MB"
+            }
+          }
+          if (Test-Path "EasySpecy-Portable.zip") {
+            $z = Get-Item "EasySpecy-Portable.zip"
+            Write-Host "  Portable: EasySpecy-Portable.zip — $([math]::Round($z.Length / 1MB, 1)) MB"
+          }
+          Write-Host "═══════════════════════════════════════"

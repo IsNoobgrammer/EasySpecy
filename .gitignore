@@ -41,3 +41,8 @@ research/
 .qoder/
 AGENTS.md
 
+# VitePress cache and build outputs
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+
