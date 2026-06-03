@@ -90,6 +90,9 @@ pub struct AppConfig {
     pub keyboard_overlay_max_bubbles: u32,
     pub keyboard_overlay_bubble_timeout_ms: u32,
     pub keyboard_overlay_width: u32,
+
+    // GPU settings
+    pub gpu_encoders_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -167,19 +170,19 @@ impl Default for AppConfig {
             resolution_width: 1920,
             resolution_height: 1080,
             fps: 30,
-            video_encoder: VideoEncoder::AV1,
+            video_encoder: VideoEncoder::H265,
             video_bitrate_kbps: 4000,
             video_quality: VideoQuality::Medium,
 
             audio_enabled: true,
-            audio_source: AudioSource::Mic,
+            audio_source: AudioSource::Both,
             audio_sample_rate: 44100,
             audio_device: "default".to_string(),
 
-            mic_gain: 1.0,
-            system_volume: 0.55,
-            noise_gate_threshold: 0.5,
-            noise_reduction: 0.6,
+            mic_gain: 1.2,
+            system_volume: 0.40,
+            noise_gate_threshold: 0.08,
+            noise_reduction: 0.10,
             noise_reduction_mode: NoiseReductionMode::RNN,
 
             webcam_enabled: false,
@@ -220,11 +223,11 @@ impl Default for AppConfig {
             copy_path_on_save: true,
             recording_mode: RecordingMode::FullScreen,
 
-            keyboard_overlay_enabled: false,
+            keyboard_overlay_enabled: true,
             keyboard_game_capture: false,
             keyboard_overlay_font_family: "JetBrains Mono".to_string(),
-            keyboard_overlay_font_size: 14,
-            keyboard_overlay_opacity: 0.9,
+            keyboard_overlay_font_size: 15,
+            keyboard_overlay_opacity: 0.98,
             keyboard_overlay_x: 480,
             keyboard_overlay_y: 800,
             keyboard_overlay_corner_radius: 8,
@@ -234,9 +237,11 @@ impl Default for AppConfig {
             keyboard_overlay_text_color: "#e5e5e0".to_string(),
             keyboard_overlay_theme: "speccy-classic".to_string(),
             keyboard_overlay_key_mappings: r#"{"Ctrl":"⌃","Shift":"⇧","Alt":"⌥","Win":"⊞","Enter":"↵","Backspace":"⌫","Space":"␣","Esc":"⎋"}"#.to_string(),
-            keyboard_overlay_max_bubbles: 4,
-            keyboard_overlay_bubble_timeout_ms: 3000,
-            keyboard_overlay_width: 360,
+            keyboard_overlay_max_bubbles: 5,
+            keyboard_overlay_bubble_timeout_ms: 5000,
+            keyboard_overlay_width: 318,
+
+            gpu_encoders_enabled: false,
         }
     }
 }
@@ -253,7 +258,7 @@ impl AppConfig {
     /// Load config from disk, or return defaults if file doesn't exist
     pub fn load() -> Self {
         let path = Self::config_path();
-        if path.exists() {
+        let mut config = if path.exists() {
             match std::fs::read_to_string(&path) {
                 Ok(content) => toml::from_str(&content).unwrap_or_default(),
                 Err(_) => Self::default(),
@@ -262,18 +267,52 @@ impl AppConfig {
             let config = Self::default();
             let _ = config.save(); // write defaults on first run
             config
+        };
+
+        // Enforce GPU encoder fallback if disabled
+        if !config.gpu_encoders_enabled {
+            match config.video_encoder {
+                VideoEncoder::AV1_NVENC => config.video_encoder = VideoEncoder::AV1,
+                VideoEncoder::H264_NVENC => config.video_encoder = VideoEncoder::H264,
+                VideoEncoder::H265_NVENC => config.video_encoder = VideoEncoder::H265,
+                _ => {}
+            }
         }
+        config
     }
 
     /// Save config to disk
     pub fn save(&self) -> anyhow::Result<()> {
+        let mut to_save = self.clone();
+        if !to_save.gpu_encoders_enabled {
+            match to_save.video_encoder {
+                VideoEncoder::AV1_NVENC => to_save.video_encoder = VideoEncoder::AV1,
+                VideoEncoder::H264_NVENC => to_save.video_encoder = VideoEncoder::H264,
+                VideoEncoder::H265_NVENC => to_save.video_encoder = VideoEncoder::H265,
+                _ => {}
+            }
+        }
         let path = Self::config_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let content = toml::to_string_pretty(self)?;
+        let content = toml::to_string_pretty(&to_save)?;
         std::fs::write(&path, content)?;
         Ok(())
+    }
+
+    /// Get effective video encoder with GPU fallback handled
+    pub fn effective_video_encoder(&self) -> VideoEncoder {
+        if !self.gpu_encoders_enabled {
+            match self.video_encoder {
+                VideoEncoder::AV1_NVENC => VideoEncoder::AV1,
+                VideoEncoder::H264_NVENC => VideoEncoder::H264,
+                VideoEncoder::H265_NVENC => VideoEncoder::H265,
+                ref other => other.clone(),
+            }
+        } else {
+            self.video_encoder.clone()
+        }
     }
 
     /// Get the effective bitrate in kbps based on quality preset
@@ -282,7 +321,7 @@ impl AppConfig {
             VideoQuality::Custom => self.video_bitrate_kbps,
             _ => {
                 // Base bitrate for 1080p30 — varies by encoder efficiency
-                let base = match (&self.video_encoder, &self.video_quality) {
+                let base = match (&self.effective_video_encoder(), &self.video_quality) {
                     // AV1 is ~60-70% more efficient than H264 for screen content
                     (VideoEncoder::AV1, VideoQuality::Insane) => 140,      // ~1 MB/min
                     (VideoEncoder::AV1, VideoQuality::Low) => 400,         // ~3 MB/min
@@ -334,7 +373,7 @@ impl AppConfig {
 
     /// Get FFmpeg encoder name
     pub fn ffmpeg_encoder(&self) -> &str {
-        match self.video_encoder {
+        match self.effective_video_encoder() {
             VideoEncoder::H264 => "libx264",
             VideoEncoder::H265 => "libx265",
             VideoEncoder::AV1 => "libsvtav1",
@@ -347,7 +386,7 @@ impl AppConfig {
 
     /// Get FFmpeg CRF value for quality preset
     pub fn ffmpeg_crf(&self) -> u32 {
-        match (&self.video_encoder, &self.video_quality) {
+        match (&self.effective_video_encoder(), &self.video_quality) {
             // SVT-AV1: CRF 0-63, lower = better. Screen content sweet spot: 20-35
             (VideoEncoder::AV1, VideoQuality::Insane) => 42,
             (VideoEncoder::AV1, VideoQuality::Low) => 38,
@@ -395,7 +434,7 @@ impl AppConfig {
 
     /// Get additional FFmpeg args specific to the encoder
     pub fn ffmpeg_extra_args(&self) -> Vec<String> {
-        match &self.video_encoder {
+        match &self.effective_video_encoder() {
             VideoEncoder::AV1 => {
                 // SVT-AV1 specific: preset 6 is good speed/quality balance for screen content
                 // tune=0 is default (PSNR), film-grain=0 for screen content

@@ -679,7 +679,7 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         // Apply trail + click effects to the video
         let effects_output = output_path.replace(".mp4", "_fx.mp4");
         tracing::info!("══ calling apply_effects({}) ══", output_path);
-        match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
+        let res_path = match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
             Ok(ref effects_path) if effects_path != &output_path => {
                 tracing::info!("══ apply_effects SUCCESS: {} → {} ══", effects_path, output_path);
                 // Effects were applied — swap files
@@ -696,7 +696,19 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
                 tracing::error!("══ apply_effects ERROR: {} ══", e);
                 output_path.clone()
             }
+        };
+
+        // Clean up temporary metadata JSON file
+        let meta_path = output_path.replace(".mp4", ".meta.json");
+        if std::path::Path::new(&meta_path).exists() {
+            if let Err(e) = std::fs::remove_file(&meta_path) {
+                tracing::warn!("Failed to delete metadata JSON file: {}", e);
+            } else {
+                tracing::info!("Deleted temporary metadata JSON file: {}", meta_path);
+            }
         }
+
+        res_path
     } else {
         tracing::info!("══ finalize() returned None — no metadata! ══");
         output_path.clone()
