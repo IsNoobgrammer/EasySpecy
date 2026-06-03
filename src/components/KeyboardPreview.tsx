@@ -473,30 +473,31 @@ export function KeyboardPreview({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[9999] flex"
-      style={{ background: "#0d0f1a", color: "#e1e1f2" }}
+      style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}
     >
       {/* ═══ LEFT SIDEBAR — Controls ═══ */}
       <div
         className="w-80 flex-shrink-0 overflow-y-auto flex flex-col scrollbar-thin"
         style={{
-          background: "#151828",
-          borderRight: "1px solid #2d314d",
+          background: "var(--surface-container-low)",
+          borderRight: "1px solid var(--border-default)",
         }}
       >
         {/* Header */}
-        <div className="px-5 py-4 flex items-center justify-between border-b border-[#2d314d]">
+        <div className="px-5 py-4 flex items-center justify-between border-b" style={{ borderColor: "var(--border-default)" }}>
           <div>
-            <div className="font-mono text-xs font-bold uppercase tracking-wider text-[#e1e1f2]">
+            <div className="font-mono text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-primary)" }}>
               KEYBOARD OVERLAY CONFIG
             </div>
-            <div className="font-mono mt-0.5 text-[#bacbbc]" style={{ fontSize: "0.6rem" }}>
+            <div className="font-mono mt-0.5" style={{ fontSize: "0.6rem", color: "var(--text-secondary)" }}>
               Configure overlay geometry, glass presets & glyphs
             </div>
           </div>
           <motion.button
             onClick={onCancel}
-            className="p-1 cursor-pointer text-[#bacbbc]"
-            whileHover={{ color: "#e1e1f2", scale: 1.1 }}
+            className="p-1 cursor-pointer"
+            style={{ color: "var(--text-secondary)" }}
+            whileHover={{ color: "var(--text-primary)", scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
             <Icon name="close" size={18} />
@@ -507,19 +508,20 @@ export function KeyboardPreview({
           {/* ── Enable/Disable Toggle ── */}
           <Section label="KEYBOARD OVERLAY STATUS">
             <div className="flex items-center justify-between py-1">
-              <span className="font-mono text-xs text-[#bacbbc]">Enable Overlay</span>
+              <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>Enable Overlay</span>
               <button
                 onClick={() => update("enabled", !overlay.enabled)}
                 className="w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors duration-200"
                 style={{
-                  backgroundColor: overlay.enabled ? "#00e88a" : "#2d314d",
+                  backgroundColor: overlay.enabled ? "var(--accent-primary)" : "var(--border-default)",
                 }}
               >
                 <motion.div
-                  className="w-4 h-4 bg-[#0d0f1a] rounded-full shadow-md"
+                  className="w-4 h-4 rounded-full shadow-md"
                   layout
                   transition={{ type: "spring", stiffness: 500, damping: 30 }}
                   style={{
+                    background: "var(--bg-base)",
                     marginLeft: overlay.enabled ? "1.5rem" : "0rem",
                   }}
                 />
@@ -537,10 +539,15 @@ export function KeyboardPreview({
                 onChange={(e) => setSandboxText(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type keys here to test overlay..."
-                className="px-3 py-2 font-mono text-xs w-full outline-none border border-[#2d314d] bg-[#090b14] text-[#e1e1f2] rounded focus:border-[#00e88a]"
+                className="px-3 py-2 font-mono text-xs w-full outline-none border rounded focus:border-[var(--accent-primary)]"
+                style={{
+                  borderColor: "var(--border-default)",
+                  background: "var(--bg-base)",
+                  color: "var(--text-primary)"
+                }}
                 disabled={!overlay.enabled}
               />
-              <div className="flex justify-between font-mono" style={{ fontSize: "0.55rem", color: "#bacbbc" }}>
+              <div className="flex justify-between font-mono" style={{ fontSize: "0.55rem", color: "var(--text-secondary)" }}>
                 <span>Press Enter to clear sandbox text</span>
                 {bubbles.length > 0 && (
                   <button
@@ -549,7 +556,8 @@ export function KeyboardPreview({
                       setSandboxText("");
                       sandboxRef.current?.focus();
                     }}
-                    className="text-[#00e88a] hover:underline"
+                    className="hover:underline"
+                    style={{ color: "var(--accent-primary)" }}
                   >
                     Clear Preview
                   </button>
@@ -567,14 +575,14 @@ export function KeyboardPreview({
                   onClick={() => update("theme", theme.id)}
                   className="w-full flex items-center justify-between px-3 py-2 rounded border font-mono text-xs text-left cursor-pointer transition-all duration-150"
                   style={{
-                    background: isThemeSelected(theme.id) ? "rgba(0, 232, 138, 0.08)" : "#090b14",
-                    borderColor: isThemeSelected(theme.id) ? "#00e88a" : "#2d314d",
-                    color: isThemeSelected(theme.id) ? "#00e88a" : "#e1e1f2",
+                    background: isThemeSelected(theme.id) ? "var(--bg-surface)" : "var(--bg-base)",
+                    borderColor: isThemeSelected(theme.id) ? "var(--accent-primary)" : "var(--border-default)",
+                    color: isThemeSelected(theme.id) ? "var(--accent-primary)" : "var(--text-primary)",
                   }}
                 >
                   <span>{theme.name}</span>
                   {isThemeSelected(theme.id) && (
-                    <Icon name="check" size={14} style={{ color: "#00e88a" }} />
+                    <Icon name="check" size={14} style={{ color: "var(--accent-primary)" }} />
                   )}
                 </button>
               ))}
@@ -586,7 +594,12 @@ export function KeyboardPreview({
             <select
               value={overlay.fontFamily}
               onChange={(e) => update("fontFamily", e.target.value)}
-              className="px-3 py-1.5 font-mono text-xs cursor-pointer w-full outline-none border border-[#2d314d] bg-[#090b14] text-[#e1e1f2] rounded focus:border-[#00e88a]"
+              className="px-3 py-1.5 font-mono text-xs cursor-pointer w-full outline-none border rounded focus:border-[var(--accent-primary)]"
+              style={{
+                borderColor: "var(--border-default)",
+                background: "var(--bg-base)",
+                color: "var(--text-primary)"
+              }}
             >
               {FONT_FAMILIES.map((f) => (
                 <option key={f.value} value={f.value}>
@@ -605,9 +618,13 @@ export function KeyboardPreview({
                 max={32}
                 value={overlay.fontSize}
                 onChange={(e) => update("fontSize", Number(e.target.value))}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] text-[#bacbbc] w-10 text-right">
+              <span className="font-mono text-[10px] w-10 text-right" style={{ color: "var(--text-secondary)" }}>
                 {overlay.fontSize}px
               </span>
             </div>
@@ -622,9 +639,13 @@ export function KeyboardPreview({
                 max={recordingWidth}
                 value={overlay.width}
                 onChange={(e) => update("width", Number(e.target.value))}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] text-[#bacbbc] w-10 text-right">
+              <span className="font-mono text-[10px] w-10 text-right" style={{ color: "var(--text-secondary)" }}>
                 {overlay.width}px
               </span>
             </div>
@@ -639,9 +660,13 @@ export function KeyboardPreview({
                 max={100}
                 value={Math.round(overlay.opacity * 100)}
                 onChange={(e) => update("opacity", Number(e.target.value) / 100)}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] text-[#bacbbc] w-8 text-right">
+              <span className="font-mono text-[10px] w-8 text-right" style={{ color: "var(--text-secondary)" }}>
                 {Math.round(overlay.opacity * 100)}%
               </span>
             </div>
@@ -656,9 +681,13 @@ export function KeyboardPreview({
                 max={10}
                 value={overlay.maxBubbles}
                 onChange={(e) => update("maxBubbles", Number(e.target.value))}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] text-[#bacbbc] w-8 text-right">
+              <span className="font-mono text-[10px] w-8 text-right" style={{ color: "var(--text-secondary)" }}>
                 {overlay.maxBubbles}
               </span>
             </div>
@@ -673,9 +702,13 @@ export function KeyboardPreview({
                 max={10}
                 value={Math.round(overlay.bubbleTimeoutMs / 1000)}
                 onChange={(e) => update("bubbleTimeoutMs", Number(e.target.value) * 1000)}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] text-[#bacbbc] w-8 text-right">
+              <span className="font-mono text-[10px] w-8 text-right" style={{ color: "var(--text-secondary)" }}>
                 {Math.round(overlay.bubbleTimeoutMs / 1000)}s
               </span>
             </div>
@@ -686,7 +719,7 @@ export function KeyboardPreview({
             <Section label="CUSTOM COLORS">
               <div className="space-y-2 pt-1">
                 <div className="flex justify-between items-center gap-2">
-                  <span className="font-mono text-[10px] text-[#bacbbc]">Text Color</span>
+                  <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>Text Color</span>
                   <input
                     type="color"
                     value={overlay.textColor}
@@ -695,7 +728,7 @@ export function KeyboardPreview({
                   />
                 </div>
                 <div className="flex justify-between items-center gap-2">
-                  <span className="font-mono text-[10px] text-[#bacbbc]">Background</span>
+                  <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>Background</span>
                   <input
                     type="color"
                     value={overlay.backgroundColor.startsWith("rgba") ? "#000000" : overlay.backgroundColor}
@@ -704,7 +737,7 @@ export function KeyboardPreview({
                   />
                 </div>
                 <div className="flex justify-between items-center gap-2">
-                  <span className="font-mono text-[10px] text-[#bacbbc]">Border Color</span>
+                  <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>Border Color</span>
                   <input
                     type="color"
                     value={overlay.borderColor.startsWith("rgba") ? "#ffffff" : overlay.borderColor}
@@ -720,30 +753,38 @@ export function KeyboardPreview({
           <Section label="BORDER & CORNERS">
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <span className="font-mono text-[10px] text-[#bacbbc] w-20">Corners</span>
+                <span className="font-mono text-[10px] w-20" style={{ color: "var(--text-secondary)" }}>Corners</span>
                 <input
                   type="range"
                   min={0}
                   max={24}
                   value={overlay.cornerRadius}
                   onChange={(e) => update("cornerRadius", Number(e.target.value))}
-                  className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                  className="flex-1 h-1.5 cursor-pointer rounded-full"
+                  style={{
+                    accentColor: "var(--accent-primary)",
+                    background: "var(--border-default)"
+                  }}
                 />
-                <span className="font-mono text-[10px] text-[#bacbbc] w-8 text-right">
+                <span className="font-mono text-[10px] w-8 text-right" style={{ color: "var(--text-secondary)" }}>
                   {overlay.cornerRadius}px
                 </span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="font-mono text-[10px] text-[#bacbbc] w-20">Border Width</span>
+                <span className="font-mono text-[10px] w-20" style={{ color: "var(--text-secondary)" }}>Border Width</span>
                 <input
                   type="range"
                   min={0}
                   max={6}
                   value={overlay.borderWidth}
                   onChange={(e) => update("borderWidth", Number(e.target.value))}
-                  className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                  className="flex-1 h-1.5 cursor-pointer rounded-full"
+                  style={{
+                    accentColor: "var(--accent-primary)",
+                    background: "var(--border-default)"
+                  }}
                 />
-                <span className="font-mono text-[10px] text-[#bacbbc] w-8 text-right">
+                <span className="font-mono text-[10px] w-8 text-right" style={{ color: "var(--text-secondary)" }}>
                   {overlay.borderWidth}px
                 </span>
               </div>
@@ -752,16 +793,27 @@ export function KeyboardPreview({
 
           {/* ── Key Glyph Emojis Mappings ── */}
           <Section label="INDIVIDUAL KEY MAPPING">
-            <div className="space-y-2 border border-[#2d314d] rounded bg-[#090b14] p-3 max-h-48 overflow-y-auto scrollbar-thin">
+            <div
+              className="space-y-2 border rounded p-3 max-h-48 overflow-y-auto scrollbar-thin"
+              style={{
+                borderColor: "var(--border-default)",
+                background: "var(--bg-base)"
+              }}
+            >
               {Object.keys(parsedMappings).map((mappingKey) => (
                 <div key={mappingKey} className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] text-[#bacbbc]">{mappingKey}</span>
+                  <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>{mappingKey}</span>
                   <input
                     type="text"
                     value={parsedMappings[mappingKey] || ""}
                     onChange={(e) => handleUpdateMapping(mappingKey, e.target.value)}
                     maxLength={10}
-                    className="px-2 py-0.5 font-mono text-[10px] w-20 outline-none border border-[#2d314d] bg-[#151828] text-center text-[#00e88a] rounded"
+                    className="px-2 py-0.5 font-mono text-[10px] w-20 outline-none border text-center rounded focus:border-[var(--accent-primary)]"
+                    style={{
+                      borderColor: "var(--border-default)",
+                      background: "var(--surface-container-low)",
+                      color: "var(--accent-primary)"
+                    }}
                   />
                 </div>
               ))}
@@ -770,19 +822,28 @@ export function KeyboardPreview({
         </div>
 
         {/* Bottom buttons */}
-        <div className="px-5 py-4 flex gap-3 border-t border-[#2d314d]">
+        <div className="px-5 py-4 flex gap-3 border-t" style={{ borderColor: "var(--border-default)" }}>
           <motion.button
             onClick={onCancel}
-            className="flex-1 py-2 font-mono text-xs uppercase cursor-pointer border border-[#2d314d] rounded text-[#bacbbc]"
-            whileHover={{ borderColor: "#bacbbc", color: "#e1e1f2" }}
+            className="flex-1 py-2 font-mono text-xs uppercase cursor-pointer border rounded"
+            style={{
+              borderColor: "var(--border-default)",
+              color: "var(--text-secondary)",
+              background: "transparent"
+            }}
+            whileHover={{ borderColor: "var(--text-secondary)", color: "var(--text-primary)" }}
             whileTap={{ scale: 0.97 }}
           >
             Cancel
           </motion.button>
           <motion.button
             onClick={() => onSave(overlay)}
-            className="flex-1 py-2 font-mono text-xs uppercase font-extrabold cursor-pointer rounded text-[#00391e]"
-            style={{ background: "#00e88a" }}
+            className="flex-1 py-2 font-mono text-xs uppercase font-extrabold cursor-pointer rounded border"
+            style={{
+              background: "var(--accent-primary)",
+              borderColor: "var(--accent-primary-hover)",
+              color: "var(--on-primary)"
+            }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
           >
@@ -792,17 +853,19 @@ export function KeyboardPreview({
       </div>
 
       {/* ═══ MAIN AREA — Preview Canvas ═══ */}
-      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden bg-[#0d0f1a] relative">
+      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative" style={{ background: "var(--bg-base)" }}>
         <div className="absolute inset-0 pointer-events-none opacity-5 bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:24px_24px]"></div>
 
         {/* Recording Monitor Aspect-Video simulation */}
         <div
-          className="relative shadow-2xl border border-[#2d314d]/50 bg-[#090b14]"
+          className="relative shadow-2xl border"
           style={{
             width: previewW,
             height: previewH,
             borderRadius: "8px",
             overflow: "hidden",
+            borderColor: "var(--border-default)",
+            background: "var(--surface-container-low)"
           }}
         >
           {/* Mock dashboard silhouette */}
@@ -815,7 +878,7 @@ export function KeyboardPreview({
           </div>
 
           {/* Reference guidelines */}
-          <div className="absolute inset-0 pointer-events-none opacity-5 border border-dashed border-[#bacbbc]"></div>
+          <div className="absolute inset-0 pointer-events-none opacity-5 border border-dashed" style={{ borderColor: "var(--border-default)" }}></div>
 
           {/* ═══ RND DRAGGABLE KEYBOARD OVERLAY ═══ */}
           {overlay.enabled && (
@@ -886,7 +949,7 @@ export function KeyboardPreview({
         </div>
 
         {/* Caption */}
-        <div className="mt-4 font-mono text-center text-[#bacbbc]" style={{ fontSize: "0.65rem", letterSpacing: "0.05em" }}>
+        <div className="mt-4 font-mono text-center" style={{ fontSize: "0.65rem", letterSpacing: "0.05em", color: "var(--text-secondary)" }}>
           DRAG OVERLAY TO POSITION · CLICK SIDEBAR TEXT FIELD TO TYPE
         </div>
       </div>
@@ -897,7 +960,7 @@ export function KeyboardPreview({
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <div className="font-mono text-[9px] text-[#bacbbc] tracking-widest font-bold uppercase">
+      <div className="font-mono text-[9px] tracking-widest font-bold uppercase" style={{ color: "var(--text-secondary)" }}>
         {label}
       </div>
       {children}

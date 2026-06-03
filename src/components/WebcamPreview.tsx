@@ -169,30 +169,31 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[9999] flex"
-      style={{ background: "#0d0f1a", color: "#e1e1f2" }}
+      style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}
     >
       {/* ═══ LEFT SIDEBAR — Controls ═══ */}
       <div
         className="w-80 flex-shrink-0 overflow-y-auto flex flex-col scrollbar-thin"
         style={{
-          background: "#151828",
-          borderRight: "1px solid #2d314d",
+          background: "var(--surface-container-low)",
+          borderRight: "1px solid var(--border-default)",
         }}
       >
         {/* Header */}
-        <div className="px-5 py-4 flex items-center justify-between border-b border-[#2d314d]">
+        <div className="px-5 py-4 flex items-center justify-between border-b" style={{ borderColor: "var(--border-default)" }}>
           <div>
-            <div className="font-mono text-xs font-bold uppercase tracking-wider text-[#e1e1f2]">
+            <div className="font-mono text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-primary)" }}>
               WEBCAM OVERLAY PREVIEW
             </div>
-            <div className="font-mono mt-0.5 text-[#bacbbc]" style={{ fontSize: "0.6rem" }}>
+            <div className="font-mono mt-0.5" style={{ fontSize: "0.6rem", color: "var(--text-secondary)" }}>
               Configure overlay geometry & image filters
             </div>
           </div>
           <motion.button
             onClick={onCancel}
-            className="p-1 cursor-pointer text-[#bacbbc]"
-            whileHover={{ color: "#e1e1f2", scale: 1.1 }}
+            className="p-1 cursor-pointer"
+            style={{ color: "var(--text-secondary)" }}
+            whileHover={{ color: "var(--text-primary)", scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
           >
             <Icon name="close" size={18} />
@@ -205,11 +206,16 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
             <select
               value={overlay.device}
               onChange={(e) => update("device", e.target.value)}
-              className="px-3 py-1.5 font-mono text-xs cursor-pointer w-full outline-none border border-[#2d314d] bg-[#090b14] text-[#e1e1f2] rounded focus:border-[#00e88a]"
+              className="px-3 py-1.5 font-mono text-xs cursor-pointer w-full outline-none border rounded focus:border-[var(--accent-primary)]"
+              style={{
+                borderColor: "var(--border-default)",
+                background: "var(--bg-base)",
+                color: "var(--text-primary)"
+              }}
             >
-              <option value="default">Default System Camera</option>
+              <option value="default" style={{ background: "var(--bg-surface)", color: "var(--text-primary)" }}>Default System Camera</option>
               {webcamDevices.map((d) => (
-                <option key={d.index} value={d.index}>{d.name}</option>
+                <option key={d.index} value={d.index} style={{ background: "var(--bg-surface)", color: "var(--text-primary)" }}>{d.name}</option>
               ))}
             </select>
           </Section>
@@ -223,9 +229,9 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                   onClick={() => update("shape", s.id)}
                   className="flex flex-col items-center gap-1.5 py-2 px-1 cursor-pointer border rounded"
                   style={{
-                    background: overlay.shape === s.id ? "rgba(0, 232, 138, 0.08)" : "#090b14",
-                    borderColor: overlay.shape === s.id ? "#00e88a" : "#2d314d",
-                    color: overlay.shape === s.id ? "#00e88a" : "#bacbbc",
+                    background: overlay.shape === s.id ? "rgba(0, 232, 138, 0.08)" : "var(--bg-base)",
+                    borderColor: overlay.shape === s.id ? "var(--accent-primary)" : "var(--border-default)",
+                    color: overlay.shape === s.id ? "var(--accent-primary)" : "var(--text-secondary)",
                   }}
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
@@ -246,9 +252,9 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                   onClick={() => update("size", p.value)}
                   className="font-mono text-[10px] py-1 cursor-pointer border rounded"
                   style={{
-                    background: overlay.size === p.value ? "#00e88a" : "#090b14",
-                    color: overlay.size === p.value ? "#00391e" : "#bacbbc",
-                    borderColor: overlay.size === p.value ? "#00e88a" : "#2d314d",
+                    background: overlay.size === p.value ? "var(--accent-primary)" : "var(--bg-base)",
+                    color: overlay.size === p.value ? "var(--on-primary)" : "var(--text-secondary)",
+                    borderColor: overlay.size === p.value ? "var(--accent-primary)" : "var(--border-default)",
                   }}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
@@ -264,36 +270,44 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                 max={400}
                 value={overlay.size}
                 onChange={(e) => update("size", Number(e.target.value))}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] text-[#bacbbc] w-10 text-right">{overlay.size}px</span>
+              <span className="font-mono text-[10px] w-10 text-right" style={{ color: "var(--text-secondary)" }}>{overlay.size}px</span>
             </div>
           </Section>
 
           {/* ── Border ── */}
           <Section label="BORDER STYLE">
             <div className="flex items-center gap-3 mb-2.5">
-              <span className="font-mono text-[10px] text-[#bacbbc]">Width</span>
+              <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>Width</span>
               <input
                 type="range"
                 min={0}
                 max={8}
                 value={overlay.borderWidth}
                 onChange={(e) => update("borderWidth", Number(e.target.value))}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] w-6 text-right text-[#00e88a]">{overlay.borderWidth}px</span>
+              <span className="font-mono text-[10px] w-6 text-right" style={{ color: "var(--accent-primary)" }}>{overlay.borderWidth}px</span>
             </div>
             <div className="flex gap-2 flex-wrap">
               {BORDER_COLORS.map((c) => (
                 <motion.button
                   key={c}
                   onClick={() => update("borderColor", c)}
-                  className="w-6 h-6 rounded-full cursor-pointer border border-[#2d314d]"
+                  className="w-6 h-6 rounded-full cursor-pointer border"
                   style={{
                     background: c,
                     boxShadow: overlay.borderColor === c ? `0 0 8px ${c}` : "none",
-                    borderColor: overlay.borderColor === c ? "#ffffff" : "transparent",
+                    borderColor: overlay.borderColor === c ? "var(--text-primary)" : "var(--border-default)",
                   }}
                   whileHover={{ scale: 1.15 }}
                   whileTap={{ scale: 0.9 }}
@@ -311,9 +325,13 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                 max={100}
                 value={Math.round(overlay.opacity * 100)}
                 onChange={(e) => update("opacity", Number(e.target.value) / 100)}
-                className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                className="flex-1 h-1.5 cursor-pointer rounded-full"
+                style={{
+                  accentColor: "var(--accent-primary)",
+                  background: "var(--border-default)"
+                }}
               />
-              <span className="font-mono text-[10px] text-[#bacbbc] w-8 text-right">{Math.round(overlay.opacity * 100)}%</span>
+              <span className="font-mono text-[10px] w-8 text-right" style={{ color: "var(--text-secondary)" }}>{Math.round(overlay.opacity * 100)}%</span>
             </div>
           </Section>
 
@@ -321,9 +339,9 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
           <Section label="IMAGE ADJUSTMENTS (POST-PROCESS)">
             <div className="space-y-3.5 pt-1">
               <div className="space-y-1">
-                <div className="flex justify-between font-mono text-[10px] text-[#bacbbc]">
+                <div className="flex justify-between font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>
                   <span>Sharpen Strength</span>
-                  <span className="text-[#00e88a]">{overlay.sharpen.toFixed(2)}</span>
+                  <span style={{ color: "var(--accent-primary)" }}>{overlay.sharpen.toFixed(2)}</span>
                 </div>
                 <input
                   type="range"
@@ -332,14 +350,18 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                   step={0.05}
                   value={overlay.sharpen}
                   onChange={(e) => update("sharpen", parseFloat(e.target.value))}
-                  className="w-full h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                  className="w-full h-1.5 cursor-pointer rounded-full"
+                  style={{
+                    accentColor: "var(--accent-primary)",
+                    background: "var(--border-default)"
+                  }}
                 />
               </div>
 
               <div className="space-y-1">
-                <div className="flex justify-between font-mono text-[10px] text-[#bacbbc]">
+                <div className="flex justify-between font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>
                   <span>Brightness</span>
-                  <span className="text-[#00e88a]">{overlay.brightness > 0 ? `+${overlay.brightness}` : overlay.brightness}</span>
+                  <span style={{ color: "var(--accent-primary)" }}>{overlay.brightness > 0 ? `+${overlay.brightness}` : overlay.brightness}</span>
                 </div>
                 <input
                   type="range"
@@ -348,14 +370,18 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                   step={1}
                   value={overlay.brightness}
                   onChange={(e) => update("brightness", parseInt(e.target.value))}
-                  className="w-full h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                  className="w-full h-1.5 cursor-pointer rounded-full"
+                  style={{
+                    accentColor: "var(--accent-primary)",
+                    background: "var(--border-default)"
+                  }}
                 />
               </div>
 
               <div className="space-y-1">
-                <div className="flex justify-between font-mono text-[10px] text-[#bacbbc]">
+                <div className="flex justify-between font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>
                   <span>Contrast</span>
-                  <span className="text-[#00e88a]">{overlay.contrast.toFixed(2)}×</span>
+                  <span style={{ color: "var(--accent-primary)" }}>{overlay.contrast.toFixed(2)}×</span>
                 </div>
                 <input
                   type="range"
@@ -364,7 +390,11 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                   step={0.05}
                   value={overlay.contrast}
                   onChange={(e) => update("contrast", parseFloat(e.target.value))}
-                  className="w-full h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+                  className="w-full h-1.5 cursor-pointer rounded-full"
+                  style={{
+                    accentColor: "var(--accent-primary)",
+                    background: "var(--border-default)"
+                  }}
                 />
               </div>
             </div>
@@ -372,19 +402,24 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
         </div>
 
         {/* Bottom buttons */}
-        <div className="px-5 py-4 flex gap-3 border-t border-[#2d314d]">
+        <div className="px-5 py-4 flex gap-3 border-t" style={{ borderColor: "var(--border-default)" }}>
           <motion.button
             onClick={onCancel}
-            className="flex-1 py-2 font-mono text-xs uppercase cursor-pointer border border-[#2d314d] rounded text-[#bacbbc]"
-            whileHover={{ borderColor: "#bacbbc", color: "#e1e1f2" }}
+            className="flex-1 py-2 font-mono text-xs uppercase cursor-pointer border rounded"
+            style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)", background: "transparent" }}
+            whileHover={{ borderColor: "var(--text-secondary)", color: "var(--text-primary)" }}
             whileTap={{ scale: 0.97 }}
           >
             Cancel
           </motion.button>
           <motion.button
             onClick={() => onSave(overlay)}
-            className="flex-1 py-2 font-mono text-xs uppercase font-extrabold cursor-pointer rounded text-[#00391e]"
-            style={{ background: "#00e88a" }}
+            className="flex-1 py-2 font-mono text-xs uppercase font-extrabold cursor-pointer rounded border"
+            style={{
+              background: "var(--accent-primary)",
+              borderColor: "var(--accent-primary-hover)",
+              color: "var(--on-primary)"
+            }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
           >
@@ -394,17 +429,19 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
       </div>
 
       {/* ═══ MAIN AREA — Preview Canvas ═══ */}
-      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden bg-[#0d0f1a] relative">
+      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative" style={{ background: "var(--bg-base)" }}>
         <div className="absolute inset-0 pointer-events-none opacity-5 bg-[linear-gradient(to_right,#808080_1px,transparent_1px),linear-gradient(to_bottom,#808080_1px,transparent_1px)] bg-[size:24px_24px]"></div>
         
         {/* Recording Monitor Aspect-Video simulation */}
         <div
-          className="relative shadow-2xl border border-[#2d314d]/50 bg-[#090b14]"
+          className="relative shadow-2xl border"
           style={{
             width: previewW,
             height: previewH,
             borderRadius: "8px",
             overflow: "hidden",
+            borderColor: "var(--border-default)",
+            background: "var(--surface-container-low)"
           }}
         >
           {/* Mock dashboard silhouette */}
@@ -417,7 +454,7 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
           </div>
 
           {/* Reference guidelines */}
-          <div className="absolute inset-0 pointer-events-none opacity-5 border border-dashed border-[#bacbbc]"></div>
+          <div className="absolute inset-0 pointer-events-none opacity-5 border border-dashed" style={{ borderColor: "var(--border-default)" }}></div>
 
           {/* ═══ RND DRAGGABLE WEBCAM OVERLAY ═══ */}
           <Rnd
@@ -473,6 +510,8 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
                   className="w-full h-full flex flex-col items-center justify-center bg-[#1b1d2e] text-[#bacbbc]"
                   style={{
                     filter: filterStyle,
+                    background: "var(--surface-container-low)",
+                    color: "var(--text-secondary)"
                   }}
                 >
                   <Icon name="person" size={48} style={{ color: overlay.borderColor }} />
@@ -484,7 +523,7 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
         </div>
 
         {/* Caption */}
-        <div className="mt-4 font-mono text-center text-[#bacbbc]" style={{ fontSize: "0.65rem", letterSpacing: "0.05em" }}>
+        <div className="mt-4 font-mono text-center text-[#bacbbc]" style={{ fontSize: "0.65rem", letterSpacing: "0.05em", color: "var(--text-secondary)" }}>
           DRAG OVERLAY TO POSITION · DRAG EDGE CORNER TO RESIZE
         </div>
       </div>
@@ -497,7 +536,7 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <div className="font-mono text-[9px] text-[#bacbbc] tracking-widest font-bold uppercase">
+      <div className="font-mono text-[9px] tracking-widest font-bold uppercase" style={{ color: "var(--text-secondary)" }}>
         {label}
       </div>
       {children}
@@ -510,8 +549,8 @@ function ResizeHandle() {
     <div
       className="absolute bottom-0 right-0 w-3.5 h-3.5 cursor-se-resize"
       style={{
-        borderRight: "2px solid #00e88a",
-        borderBottom: "2px solid #00e88a",
+        borderRight: "2px solid var(--accent-primary)",
+        borderBottom: "2px solid var(--accent-primary)",
         opacity: 0.8,
       }}
     />
