@@ -40,7 +40,7 @@ jobs:
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       # ── Download FFmpeg (external, NOT from GitHub) ───────────
       - name: Cache FFmpeg
