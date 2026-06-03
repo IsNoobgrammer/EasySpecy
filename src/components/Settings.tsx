@@ -90,10 +90,10 @@ export function Settings({ onBack }: { onBack: () => void }) {
 
   if (!local) {
     return (
-      <div className="flex items-center justify-center h-full" style={{ background: "#0d0f1a" }}>
+      <div className="flex items-center justify-center h-full" style={{ background: "var(--bg-base)" }}>
         <motion.div
           className="font-mono text-sm"
-          style={{ color: "#849587", letterSpacing: "0.05em" }}
+          style={{ color: "var(--text-muted)", letterSpacing: "0.05em" }}
           animate={{ opacity: [0.4, 1, 0.4] }}
           transition={{ duration: 1.5, repeat: Infinity }}
         >
@@ -119,7 +119,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0d0f1a] text-[#e1e1f2] relative overflow-hidden">
+    <div className="flex flex-col h-full relative overflow-hidden" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
       {/* Noise layer background */}
       <div
         className="absolute inset-0 pointer-events-none"
@@ -132,27 +132,29 @@ export function Settings({ onBack }: { onBack: () => void }) {
 
       {/* ═══ HEADER ═══ */}
       <header
-        className="flex items-center justify-between px-6 py-3 sticky top-0 z-50 backdrop-blur-md border-b border-[#2d314d]"
-        style={{ background: "rgba(17, 19, 30, 0.85)" }}
+        className="flex items-center justify-between px-6 py-3 sticky top-0 z-50 backdrop-blur-md border-b"
+        style={{ background: "var(--bg-overlay)", borderColor: "var(--border-default)" }}
       >
         <motion.button
           onClick={onBack}
-          className="flex items-center gap-2 font-mono text-xs cursor-pointer text-[#bacbbc]"
-          whileHover={{ x: -3, color: "#e1e1f2" }}
+          className="flex items-center gap-2 font-mono text-xs cursor-pointer"
+          style={{ color: "var(--text-secondary)" }}
+          whileHover={{ x: -3, color: "var(--text-primary)" }}
           whileTap={{ scale: 0.95 }}
         >
           <Icon name="arrow_back" size={16} /> Back to Dashboard
         </motion.button>
-        <span className="font-mono text-sm font-semibold uppercase tracking-widest text-[#e1e1f2]">
+        <span className="font-mono text-sm font-semibold uppercase tracking-widest" style={{ color: "var(--text-primary)" }}>
           Settings
         </span>
         <motion.button
           onClick={toggleTheme}
-          className="font-mono text-xs px-2.5 py-1 cursor-pointer flex items-center gap-1.5 border border-[#2d314d] text-[#bacbbc] rounded"
-          whileHover={{ scale: 1.05, borderColor: "#3b4a3f" }}
+          className="font-mono text-xs px-2.5 py-1 cursor-pointer flex items-center gap-1.5 border rounded"
+          style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+          whileHover={{ scale: 1.05, borderColor: "var(--border-strong)" }}
           whileTap={{ scale: 0.95 }}
         >
-          <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} size={14} style={{ color: "#00e88a" }} />
+          <Icon name={theme === "dark" ? "light_mode" : "dark_mode"} size={14} style={{ color: "var(--accent-primary)" }} />
           {theme === "dark" ? "Light" : "Dark"}
         </motion.button>
       </header>
@@ -196,7 +198,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
               />
             </Row>
             
-            <div className="pt-2 border-t border-[#2d314d]/40 space-y-4">
+            <div className="pt-2 border-t space-y-4" style={{ borderColor: "var(--border-default)" }}>
               <Row label="Video Encoder" desc="Select video codec format (libx264 is default)">
                 <Select
                   value={local.video_encoder}
@@ -253,7 +255,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                  className="overflow-hidden space-y-4 pt-4 border-t"
+                  style={{ borderColor: "var(--border-default)" }}
                 >
                   <Row label="Audio Source" desc="Capture microphone, system output, or both">
                     <Segmented
@@ -297,7 +300,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   )}
                   
                   {/* Advanced Noise Controls */}
-                  <div className="pt-3 border-t border-[#2d314d]/30 space-y-4">
+                  <div className="pt-3 border-t space-y-4" style={{ borderColor: "var(--border-default)" }}>
                     <Row label="Noise Gate Threshold" desc="Mutes mic when signal goes below threshold (0 = off)">
                       <Slider value={local.noise_gate_threshold} min={0} max={1} step={0.02} onChange={(v) => update("noise_gate_threshold", v)} suffix="" />
                     </Row>
@@ -320,20 +323,20 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   </div>
 
                   {/* Active Loudness Meter Visualization */}
-                  <div className="bg-[#090b14]/50 border border-[#2d314d]/30 p-3 rounded-lg space-y-3">
+                  <div className="p-3 rounded-lg space-y-3 border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
                     <div className="space-y-1">
-                      <div className="flex justify-between font-mono text-[9px] text-[#bacbbc]">
+                      <div className="flex justify-between font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>
                         <span>MIC LEVEL MONITOR</span>
-                        <span className={audioLevels.micDb > -12 ? "text-red-400 font-bold" : audioLevels.micDb > -24 ? "text-yellow-400 font-bold" : "text-[#00e88a]"}>
+                        <span className={audioLevels.micDb > -12 ? "text-red-400 font-bold" : audioLevels.micDb > -24 ? "text-yellow-400 font-bold" : "text-[var(--accent-primary)] font-bold"}>
                           {audioLevels.micDb > -60 ? `${audioLevels.micDb.toFixed(0)} dB` : "Silent"}
                         </span>
                       </div>
-                      <div className="h-2 w-full bg-[#1b1e2e] rounded-full overflow-hidden relative border border-[#2d314d]/20">
+                      <div className="h-2 w-full rounded-full overflow-hidden relative border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
                         <div
                           className="h-full rounded-full transition-all duration-75"
                           style={{
                             width: `${Math.max(0, Math.min(100, ((audioLevels.micDb + 60) / 60) * 100))}%`,
-                            background: "linear-gradient(to right, #00e88a 65%, #ffd000 85%, #ff4444 100%)",
+                            background: "linear-gradient(to right, var(--accent-primary) 65%, #ffd000 85%, #ff4444 100%)",
                           }}
                         />
                       </div>
@@ -341,18 +344,18 @@ export function Settings({ onBack }: { onBack: () => void }) {
                     
                     {(local.audio_source === "Both" || local.audio_source === "System") && (
                       <div className="space-y-1">
-                        <div className="flex justify-between font-mono text-[9px] text-[#bacbbc]">
+                        <div className="flex justify-between font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>
                           <span>SYSTEM LEVEL MONITOR</span>
-                          <span className={audioLevels.sysDb > -12 ? "text-red-400 font-bold" : audioLevels.sysDb > -24 ? "text-yellow-400 font-bold" : "text-[#c0c1ff]"}>
+                          <span className={audioLevels.sysDb > -12 ? "text-red-400 font-bold" : audioLevels.sysDb > -24 ? "text-yellow-400 font-bold" : "text-[var(--accent-info)] font-bold"}>
                             {audioLevels.sysDb > -60 ? `${audioLevels.sysDb.toFixed(0)} dB` : "Silent"}
                           </span>
                         </div>
-                        <div className="h-2 w-full bg-[#1b1e2e] rounded-full overflow-hidden relative border border-[#2d314d]/20">
+                        <div className="h-2 w-full rounded-full overflow-hidden relative border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
                           <div
                             className="h-full rounded-full transition-all duration-75"
                             style={{
                               width: `${Math.max(0, Math.min(100, ((audioLevels.sysDb + 60) / 60) * 100))}%`,
-                              background: "linear-gradient(to right, #c0c1ff 65%, #ffcc00 85%, #ff4444 100%)",
+                              background: "linear-gradient(to right, var(--accent-info) 65%, #ffcc00 85%, #ff4444 100%)",
                             }}
                           />
                         </div>
@@ -376,13 +379,18 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                  className="overflow-hidden space-y-4 pt-4 border-t"
+                  style={{ borderColor: "var(--border-default)" }}
                 >
                   <motion.button
                     onClick={() => setShowWebcamPreview(true)}
-                    className="w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 border border-[#00e88a] text-[#00391e] rounded shadow-lg"
-                    style={{ background: "#00e88a" }}
-                    whileHover={{ scale: 1.01, boxShadow: "0 0 15px rgba(0, 232, 138, 0.3)" }}
+                    className="w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 border rounded shadow-lg"
+                    style={{
+                      background: "var(--accent-primary)",
+                      borderColor: "var(--accent-primary-hover)",
+                      color: "var(--on-primary)"
+                    }}
+                    whileHover={{ scale: 1.01, boxShadow: "0 0 15px rgba(0, 232, 138, 0.15)" }}
                     whileTap={{ scale: 0.98 }}
                   >
                     <Icon name="visibility" size={14} /> Open Webcam Preview & Settings
@@ -397,6 +405,11 @@ export function Settings({ onBack }: { onBack: () => void }) {
             <Row label="Enable Keyboard Overlay" desc="Show real-time keys and shortcut bubbles during recording">
               <Toggle checked={local.keyboard_overlay_enabled} onChange={(v) => update("keyboard_overlay_enabled", v)} />
             </Row>
+            {local.keyboard_overlay_enabled && (
+              <Row label="Record Games (Keyboard Capture)" desc="Allows key capture inside fullscreen games (relaunches app as Administrator)">
+                <Toggle checked={local.keyboard_game_capture} onChange={(v) => update("keyboard_game_capture", v)} />
+              </Row>
+            )}
             <AnimatePresence>
               {local.keyboard_overlay_enabled && (
                 <motion.div
@@ -404,13 +417,18 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                  className="overflow-hidden space-y-4 pt-4 border-t"
+                  style={{ borderColor: "var(--border-default)" }}
                 >
                   <motion.button
                     onClick={() => setShowKeyboardPreview(true)}
-                    className="w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 border border-[#00e88a] text-[#00391e] rounded shadow-lg"
-                    style={{ background: "#00e88a" }}
-                    whileHover={{ scale: 1.01, boxShadow: "0 0 15px rgba(0, 232, 138, 0.3)" }}
+                    className="w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 border rounded shadow-lg"
+                    style={{
+                      background: "var(--accent-primary)",
+                      borderColor: "var(--accent-primary-hover)",
+                      color: "var(--on-primary)"
+                    }}
+                    whileHover={{ scale: 1.01, boxShadow: "0 0 15px rgba(0, 232, 138, 0.15)" }}
                     whileTap={{ scale: 0.98 }}
                   >
                     <Icon name="visibility" size={14} /> Configure Keyboard Preview & Glass Styles
@@ -432,7 +450,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                  className="overflow-hidden space-y-4 pt-4 border-t"
+                  style={{ borderColor: "var(--border-default)" }}
                 >
                   <Row label="Zoom Factor" desc="How close to zoom in on targets">
                     <Segmented
@@ -479,17 +498,17 @@ export function Settings({ onBack }: { onBack: () => void }) {
               />
             </Row>
             
-            <div className="flex justify-between items-center py-2.5 px-4 bg-[#151828]/50 border border-[#2d314d]/40 rounded-lg">
+            <div className="flex justify-between items-center py-2.5 px-4 rounded-lg border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
               <div className="flex flex-col">
                 <span className="font-mono text-xs font-semibold">Test Cursor Swaps Live</span>
-                <span className="font-mono text-[9px] text-[#bacbbc]">Applies selected pack to cursor for 30 seconds</span>
+                <span className="font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>Applies selected pack to cursor for 30 seconds</span>
               </div>
               <motion.button
                 onClick={handleCursorPreview}
                 className="font-mono text-[10px] px-3.5 py-1.5 cursor-pointer font-bold uppercase rounded border transition-colors"
                 style={{
-                  borderColor: previewActive ? "#ff44cc" : "#00e88a",
-                  color: previewActive ? "#ff44cc" : "#00e88a",
+                  borderColor: previewActive ? "#ff44cc" : "var(--accent-primary)",
+                  color: previewActive ? "#ff44cc" : "var(--accent-primary)",
                   background: previewActive ? "rgba(255, 68, 204, 0.08)" : "rgba(0, 232, 138, 0.04)"
                 }}
                 whileHover={{ scale: 1.03 }}
@@ -510,7 +529,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                  className="overflow-hidden space-y-4 pt-4 border-t"
+                  style={{ borderColor: "var(--border-default)" }}
                 >
                   <Row label="Trail Style Pattern" desc="Visual effect render style for the trail path">
                     <Select
@@ -525,7 +545,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                         type="color"
                         value={local.cursor_trail_color}
                         onChange={(e) => update("cursor_trail_color", e.target.value)}
-                        className="w-7 h-7 cursor-pointer border border-[#2d314d] bg-transparent"
+                        className="w-7 h-7 cursor-pointer bg-transparent border"
+                        style={{ borderColor: "var(--border-default)" }}
                       />
                       <span className="font-mono text-xs uppercase" style={{ color: local.cursor_trail_color }}>
                         {local.cursor_trail_color}
@@ -538,7 +559,8 @@ export function Settings({ onBack }: { onBack: () => void }) {
                         type="color"
                         value={local.cursor_secondary_color || "#ff4488"}
                         onChange={(e) => update("cursor_secondary_color", e.target.value)}
-                        className="w-7 h-7 cursor-pointer border border-[#2d314d] bg-transparent"
+                        className="w-7 h-7 cursor-pointer bg-transparent border"
+                        style={{ borderColor: "var(--border-default)" }}
                       />
                       <span className="font-mono text-xs uppercase" style={{ color: local.cursor_secondary_color || "#ff4488" }}>
                         {local.cursor_secondary_color || "#ff4488"}
@@ -573,11 +595,11 @@ export function Settings({ onBack }: { onBack: () => void }) {
 
                   {/* Interactive Cursor Trail Canvas Preview */}
                   <div className="space-y-2">
-                    <div className="flex justify-between font-mono text-[9px] text-[#bacbbc]">
+                    <div className="flex justify-between font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>
                       <span>INTERACTIVE CANVAS EFFECT PREVIEW</span>
                       <span>{local.trail_style.toUpperCase()} · {local.click_effect.toUpperCase()}</span>
                     </div>
-                    <div className="relative overflow-hidden border border-dashed border-[#2d314d] rounded-xl bg-[#090b14]/50">
+                    <div className="relative overflow-hidden border border-dashed rounded-xl" style={{ borderColor: "var(--border-default)", background: "var(--surface-container-low)" }}>
                       <MiniPreview
                         trailStyle={local.trail_style as TrailStyle}
                         clickEffect={local.click_effect as ClickEffect}
@@ -705,16 +727,16 @@ export function Settings({ onBack }: { onBack: () => void }) {
       </AnimatePresence>
 
       {/* ═══ SAVE BUTTON FOOTER ═══ */}
-      <div className="px-6 py-4 bg-[#11131e] border-t border-[#2d314d] flex justify-center z-40 shadow-2xl">
+      <div className="px-6 py-4 border-t flex justify-center z-40 shadow-2xl" style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}>
         <motion.button
           onClick={handleSave}
           className="max-w-3xl w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 shadow-lg rounded"
           style={{
             border: "none",
-            background: saved ? "#00e88a" : "linear-gradient(135deg, #00e88a, #85ffb4)",
-            color: "#00391e"
+            background: saved ? "var(--accent-primary-container)" : "linear-gradient(135deg, var(--accent-primary-container), var(--accent-primary))",
+            color: "var(--on-primary)"
           }}
-          whileHover={{ scale: 1.01, boxShadow: "0 0 25px rgba(0, 232, 138, 0.25)" }}
+          whileHover={{ scale: 1.01, boxShadow: "0 0 25px rgba(0, 232, 138, 0.15)" }}
           whileTap={{ scale: 0.98 }}
         >
           {saved ? (
@@ -746,19 +768,20 @@ function Card({
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-      className="border-2 border-[#2d314d] rounded-xl overflow-hidden hover:border-[#3b4a3f] transition-colors"
-      style={{ background: "#151828" }}
+      className="border-2 rounded-xl overflow-hidden transition-colors"
+      style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
+      whileHover={{ borderColor: "var(--border-strong)" }}
     >
       {/* Card Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-[#2d314d] bg-black/10">
+      <div className="flex items-center justify-between px-5 py-3 border-b bg-black/5" style={{ borderColor: "var(--border-default)" }}>
         <div className="flex items-center gap-2">
-          <Icon name={icon} size={18} style={{ color: "#00e88a" }} />
-          <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#e1e1f2]">
+          <Icon name={icon} size={18} style={{ color: "var(--accent-primary)" }} />
+          <span className="font-mono text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-primary)" }}>
             {title}
           </span>
         </div>
         {badge && (
-          <span className="font-mono text-[9px] px-2 py-0.5 rounded-full font-bold text-[#00e88a] bg-[#00e88a]/10 border border-[#00e88a]/20">
+          <span className="font-mono text-[9px] px-2 py-0.5 rounded-full font-bold border" style={{ color: "var(--accent-primary)", background: "rgba(0, 232, 138, 0.08)", borderColor: "rgba(0, 232, 138, 0.2)" }}>
             {badge}
           </span>
         )}
@@ -776,9 +799,9 @@ function Row({ label, desc, children }: { label: string; desc?: string; children
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="flex-1 min-w-0">
-        <div className="font-mono text-xs font-semibold text-[#e1e1f2]">{label}</div>
+        <div className="font-mono text-xs font-semibold" style={{ color: "var(--text-primary)" }}>{label}</div>
         {desc && (
-          <div className="font-mono mt-1 text-[#bacbbc] text-[10px] leading-relaxed">
+          <div className="font-mono mt-1 text-[10px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
             {desc}
           </div>
         )}
@@ -796,10 +819,15 @@ function Select({ value, onChange, options }: {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[170px] outline-none border border-[#2d314d] bg-[#090b14] text-[#e1e1f2] rounded focus:border-[#00e88a]"
+      className="px-3 py-1.5 font-mono text-xs cursor-pointer min-w-[170px] outline-none border rounded focus:border-[var(--accent-primary)]"
+      style={{
+        borderColor: "var(--border-default)",
+        background: "var(--surface-container-low)",
+        color: "var(--text-primary)"
+      }}
     >
       {options.map((o) => (
-        <option key={o.value} value={o.value} className="bg-[#11131e] text-[#e1e1f2]">{o.label}</option>
+        <option key={o.value} value={o.value} style={{ background: "var(--bg-surface)", color: "var(--text-primary)" }}>{o.label}</option>
       ))}
     </select>
   );
@@ -810,24 +838,25 @@ function Segmented<T extends string | number>({ value, options, onChange }: {
 }) {
   const layoutId = useId();
   return (
-    <div className="flex p-1 bg-[#090b14] rounded-lg border border-[#2d314d] gap-1">
+    <div className="flex p-1 rounded-lg border gap-1" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
       {options.map((opt) => (
         <motion.button
           key={String(opt.value)}
           onClick={() => onChange(opt.value)}
           className="px-3.5 py-1 font-mono text-[10px] cursor-pointer relative z-10 font-bold uppercase rounded"
           style={{
-            color: opt.value === value ? "#00391e" : "#bacbbc",
+            color: opt.value === value ? "var(--on-primary)" : "var(--text-secondary)",
             background: "transparent",
           }}
-          whileHover={opt.value !== value ? { color: "#e1e1f2" } : {}}
+          whileHover={opt.value !== value ? { color: "var(--text-primary)" } : {}}
           whileTap={{ scale: 0.96 }}
         >
           <span className="relative z-20">{opt.label}</span>
           {opt.value === value && (
             <motion.div
               layoutId={layoutId}
-              className="absolute inset-0 z-0 bg-[#00e88a] rounded"
+              className="absolute inset-0 z-0 rounded"
+              style={{ background: "var(--accent-primary)" }}
               transition={{ type: "spring", stiffness: 450, damping: 28 }}
             />
           )}
@@ -843,7 +872,12 @@ function Input({ value, onChange }: { value: string; onChange: (v: string) => vo
       type="text"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-1.5 font-mono text-xs min-w-[200px] outline-none border border-[#2d314d] bg-[#090b14] text-[#e1e1f2] rounded focus:border-[#00e88a]"
+      className="px-3 py-1.5 font-mono text-xs min-w-[200px] outline-none border rounded focus:border-[var(--accent-primary)]"
+      style={{
+        borderColor: "var(--border-default)",
+        background: "var(--surface-container-low)",
+        color: "var(--text-primary)"
+      }}
     />
   );
 }
@@ -860,9 +894,13 @@ function Slider({ value, min, max, step, onChange, suffix }: {
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="flex-1 h-1.5 cursor-pointer accent-[#00e88a] bg-[#2d314d] rounded-full"
+        className="flex-1 h-1.5 cursor-pointer rounded-full"
+        style={{
+          accentColor: "var(--accent-primary)",
+          background: "var(--border-default)"
+        }}
       />
-      <span className="font-mono text-[10px] min-w-[40px] text-right text-[#bacbbc]">
+      <span className="font-mono text-[10px] min-w-[40px] text-right" style={{ color: "var(--text-secondary)" }}>
         {value.toFixed(step < 0.1 ? 2 : 0)}{suffix}
       </span>
     </div>
@@ -875,14 +913,14 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       onClick={() => onChange(!checked)}
       className="relative cursor-pointer w-11 h-6 rounded-full border"
       style={{
-        borderColor: checked ? "#00e88a" : "#2d314d",
-        background: checked ? "#00e88a" : "#090b14",
+        borderColor: checked ? "var(--accent-primary)" : "var(--border-default)",
+        background: checked ? "var(--accent-primary)" : "var(--surface-container-low)",
       }}
       whileTap={{ scale: 0.95 }}
     >
       <motion.div
         className="absolute top-0.5 w-4.5 h-4.5 rounded-full"
-        style={{ background: checked ? "#00391e" : "#e1e1f2" }}
+        style={{ background: checked ? "var(--on-primary)" : "var(--text-primary)" }}
         animate={{ left: checked ? 22 : 2 }}
         transition={{ type: "spring", stiffness: 500, damping: 30 }}
       />
@@ -978,9 +1016,9 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
         onBlur={() => setIsRecording(false)}
         className="px-3.5 py-1.5 font-mono text-xs cursor-pointer min-w-[170px] text-center border rounded outline-none transition-colors"
         style={{
-          borderColor: isRecording ? "#00e88a" : "#2d314d",
-          background: isRecording ? "rgba(0, 232, 138, 0.08)" : "#090b14",
-          color: isRecording ? "#00e88a" : "#e1e1f2",
+          borderColor: isRecording ? "var(--accent-primary)" : "var(--border-default)",
+          background: isRecording ? "rgba(0, 232, 138, 0.08)" : "var(--surface-container-low)",
+          color: isRecording ? "var(--accent-primary)" : "var(--text-primary)",
         }}
         whileTap={{ scale: 0.98 }}
       >
@@ -993,7 +1031,8 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
             initial={{ opacity: 0, y: 4, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.95 }}
-            className="absolute top-full mt-2 left-1/2 -translate-x-1/2 flex gap-1 p-1 bg-[#11131e] border border-[#2d314d] shadow-2xl z-50 rounded"
+            className="absolute top-full mt-2 left-1/2 -translate-x-1/2 flex gap-1 p-1 shadow-2xl z-50 rounded border"
+            style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
           >
             {["Ctrl", "Shift", "Alt", "Win"].map((mod) => {
               const active = 
@@ -1006,9 +1045,9 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
                   key={mod}
                   className="px-1.5 py-0.5 rounded text-[9px] font-bold border transition-colors duration-150"
                   style={{
-                    background: active ? "#00e88a" : "transparent",
-                    color: active ? "#00391e" : "#bacbbc",
-                    borderColor: active ? "#00e88a" : "#2d314d"
+                    background: active ? "var(--accent-primary)" : "transparent",
+                    color: active ? "var(--on-primary)" : "var(--text-secondary)",
+                    borderColor: active ? "var(--accent-primary)" : "var(--border-default)"
                   }}
                 >
                   {mod}

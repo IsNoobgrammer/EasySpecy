@@ -1,0 +1,6 @@
+- Entry Point: `src/main.rs` delegates to `easyspecy_lib::run()` in `src/lib.rs`, which initializes the Tauri application, plugins (opener, global-shortcut), and IPC command handlers.
+- IPC Layer: `src/commands/mod.rs` exposes ~40 `#[tauri::command]` functions for frontend interaction, managing recording lifecycle, configuration, and overlay windows.
+- Core Capture: `src/capture/mod.rs` uses `windows-capture` (Windows) or platform-specific crates to grab frames, syncing with audio via an atomic "armed" gate triggered by the first video frame.
+- Audio Pipeline: `src/audio/mod.rs` leverages `cpal` for low-latency mic/system capture, implementing real-time noise reduction (RNN/spectral) and mixing logic.
+- Post-Processing: `src/postprocess/mod.rs` and `src/webcam/mod.rs` handle FFmpeg-based compositing for cursor trails, click effects, and Picture-in-Picture webcam overlays.
+- Configuration: `src/config/mod.rs` manages persistent TOML-based settings for encoders (NVENC/SVT-AV1), resolution, and UI preferences.

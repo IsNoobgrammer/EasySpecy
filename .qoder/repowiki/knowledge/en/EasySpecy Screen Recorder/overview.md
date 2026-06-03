@@ -1,0 +1,1 @@
+Orchestrates a Tauri v2 desktop application by bridging a Rust backend for system-level capture with a React frontend for user interaction and configuration.

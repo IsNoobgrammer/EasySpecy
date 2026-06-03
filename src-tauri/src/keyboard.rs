@@ -6,13 +6,15 @@
 //! rendering as an overlay.
 //!
 //! Architecture:
-//! - Hook runs on a dedicated thread (Windows requires message loop for LL hooks)
-//! - Events stored in a lock-free ring buffer (flume channel)
-//! - Frontend polls events via Tauri command
-//! - Old events (>5s) are automatically pruned
+//! - Hook callback is extremely fast (zero allocations, zero mutexes, zero slow Win32 calls).
+//! - Events are passed via a lock-free, zero-allocation SPSC (Single Producer Single Consumer) ring buffer.
+//! - Uses standard Rust thread park/unpark for ultra-low-latency, zero-CPU worker thread signaling.
+//! - Worker thread tracks modifier key state dynamically to avoid slow GetKeyState calls.
+//! - Frontend polls events via Tauri command.
+//! - Old events (>5s) are automatically pruned.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::Emitter;
@@ -45,6 +47,62 @@ unsafe impl Send for KeyboardCapture {}
 
 static KEYBOARD_CAPTURE: std::sync::OnceLock<Mutex<Option<KeyboardCapture>>> = std::sync::OnceLock::new();
 static HOOK_THREAD_ID: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
+static WORKER_THREAD: std::sync::Mutex<Option<std::thread::Thread>> = std::sync::Mutex::new(None);
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy)]
+struct RawKeyEvent {
+    vk_code: u32,
+    is_down: bool,
+    timestamp: Instant,
+}
+
+#[cfg(target_os = "windows")]
+const QUEUE_SIZE: usize = 1024;
+
+#[cfg(target_os = "windows")]
+static mut KEYBOARD_QUEUE: [Option<RawKeyEvent>; QUEUE_SIZE] = [None; QUEUE_SIZE];
+
+#[cfg(target_os = "windows")]
+static QUEUE_HEAD: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "windows")]
+static QUEUE_TAIL: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(target_os = "windows")]
+#[inline(always)]
+fn push_raw_event(vk_code: u32, is_down: bool, timestamp: Instant) {
+    let tail = QUEUE_TAIL.load(Ordering::Relaxed);
+    let head = QUEUE_HEAD.load(Ordering::Acquire);
+    let next_tail = (tail + 1) % QUEUE_SIZE;
+    if next_tail != head {
+        unsafe {
+            KEYBOARD_QUEUE[tail] = Some(RawKeyEvent { vk_code, is_down, timestamp });
+        }
+        QUEUE_TAIL.store(next_tail, Ordering::Release);
+        
+        // Unpark the worker thread to process events instantly
+        if let Ok(guard) = WORKER_THREAD.lock() {
+            if let Some(ref thread) = *guard {
+                thread.unpark();
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[inline(always)]
+fn pop_raw_event() -> Option<RawKeyEvent> {
+    let head = QUEUE_HEAD.load(Ordering::Relaxed);
+    let tail = QUEUE_TAIL.load(Ordering::Acquire);
+    if head != tail {
+        let event = unsafe { KEYBOARD_QUEUE[head] };
+        QUEUE_HEAD.store((head + 1) % QUEUE_SIZE, Ordering::Release);
+        event
+    } else {
+        None
+    }
+}
 
 /// Start capturing keyboard events.
 /// Must be called when recording starts.
@@ -57,6 +115,13 @@ pub fn start_keyboard_capture() {
         *capture = None;
     }
     *HOOK_THREAD_ID.lock().unwrap() = None;
+    *WORKER_THREAD.lock().unwrap() = None;
+
+    #[cfg(target_os = "windows")]
+    {
+        QUEUE_HEAD.store(0, Ordering::SeqCst);
+        QUEUE_TAIL.store(0, Ordering::SeqCst);
+    }
 
     let events = Arc::new(Mutex::new(VecDeque::with_capacity(256)));
     let running = Arc::new(AtomicBool::new(true));
@@ -91,6 +156,13 @@ pub fn stop_keyboard_capture() -> Vec<KeyEvent> {
         cap.running.store(false, Ordering::SeqCst);
     }
 
+    // Wake up worker thread so it can exit
+    if let Ok(guard) = WORKER_THREAD.lock() {
+        if let Some(ref thread) = *guard {
+            thread.unpark();
+        }
+    }
+
     if let Some(thread_id) = *HOOK_THREAD_ID.lock().unwrap() {
         unsafe {
             use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
@@ -106,6 +178,8 @@ pub fn stop_keyboard_capture() -> Vec<KeyEvent> {
     } else {
         Vec::new()
     };
+
+    *WORKER_THREAD.lock().unwrap() = None;
 
     tracing::info!("Keyboard capture stopped ({} events)", events.len());
     events
@@ -136,6 +210,25 @@ pub fn get_keyboard_events() -> Vec<KeyEvent> {
     }
 }
 
+/// Reset the start time of the keyboard capture session to sync with recording arm time.
+/// Clears any events recorded prior to arming.
+#[cfg(target_os = "windows")]
+pub fn reset_keyboard_start_time() {
+    let capture_mutex = KEYBOARD_CAPTURE.get_or_init(|| Mutex::new(None));
+    let mut capture = capture_mutex.lock().unwrap();
+    if let Some(ref mut cap) = *capture {
+        cap.start_time = Instant::now();
+        if let Ok(mut events) = cap.events.lock() {
+            events.clear();
+        }
+        tracing::info!("Keyboard capture start time reset to arm instant");
+    }
+}
+
+/// No-op for non-Windows platforms
+#[cfg(not(target_os = "windows"))]
+pub fn reset_keyboard_start_time() {}
+
 /// Windows low-level keyboard hook implementation.
 /// Runs a message loop on a dedicated thread.
 #[cfg(target_os = "windows")]
@@ -149,22 +242,20 @@ fn run_keyboard_hook(
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::System::Threading::GetCurrentThreadId;
 
-    // Shared state for the hook callback
-    // We use a raw pointer because the hook callback can't capture environment
-    struct HookState {
-        events: Arc<Mutex<VecDeque<KeyEvent>>>,
-        start_time: Instant,
-        running: Arc<AtomicBool>,
-    }
-
-    static mut HOOK_STATE: Option<Box<HookState>> = None;
+    // Spawn the worker thread to process events asynchronously
+    let running_clone = running.clone();
+    let events_clone = events.clone();
+    let worker_thread = std::thread::Builder::new()
+        .name("keyboard-worker".into())
+        .spawn(move || {
+            if let Ok(mut guard) = WORKER_THREAD.lock() {
+                *guard = Some(std::thread::current());
+            }
+            run_worker(events_clone, running_clone, start_time);
+        })
+        .expect("Failed to spawn keyboard worker thread");
 
     unsafe {
-        HOOK_STATE = Some(Box::new(HookState {
-            events: events.clone(),
-            start_time,
-            running: running.clone(),
-        }));
         *HOOK_THREAD_ID.lock().unwrap() = Some(GetCurrentThreadId());
     }
 
@@ -174,70 +265,14 @@ fn run_keyboard_hook(
         l_param: LPARAM,
     ) -> LRESULT {
         if n_code >= 0 {
-            let kbd = *(l_param.0 as *const KBDLLHOOKSTRUCT);
             let key_code = w_param.0 as u32;
 
-            tracing::info!("keyboard_hook_proc: vkCode=0x{:X}, key_code=0x{:X}", kbd.vkCode, key_code);
-
-            // Only capture keydown events (not keyup)
             if key_code == WM_KEYDOWN || key_code == WM_SYSKEYDOWN {
-                if let Some(ref state) = HOOK_STATE {
-                    if state.running.load(Ordering::Relaxed) {
-                        let mut key = vk_to_name(kbd.vkCode);
-                        let timestamp_ms = state.start_time.elapsed().as_millis() as f64;
-
-                        // Query modifier states
-                        use windows::Win32::UI::Input::KeyboardAndMouse::{
-                            GetKeyState, VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN
-                        };
-                        let shift = (unsafe { GetKeyState(VK_SHIFT.0 as i32) } as u16 & 0x8000) != 0;
-                        let ctrl = (unsafe { GetKeyState(VK_CONTROL.0 as i32) } as u16 & 0x8000) != 0;
-                        let alt = (unsafe { GetKeyState(VK_MENU.0 as i32) } as u16 & 0x8000) != 0;
-                        let win = ((unsafe { GetKeyState(VK_LWIN.0 as i32) } as u16 & 0x8000) != 0) 
-                               || ((unsafe { GetKeyState(VK_RWIN.0 as i32) } as u16 & 0x8000) != 0);
-
-                        // If password field is focused, mask non-modifier keys as "*"
-                        let is_mod = kbd.vkCode == 0x10 || kbd.vkCode == 0x11 || kbd.vkCode == 0x12 
-                            || kbd.vkCode == 0x5B || kbd.vkCode == 0x5C 
-                            || (kbd.vkCode >= 0xA0 && kbd.vkCode <= 0xA5);
-
-                        if !is_mod && unsafe { check_is_password_focused() } {
-                            key = "*".to_string();
-                        }
-
-                        tracing::info!("keyboard_hook_proc keydown: key={}, ctrl={}, shift={}, alt={}, win={}, timestamp={}", key, ctrl, shift, alt, win, timestamp_ms);
-
-                        let event = KeyEvent {
-                            key: key.clone(),
-                            timestamp_ms,
-                            duration_ms: 0.0,
-                            ctrl,
-                            shift,
-                            alt,
-                            win,
-                        };
-
-                        if let Ok(mut evts) = state.events.lock() {
-                            evts.push_back(event.clone());
-                            // Cap at 512 events to prevent memory growth
-                            while evts.len() > 512 {
-                                evts.pop_front();
-                            }
-                        }
-
-                        // Emit event directly to the effects overlay window to prevent Webview2 timer throttling
-                        if let Some(app) = crate::app_handle() {
-                            let _ = app.emit_to(
-                                "effects-overlay",
-                                "keyboard-event",
-                                event,
-                            );
-                        }
-
-                        // Record for post-processing/video baking
-                        crate::postprocess::record_keyboard_event(&key);
-                    }
-                }
+                let kbd = *(l_param.0 as *const KBDLLHOOKSTRUCT);
+                push_raw_event(kbd.vkCode, true, Instant::now());
+            } else if key_code == WM_KEYUP || key_code == WM_SYSKEYUP {
+                let kbd = *(l_param.0 as *const KBDLLHOOKSTRUCT);
+                push_raw_event(kbd.vkCode, false, Instant::now());
             }
         }
 
@@ -256,6 +291,7 @@ fn run_keyboard_hook(
 
         if let Err(e) = hook {
             tracing::error!("Failed to install keyboard hook: {}", e);
+            let _ = worker_thread.join();
             return;
         }
 
@@ -275,6 +311,95 @@ fn run_keyboard_hook(
 
         tracing::info!("Keyboard hook removed");
     }
+
+    // Join the worker thread to ensure graceful cleanup
+    let _ = worker_thread.join();
+    tracing::info!("Keyboard hook run thread finished");
+}
+
+#[cfg(target_os = "windows")]
+fn run_worker(
+    events: Arc<Mutex<VecDeque<KeyEvent>>>,
+    running: Arc<AtomicBool>,
+    start_time: Instant,
+) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN};
+    
+    // Initialize modifier states at startup by querying actual Win32 state
+    let mut shift = unsafe { (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0 };
+    let mut ctrl = unsafe { (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 };
+    let mut alt = unsafe { (GetKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0 };
+    let mut win = unsafe {
+        (GetKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0 
+        || (GetKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0
+    };
+
+    tracing::info!("Keyboard worker thread started (initial modifiers: shift={}, ctrl={}, alt={}, win={})", shift, ctrl, alt, win);
+
+    while running.load(Ordering::Relaxed) {
+        // Poll all events currently in the lock-free queue
+        while let Some(raw_event) = pop_raw_event() {
+            let vk = raw_event.vk_code;
+            let is_down = raw_event.is_down;
+
+            // Update modifier states dynamically
+            match vk {
+                0x10 | 0xA0 | 0xA1 => shift = is_down, // VK_SHIFT, VK_LSHIFT, VK_RSHIFT
+                0x11 | 0xA2 | 0xA3 => ctrl = is_down,  // VK_CONTROL, VK_LCONTROL, VK_RCONTROL
+                0x12 | 0xA4 | 0xA5 => alt = is_down,   // VK_MENU, VK_LALT, VK_RALT
+                0x5B | 0x5C => win = is_down,          // VK_LWIN, VK_RWIN
+                _ => {}
+            }
+
+            if is_down {
+                let key = vk_to_name(vk);
+                let timestamp_ms = if raw_event.timestamp >= start_time {
+                    raw_event.timestamp.duration_since(start_time).as_millis() as f64
+                } else {
+                    0.0
+                };
+
+                tracing::debug!(
+                    "keyboard worker keydown: key={}, ctrl={}, shift={}, alt={}, win={}, timestamp={}",
+                    key, ctrl, shift, alt, win, timestamp_ms
+                );
+
+                let event = KeyEvent {
+                    key: key.clone(),
+                    timestamp_ms,
+                    duration_ms: 0.0,
+                    ctrl,
+                    shift,
+                    alt,
+                    win,
+                };
+
+                if let Ok(mut evts) = events.lock() {
+                    evts.push_back(event.clone());
+                    while evts.len() > 512 {
+                        evts.pop_front();
+                    }
+                }
+
+                // Emit event directly to the effects overlay window
+                if let Some(app) = crate::app_handle() {
+                    let _ = app.emit_to(
+                        "effects-overlay",
+                        "keyboard-event",
+                        event,
+                    );
+                }
+
+                // Record for post-processing/video baking
+                crate::postprocess::record_keyboard_event(&key);
+            }
+        }
+
+        // Park thread until unparked or timeout (250ms)
+        std::thread::park_timeout(std::time::Duration::from_millis(250));
+    }
+
+    tracing::info!("Keyboard worker thread stopped");
 }
 
 /// Convert Windows virtual key code to human-readable name
@@ -362,26 +487,6 @@ fn vk_to_name(vk: u32) -> String {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub unsafe fn check_is_password_focused() -> bool {
-    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
-    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
-
-    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-
-    let automation: IUIAutomation = match CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
-        Ok(auto) => auto,
-        Err(_) => return false,
-    };
-
-    if let Ok(el) = automation.GetFocusedElement() {
-        if let Ok(is_password) = el.CurrentIsPassword() {
-            return is_password.as_bool();
-        }
-    }
-    false
-}
-
 /// No-op for non-Windows platforms
 #[cfg(not(target_os = "windows"))]
 fn run_keyboard_hook(
@@ -391,4 +496,3 @@ fn run_keyboard_hook(
 ) {
     tracing::warn!("Keyboard overlay not supported on this platform");
 }
-

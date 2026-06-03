@@ -1,0 +1,1 @@
+Tauri v2 backend for a cross-platform screen recorder featuring auto-zoom, cursor effects, and synchronized audio-video capture.

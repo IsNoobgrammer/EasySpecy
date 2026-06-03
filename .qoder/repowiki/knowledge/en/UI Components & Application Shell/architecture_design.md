@@ -1,0 +1,5 @@
+- **State Management**: Centralized via `zustand` in `src/stores/recording.ts`, handling configuration persistence, recording lifecycle (idle/recording/encoding), and Tauri IPC invocations.
+- **Component Hierarchy**: `App.tsx` serves as the root shell, managing sidebar navigation and theme context. Feature-specific views (`Dashboard`, `Settings`) are conditionally rendered.
+- **Overlay System**: Specialized fullscreen overlays (`RegionSelector`, `WebcamPreview`, `KeyboardPreview`) use high z-index stacking and direct DOM interaction for capture configuration.
+- **Design System**: Implemented in `src/styles.css` using CSS variables for theming (dark/light), spacing, and typography, integrated with Tailwind CSS.
+- **IPC Boundary**: Components interact with the Rust backend exclusively through `@tauri-apps/api` invocations for system-level operations like audio monitoring and video encoding.

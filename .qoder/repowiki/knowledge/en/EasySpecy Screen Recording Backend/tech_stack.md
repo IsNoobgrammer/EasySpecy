@@ -1,0 +1,5 @@
+- Tauri v2 for desktop bridge and window management.
+- `windows-capture` (Win32 Graphics Capture API) for high-performance screen recording on Windows.
+- `cpal` for cross-platform audio I/O and `nokhwa` for webcam access.
+- `FFmpeg` (bundled or system) for final video encoding, audio merging, and effect compositing.
+- `nnnoiseless` for RNN-based real-time audio denoising.

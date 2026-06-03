@@ -74,6 +74,7 @@ pub struct AppConfig {
 
     // Keyboard overlay settings
     pub keyboard_overlay_enabled: bool,
+    pub keyboard_game_capture: bool,
     pub keyboard_overlay_font_family: String,
     pub keyboard_overlay_font_size: u32,
     pub keyboard_overlay_opacity: f32,
@@ -220,6 +221,7 @@ impl Default for AppConfig {
             recording_mode: RecordingMode::FullScreen,
 
             keyboard_overlay_enabled: false,
+            keyboard_game_capture: false,
             keyboard_overlay_font_family: "JetBrains Mono".to_string(),
             keyboard_overlay_font_size: 14,
             keyboard_overlay_opacity: 0.9,

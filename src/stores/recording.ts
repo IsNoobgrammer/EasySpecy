@@ -56,6 +56,7 @@ export interface AppConfig {
 
   // Keyboard overlay settings
   keyboard_overlay_enabled: boolean;
+  keyboard_game_capture: boolean;
   keyboard_overlay_font_family: string;
   keyboard_overlay_font_size: number;
   keyboard_overlay_opacity: number;

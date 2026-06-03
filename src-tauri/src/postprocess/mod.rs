@@ -99,8 +99,12 @@ pub fn reset_session_start() {
     if let Some(ref mut m) = *METADATA.lock().unwrap() {
         m.cursor_trail.clear();
         m.click_events.clear();
+        m.keyboard_events.clear();
     }
-    tracing::info!("Cursor session start reset to CAPTURE_ARMED instant");
+    // Also reset keyboard capture start time
+    crate::keyboard::reset_keyboard_start_time();
+
+    tracing::info!("Cursor and keyboard session start reset to CAPTURE_ARMED instant");
 }
 
 /// Record a cursor position sample

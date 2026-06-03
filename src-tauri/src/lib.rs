@@ -36,6 +36,27 @@ fn exe_log_dir() -> std::path::PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Disable background throttling for Webview2 (forces overlay to render at 60 FPS in background/when game is focused)
+    #[cfg(target_os = "windows")]
+    {
+        std::env::set_var(
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateWindowOcclusionForOcclusionState"
+        );
+    }
+
+    // Check if we need to run as administrator
+    let config = config::AppConfig::load();
+    #[cfg(target_os = "windows")]
+    {
+        if config.keyboard_game_capture && !is_elevated() {
+            if relaunch_as_admin() {
+                std::process::exit(0);
+            }
+        }
+    }
+
+
     // ═══ LOG TO BOTH STDERR + FILE (TRUNCATED ON STARTUP) ═══
     // File goes to <exe_dir>/logs/easyspecy.log (next to the release binary)
     let log_dir = exe_log_dir();
@@ -124,3 +145,76 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running EasySpecy");
 }
+
+#[cfg(target_os = "windows")]
+pub fn is_elevated() -> bool {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+
+    unsafe {
+        let mut handle = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut handle).is_ok() {
+            let mut elevation = TOKEN_ELEVATION::default();
+            let mut size = std::mem::size_of::<TOKEN_ELEVATION>() as u32;
+            
+            let result = GetTokenInformation(
+                handle,
+                TokenElevation,
+                Some(&mut elevation as *mut _ as *mut _),
+                size,
+                &mut size,
+            );
+            
+            let _ = CloseHandle(handle);
+            return result.is_ok() && elevation.TokenIsElevated != 0;
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "windows")]
+pub fn relaunch_as_admin() -> bool {
+    use windows::core::w;
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_NORMAL;
+
+    let exe_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+
+    use std::os::windows::ffi::OsStrExt;
+    let mut exe_path_wide: Vec<u16> = exe_path.as_os_str().encode_wide().collect();
+    exe_path_wide.push(0);
+
+    unsafe {
+        let result = ShellExecuteW(
+            None,
+            w!("runas"),
+            windows::core::PCWSTR(exe_path_wide.as_ptr()),
+            None,
+            None,
+            SW_NORMAL,
+        );
+        (result.0 as isize) > 32
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn relaunch_as_standard() -> bool {
+    let exe_path = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+
+    let status = std::process::Command::new("explorer.exe")
+        .arg(exe_path)
+        .status();
+
+    status.is_ok()
+}
+
+
+
+

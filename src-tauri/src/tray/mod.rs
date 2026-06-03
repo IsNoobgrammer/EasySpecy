@@ -14,7 +14,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = Menu::with_items(app, &[&start_item, &stop_item, &show_item, &quit_item])?;
 
+    let icon_bytes = include_bytes!("../../../public/favicon-16.png");
+    let icon = tauri::image::Image::from_bytes(icon_bytes)?;
+
     let _tray = TrayIconBuilder::new()
+        .icon(icon)
         .menu(&menu)
         .tooltip("EasySpecy")
         .on_menu_event(move |app, event| match event.id.as_ref() {

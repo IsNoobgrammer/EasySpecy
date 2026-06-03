@@ -1,0 +1,3 @@
+- The application uses a hybrid architecture where the `src-tauri` Rust backend handles privileged operations (screen/audio capture, auto-zoom detection, cursor injection) and exposes commands to the `src` React frontend via Tauri's IPC bridge.
+- Shared configuration and capability schemas in `src-tauri/capabilities` and `tauri.conf.json` enforce security boundaries and define the communication contract between the UI shell and the native core.
+- The build process is unified through Vite (`vite.config.ts`) which compiles the React frontend and bundles it into the Tauri application structure, while `Cargo.toml` manages the native dependencies and binary compilation.

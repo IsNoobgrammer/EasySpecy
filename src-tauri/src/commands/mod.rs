@@ -15,7 +15,22 @@ pub fn get_config() -> AppConfig {
 
 #[tauri::command]
 pub fn save_config(config: AppConfig) -> Result<(), String> {
-    config.save().map_err(|e| e.to_string())
+    config.save().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if config.keyboard_game_capture && !crate::is_elevated() {
+            if crate::relaunch_as_admin() {
+                std::process::exit(0);
+            }
+        } else if !config.keyboard_game_capture && crate::is_elevated() {
+            if crate::relaunch_as_standard() {
+                std::process::exit(0);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -93,10 +108,28 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
         "cursor_secondary_color" => {
             config.cursor_secondary_color = value.as_str().unwrap_or("#ff4488").to_string();
         }
+        "keyboard_game_capture" => {
+            config.keyboard_game_capture = value.as_bool().unwrap_or(false);
+        }
 
         _ => return Err(format!("Unknown config key: {}", key)),
     }
-    config.save().map_err(|e| e.to_string())
+    config.save().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        if config.keyboard_game_capture && !crate::is_elevated() {
+            if crate::relaunch_as_admin() {
+                std::process::exit(0);
+            }
+        } else if !config.keyboard_game_capture && crate::is_elevated() {
+            if crate::relaunch_as_standard() {
+                std::process::exit(0);
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -258,8 +291,8 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
     // Start cursor metadata collection for post-processing
     crate::postprocess::start_collection();
 
-    // Start keyboard capture for overlay if enabled
-    if config.keyboard_overlay_enabled {
+    // Start keyboard capture for overlay or auto-zoom if enabled
+    if config.keyboard_overlay_enabled || config.auto_zoom_enabled {
         crate::keyboard::start_keyboard_capture();
     }
 
@@ -523,6 +556,17 @@ pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
 
     let _ = overlay.set_ignore_cursor_events(true);
 
+    // Periodically re-assert always-on-top state to prevent games from going over the overlay HUD
+    let overlay_clone = overlay.clone();
+    std::thread::spawn(move || {
+        while overlay_clone.is_minimized().is_ok() {
+            if let Ok(true) = overlay_clone.is_visible() {
+                let _ = overlay_clone.set_always_on_top(true);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+    });
+
     tracing::info!("Effects overlay window created: {}x{} (logical)", logical_width, logical_height);
     Ok(())
 }
@@ -645,6 +689,18 @@ pub fn create_webcam_overlay(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|e| format!("Failed to create webcam window: {}", e))?;
 
     let _ = overlay.set_ignore_cursor_events(true);
+
+    // Periodically re-assert always-on-top state to keep webcam overlay visible over games
+    let overlay_clone = overlay.clone();
+    std::thread::spawn(move || {
+        while overlay_clone.is_minimized().is_ok() {
+            if let Ok(true) = overlay_clone.is_visible() {
+                let _ = overlay_clone.set_always_on_top(true);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+    });
+
     tracing::info!("Webcam overlay window created OK");
     Ok(())
 }

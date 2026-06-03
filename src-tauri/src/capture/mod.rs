@@ -292,9 +292,14 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
             let mut left_was_down = false;
             let mut right_was_down = false;
             let mut middle_was_down = false;
-            let mut last_x: i32 = 0;
-            let mut last_y: i32 = 0;
-            let mut last_key_state: [bool; 256] = [false; 256];
+            let mut start_point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+            let (mut last_x, mut last_y) = unsafe {
+                if GetCursorPos(&mut start_point).is_ok() {
+                    (start_point.x, start_point.y)
+                } else {
+                    (0, 0)
+                }
+            };
 
             tracing::info!("Mouse tracking thread started");
 
@@ -318,12 +323,13 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                     vx = point.x as f32;
                     vy = point.y as f32;
 
-                    crate::postprocess::record_cursor(vx, vy);
-
-                    // Emit to overlay window only if position changed
+                    // Emit and record only if position changed (prevents high-frequency lock contention)
                     if point.x != last_x || point.y != last_y {
                         last_x = point.x;
                         last_y = point.y;
+
+                        crate::postprocess::record_cursor(vx, vy);
+
                         if let Some(app) = crate::app_handle() {
                             let _ = app.emit_to(
                                 "effects-overlay",
@@ -341,8 +347,10 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
 
                 if left_down && !left_was_down {
                     crate::postprocess::record_click(vx, vy, "left");
-                    // ═══ AUTO-ZOOM: Capture window bounds on click ═══
-                    capture_window_bounds_on_click();
+                    // ═══ AUTO-ZOOM: Capture window bounds on click asynchronously ═══
+                    std::thread::spawn(|| {
+                        capture_window_bounds_on_click();
+                    });
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -353,7 +361,9 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 }
                 if right_down && !right_was_down {
                     crate::postprocess::record_click(vx, vy, "right");
-                    capture_window_bounds_on_click();
+                    std::thread::spawn(|| {
+                        capture_window_bounds_on_click();
+                    });
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -364,7 +374,9 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                 }
                 if middle_down && !middle_was_down {
                     crate::postprocess::record_click(vx, vy, "middle");
-                    capture_window_bounds_on_click();
+                    std::thread::spawn(|| {
+                        capture_window_bounds_on_click();
+                    });
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -374,26 +386,12 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                     }
                 }
 
-                // ═══ AUTO-ZOOM: Detect keyboard activity ═══
-                // Check a subset of common keys (letters, numbers, space, enter)
-                for vk in 0x08..=0x5A_u16 { // VK_BACK through VK_Z
-                    let key_down = unsafe { GetAsyncKeyState(vk as i32) } & 0x8000u16 as i16 != 0;
-                    let idx = vk as usize;
-                    if idx < 256 && key_down && !last_key_state[idx] {
-                        crate::postprocess::record_keyboard_event("Activity");
-                        break; // Only record one key event per poll cycle
-                    }
-                    if idx < 256 {
-                        last_key_state[idx] = key_down;
-                    }
-                }
-
                 left_was_down = left_down;
                 right_was_down = right_down;
                 middle_was_down = middle_down;
 
-                // ~120Hz polling for smoother cursor tracking
-                std::thread::sleep(Duration::from_millis(8));
+                // ~60Hz polling for cursor tracking (balances GPU/CPU and updates smooth 60fps)
+                std::thread::sleep(Duration::from_millis(16));
             }
 
             tracing::info!("Mouse tracking thread stopped");
@@ -666,9 +664,9 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
     set_encoding_progress(100, "Complete");
 
     // ═══ Save cursor metadata and apply effects ═══
-    tracing::error!("══ stop_recording: calling finalize() ══");
+    tracing::info!("══ stop_recording: calling finalize() ══");
     let final_output = if let Some(meta) = crate::postprocess::finalize() {
-        tracing::error!(
+        tracing::info!(
             "══ finalize() returned Some: {} trail, {} clicks, trail='{}', click='{}' ══",
             meta.cursor_trail.len(), meta.click_events.len(),
             meta.trail_style, meta.click_effect
@@ -680,10 +678,10 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
 
         // Apply trail + click effects to the video
         let effects_output = output_path.replace(".mp4", "_fx.mp4");
-        tracing::error!("══ calling apply_effects({}) ══", output_path);
+        tracing::info!("══ calling apply_effects({}) ══", output_path);
         match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
             Ok(ref effects_path) if effects_path != &output_path => {
-                tracing::error!("══ apply_effects SUCCESS: {} → {} ══", effects_path, output_path);
+                tracing::info!("══ apply_effects SUCCESS: {} → {} ══", effects_path, output_path);
                 // Effects were applied — swap files
                 let _ = std::fs::remove_file(&output_path);
                 let _ = std::fs::rename(effects_path, &output_path);
@@ -691,7 +689,7 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
                 output_path.clone()
             }
             Ok(ref same_path) => {
-                tracing::error!("══ apply_effects RETURNED SAME PATH (no effects): {} ══", same_path);
+                tracing::info!("══ apply_effects RETURNED SAME PATH (no effects): {} ══", same_path);
                 output_path.clone()
             }
             Err(e) => {
@@ -700,7 +698,7 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
             }
         }
     } else {
-        tracing::error!("══ finalize() returned None — no metadata! ══");
+        tracing::info!("══ finalize() returned None — no metadata! ══");
         output_path.clone()
     };
 
@@ -940,7 +938,6 @@ fn find_ffmpeg() -> Option<String> {
         exe_dir.parent().unwrap_or(&exe_dir).join("resources").join("ffmpeg.exe"),
         std::path::PathBuf::from("resources").join("ffmpeg.exe"),
         std::path::PathBuf::from("src-tauri").join("resources").join("ffmpeg.exe"),
-        std::path::PathBuf::from(r"C:\Users\shaur\OneDrive\Documents\ffmpeg\bin\ffmpeg.exe"),
     ];
 
     for path in &candidates {

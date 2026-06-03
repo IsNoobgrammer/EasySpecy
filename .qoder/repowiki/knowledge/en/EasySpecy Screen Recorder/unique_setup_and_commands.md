@@ -1,0 +1,1 @@
+Development requires running the Tauri dev server which simultaneously boots the Vite frontend and the Rust backend, typically via `npm run tauri dev` or equivalent Cargo/Vite concurrent processes.
