@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="100%" height="100%">
+  <!-- Definitions for gradients and filters -->
+  <defs>
+    <!-- Background Aurora Gradients -->
+    <radialGradient id="aurora-green" cx="20%" cy="30%" r="50%">
+      <stop offset="0%" stop-color="#00e88a" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#11131e" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="aurora-indigo" cx="80%" cy="70%" r="50%">
+      <stop offset="0%" stop-color="#6366f1" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#11131e" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Card Background Gradient -->
+    <linearGradient id="card-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1c1e2d" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#141622" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <!-- Glass Glow Filter -->
+    <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <style>
+    .title-text { font-family: 'Inter', -apple-system, sans-serif; font-size: 16px; font-weight: 700; fill: #ffffff; }
+    .desc-text { font-family: 'Inter', -apple-system, sans-serif; font-size: 12.5px; fill: #9a9eb5; line-height: 1.5; }
+    .header-tag { font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; fill: #00e88a; letter-spacing: 0.1em; }
+    .card-border { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; fill: url(#card-grad); filter: url(#card-shadow); rx: 16px; }
+    .icon-bg { fill: rgba(0, 232, 138, 0.08); stroke: rgba(0, 232, 138, 0.2); stroke-width: 1; rx: 10px; }
+  </style>
+
+  <!-- Base Background -->
+  <rect width="960" height="540" fill="#11131e" rx="16"/>
+
+  <!-- Aurora Blobs -->
+  <circle cx="150" cy="150" r="350" fill="url(#aurora-green)"/>
+  <circle cx="800" cy="400" r="300" fill="url(#aurora-indigo)"/>
+
+  <!-- GRID LAYOUT -->
+
+  <!-- CARD 1: Cinematic Auto-Zoom (Top Left, Col-span-2) -->
+  <g transform="translate(32, 32)">
+    <rect width="576" height="220" class="card-border"/>
+    <!-- Icon -->
+    <g transform="translate(24, 24)">
+      <rect width="44" height="44" class="icon-bg"/>
+      <path d="M17 17l4 4M24 18a6 6 0 100-12 6 6 0 000 12z" stroke="#00e88a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" transform="translate(6, 6)"/>
+    </g>
+    <!-- Content -->
+    <text x="84" y="44" class="header-tag">MODULE 01</text>
+    <text x="84" y="64" class="title-text">Cinematic Auto-Zoom</text>
+    
+    <foreignObject x="24" y="92" width="528" height="100">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="color:#9a9eb5; font-family:'Inter', sans-serif; font-size:13px; line-height:1.6;">
+        Camera tracking automatically follows cursor movements and clicks. Applies physically simulated spring easing curves for smooth, professional pans and zooms without post-production overhead.
+      </div>
+    </foreignObject>
+  </g>
+
+  <!-- CARD 2: Keyboard Overlay (Top Right, Col-span-1) -->
+  <g transform="translate(640, 32)">
+    <rect width="288" height="220" class="card-border"/>
+    <!-- Icon -->
+    <g transform="translate(24, 24)">
+      <rect width="44" height="44" class="icon-bg"/>
+      <path d="M6 8h12M6 12h12M8 16h8" stroke="#00e88a" stroke-width="2" stroke-linecap="round" fill="none" transform="translate(10, 10)"/>
+    </g>
+    <!-- Content -->
+    <text x="84" y="44" class="header-tag">MODULE 02</text>
+    <text x="84" y="64" class="title-text">Keyboard Overlay</text>
+    
+    <foreignObject x="24" y="92" width="240" height="110">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="color:#9a9eb5; font-family:'Inter', sans-serif; font-size:13px; line-height:1.6;">
+        Real-time keystroke rendering with 4 premium custom themes (Glassmorphic, Solid, Neon, Game HUD). Supports full key-up/down animations.
+      </div>
+    </foreignObject>
+  </g>
+
+  <!-- CARD 3: Cursor Trails (Bottom Left, Col-span-1) -->
+  <g transform="translate(32, 284)">
+    <rect width="288" height="224" class="card-border"/>
+    <!-- Icon -->
+    <g transform="translate(24, 24)">
+      <rect width="44" height="44" class="icon-bg"/>
+      <path d="M6 4l12 6-5 2 4 4-2 2-4-4-1 5z" stroke="#00e88a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" transform="translate(10, 8)"/>
+    </g>
+    <!-- Content -->
+    <text x="84" y="44" class="header-tag">MODULE 03</text>
+    <text x="84" y="64" class="title-text">Cursor Trails</text>
+    
+    <foreignObject x="24" y="92" width="240" height="110">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="color:#9a9eb5; font-family:'Inter', sans-serif; font-size:13px; line-height:1.6;">
+        Smooth vector-interpolated cursor paths, high-fidelity trails, click wave ripples, and multiple brand cursor styles.
+      </div>
+    </foreignObject>
+  </g>
+
+  <!-- CARD 4: Pro Webcam PIP (Bottom Middle, Col-span-1) -->
+  <g transform="translate(352, 284)">
+    <rect width="288" height="224" class="card-border"/>
+    <!-- Icon -->
+    <g transform="translate(24, 24)">
+      <rect width="44" height="44" class="icon-bg"/>
+      <path d="M18 10a4 4 0 11-8 0 4 4 0 018 0zM6 20a6 6 0 0112 0H6z" stroke="#00e88a" stroke-width="2" stroke-linecap="round" fill="none" transform="translate(10, 8)"/>
+    </g>
+    <!-- Content -->
+    <text x="84" y="44" class="header-tag">MODULE 04</text>
+    <text x="84" y="64" class="title-text">Pro Webcam PIP</text>
+    
+    <foreignObject x="24" y="92" width="240" height="110">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="color:#9a9eb5; font-family:'Inter', sans-serif; font-size:13px; line-height:1.6;">
+        Hardware-accelerated facecam picture-in-picture stream. Smooth position shifts, size tuning, shape cropping, and opacity controls.
+      </div>
+    </foreignObject>
+  </g>
+
+  <!-- CARD 5: Sound Mixer (Bottom Right, Col-span-1) -->
+  <g transform="translate(672, 284)">
+    <rect width="256" height="224" class="card-border"/>
+    <!-- Icon -->
+    <g transform="translate(24, 24)">
+      <rect width="44" height="44" class="icon-bg"/>
+      <path d="M4 10h2v4H4zm4-4h2v12H8zm4 3h2v6h-2zm4-5h2v16h-2z" fill="#00e88a" transform="translate(10, 10)"/>
+    </g>
+    <!-- Content -->
+    <text x="84" y="44" class="header-tag">MODULE 05</text>
+    <text x="84" y="64" class="title-text">Dual Sound Mixer</text>
+    
+    <foreignObject x="24" y="92" width="208" height="110">
+      <div xmlns="http://www.w3.org/1999/xhtml" style="color:#9a9eb5; font-family:'Inter', sans-serif; font-size:13px; line-height:1.6;">
+        Dual capture (Mic + Loopback). Includes built-in neural noise suppression (RNNoise) to wipe out typing fan noise.
+      </div>
+    </foreignObject>
+  </g>
+</svg>

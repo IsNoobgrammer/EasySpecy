@@ -36,62 +36,27 @@
 
 ---
 
-## 📸 Interface Preview
+## Interface Preview
 
-Here is how EasySpecy looks in action, adapting automatically to your operating system's theme settings:
+Here is how EasySpecy looks in action, displaying the sleek, high-fidelity light-mode interface:
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/public/docs-main-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="docs/public/docs-inner-light.png">
-  <img src="docs/public/docs-main-dark.png" alt="EasySpecy Dashboard View" width="100%" style="border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 20px 40px rgba(0,0,0,0.35);">
-</picture>
+<div align="center">
+  <img src="docs/public/app-preview-light.png" alt="EasySpecy Dashboard View" width="100%" style="border-radius: 12px; border: 1px solid rgba(0, 0, 0, 0.05); box-shadow: 0 20px 40px rgba(0,0,0,0.12);">
+</div>
 
 ---
 
-## ⚡ Bento Feature Showcase
+## Bento Feature Showcase
 
-<table width="100%">
-  <tr>
-    <td width="50%" valign="top" style="padding: 16px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; background: rgba(21, 24, 40, 0.4);">
-      <h3>🔍 Cinematic Auto-Zoom</h3>
-      <p style="color: #9a9eb5; font-size: 13.5px; line-height: 1.5;">
-        Intelligent camera zoom that tracks your cursor and clicks, applying smooth cubic bezier transitions to mimic professional post-production. Configurable zoom scales, speeds, and focus offsets.
-      </p>
-    </td>
-    <td width="50%" valign="top" style="padding: 16px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; background: rgba(21, 24, 40, 0.4);">
-      <h3>⌨️ Keyboard Overlay</h3>
-      <p style="color: #9a9eb5; font-size: 13.5px; line-height: 1.5;">
-        Display real-time keypresses on screen during tutorials or gameplay. Choose from 4 beautiful themes (including Glassmorphism and Neon), with dynamic keycap bounce animations and latency graphs.
-      </p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top" style="padding: 16px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; background: rgba(21, 24, 40, 0.4);">
-      <h3>🖱️ Customizable Cursor Trails</h3>
-      <p style="color: #9a9eb5; font-size: 13.5px; line-height: 1.5;">
-        Make your cursor highly visible with vector-interpolated smooth trails, click wave ripples, and custom colors. Support for multiple cursor asset packs for a unique presentation.
-      </p>
-    </td>
-    <td width="50%" valign="top" style="padding: 16px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; background: rgba(21, 24, 40, 0.4);">
-      <h3>🎥 Pro Webcam PIP</h3>
-      <p style="color: #9a9eb5; font-size: 13.5px; line-height: 1.5;">
-        Embed your facecam inside a highly customizable, hardware-accelerated picture-in-picture window. Adjust border sizing, shape presets, opacity, and position on the fly without drop frames.
-      </p>
-    </td>
-  </tr>
-  <tr>
-    <td colspan="2" valign="top" style="padding: 16px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; background: rgba(21, 24, 40, 0.4);">
-      <h3>🔊 Dual Audio Noise Gate</h3>
-      <p style="color: #9a9eb5; font-size: 13.5px; line-height: 1.5;">
-        Record both system audio and microphone streams concurrently. Includes integrated RNN noise suppression (via RNNoise) to dynamically filter mouse clicks, keyboard clacks, and background fan hums.
-      </p>
-    </td>
-  </tr>
-</table>
+The modular capture layers are represented in our high-end bento architecture:
+
+<div align="center">
+  <img src="docs/public/bento-showcase.svg" alt="EasySpecy Bento Feature Showcase" width="100%" style="border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 20px 40px rgba(0,0,0,0.35);">
+</div>
 
 ---
 
-## 🏗️ High-Level Design (HLD) & System Architecture
+## High-Level Design (HLD) & System Architecture
 
 EasySpecy is built on a split-architecture model that divides tasks between a web-standard frontend UI and a highly optimized native systems backend.
 
@@ -108,7 +73,8 @@ graph TD
     %% Subgraph layers
     subgraph UI_Layer ["UI Layer (React + Vite)"]
         UI[Settings Panel & Recording Controls]:::frontend
-        KeyOverlay[Keypress Visualizer Overlay]:::frontend
+        KeyOverlay[Keyboard Overlay Window]:::frontend
+        WebcamOverlay[Webcam PIP Window]:::frontend
     end
 
     subgraph Bridge_Layer ["Bridge Layer (Tauri v2)"]
@@ -119,7 +85,7 @@ graph TD
         VideoCapture[Windows Graphics Capture / SCK]:::backend
         AudioCapture[CPAL Audio Capture: System & Mic]:::backend
         RNNoise[RNN Noise Gate Filter]:::backend
-        FrameProcessor[Frame Post-Processor: Easing, Rails, Zoom]:::backend
+        FrameProcessor[Frame Post-Processor: Easing, Trails, Zoom]:::backend
         Rayon[Rayon Parallel Thread Pool]:::backend
         FFmpegPipe[FFmpeg Sub-process Pipeline]:::backend
     end
@@ -127,6 +93,7 @@ graph TD
     subgraph OS_Layer ["Hardware & OS Layer"]
         OS_Video[OS Display Surface Buffer]:::external
         OS_Audio[DirectSound / WASAPI Streams]:::external
+        OS_Webcam[Webcam Hardware Stream]:::external
     end
 
     %% Connections
@@ -136,6 +103,7 @@ graph TD
 
     OS_Video -->|DXGI / SCK Frames| VideoCapture
     OS_Audio -->|cpal Host stream| AudioCapture
+    OS_Webcam -->|HTML5 getUserMedia / Camera API| WebcamOverlay
 
     VideoCapture -->|Raw BGRA Frames| FrameProcessor
     AudioCapture -->|Raw PCM Buffers| RNNoise
@@ -154,34 +122,43 @@ graph TD
    - Rather than scanning memory buffers periodically, the Rust core queries frame updates directly from GPU display surfaces using native system APIs (e.g. `Windows Graphics Capture` on Windows, `ScreenCaptureKit` on macOS).
    - This provides hardware-assisted, sub-millisecond capturing performance, ensuring screen captures remain locked at `60 FPS` even under heavy gaming or CPU rendering loads.
 
-2. **Parallel Frame Post-Processor**:
-   - The captured display frames undergo a processing pipeline that overlays vector-interpolated cursor trails, webcam video PIP nodes, and click ripple effects.
+2. **Parallel Frame Post-Processor & Cursor Trails**:
+   - The captured display frames undergo a processing pipeline that overlays vector-interpolated cursor trails, click wave ripples, and auto-zoom calculations.
    - These compute-heavy operations are chunked and executed in parallel across a CPU thread pool using `Rayon`. It prevents CPU thread bottlenecks and maintains consistent framerates.
 
-3. **High-Performance Audio Pipeline & RNN Filter**:
+3. **Webcam PIP Overlay**:
+   - The facecam feed runs in a dedicated, transparent picture-in-picture viewport.
+   - It captures the camera feed natively on the client using the browser's hardware-accelerated Media Devices API. It is overlayed directly as a hardware-composited window, allowing the screen capturer to record it as part of the desktop scene with zero extra rendering lag.
+
+4. **Keyboard Overlay Engine**:
+   - Real-time keystrokes are captured using native system-wide listener hooks binded via Tauri.
+   - The captured input events are pushed through the IPC bridge, prompting immediate render states inside the overlay component.
+
+5. **High-Performance Audio Pipeline & RNN Filter**:
    - Audio inputs are handled using the `cpal` systems audio interface. The engine captures microphone inputs and loopbacks system audio, converting them to clean single-format PCM audio buffers.
    - The microphone stream is piped directly through `nnnoiseless` (a Rust implementation of Mozilla's `RNNoise` Recurrent Neural Network). The neural network isolates vocal signals and strips out keyboard typing, clicks, and background ambient sounds.
 
-4. **FFmpeg Sub-Process Streaming**:
-   - processed frames (RGBA) and clean audio bytes (PCM) are written directly into an active, low-overhead FFmpeg subprocess pipe.
+6. **FFmpeg Sub-Process Streaming**:
+   - Processed frames (RGBA) and clean audio bytes (PCM) are written directly into an active, low-overhead FFmpeg subprocess pipe.
    - The frames are encoded on the fly (leveraging hardware encoders like H.264 NVENC/AMF/QSV when available) and written to the output file wrapper (`.mp4`), ensuring the video is ready immediately on stop with **zero post-processing delay**.
 
 ---
 
-## 🔧 Platform Support Matrix
+## Platform Support Matrix
 
 | Feature | Windows | macOS | Linux |
 |---------|:-------:|:-----:|:-----:|
-| **Display Capture (60 FPS)** | ✅ (WGC) | ✅ (SCK) | ⚠️ (PipeWire) |
-| **Cinematic Auto-Zoom** | ✅ (Direct) | ❌ | ❌ |
-| **Vector Cursor Trails** | ✅ (Direct) | ❌ | ❌ |
-| **Keyboard Overlay** | ✅ (Tauri Win Hook) | ❌ | ❌ |
-| **RNN Audio Noise Gate** | ✅ (RNNoise) | ✅ (RNNoise) | ✅ (RNNoise) |
-| **Hardware Encoding** | ✅ (NVENC/AMF) | ✅ (VideoToolbox) | ⚠️ (VAAPI) |
+| **Display Capture (60 FPS)** | Yes (WGC) | Yes (SCK) | Experimental (PipeWire) |
+| **Cinematic Auto-Zoom** | Yes (Direct) | No | No |
+| **Vector Cursor Trails** | Yes (Direct) | No | No |
+| **Keyboard Overlay** | Yes (Tauri Win Hook) | No | No |
+| **Webcam Overlay** | Yes (Direct) | Yes (Direct) | Yes (Direct) |
+| **RNN Audio Noise Gate** | Yes (RNNoise) | Yes (RNNoise) | Yes (RNNoise) |
+| **Hardware Encoding** | Yes (NVENC/AMF) | Yes (VideoToolbox) | Experimental (VAAPI) |
 
 ---
 
-## 🛠️ Build from Source
+## Build from Source
 
 ### Prerequisites
 
@@ -217,7 +194,7 @@ Ensure you have the following installed on your machine:
 
 ---
 
-## 📖 Additional Resources
+## Additional Resources
 
 - [Full Documentation Site](https://isnoobgrammer.github.io/EasySpecy/) — Detailed configurations and advanced guides.
 - [Auto-Zoom Guide](https://isnoobgrammer.github.io/EasySpecy/guide/auto-zoom) — Learn how to tweak easing curves.
