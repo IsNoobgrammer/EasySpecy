@@ -121,7 +121,6 @@ export function KeyboardPreview({
   const [sandboxText, setSandboxText] = useState("");
   const [bubbles, setBubbles] = useState<RenderedBubble[]>([]);
   const lastEventTimeRef = useRef<number>(0);
-  const lastShiftTimeRef = useRef<number>(0);
   const sandboxRef = useRef<HTMLInputElement>(null);
 
   // Focus the sandbox on mount
@@ -168,16 +167,6 @@ export function KeyboardPreview({
     if (key === "LShift" || key === "RShift") return "Shift";
     if (key === "LAlt" || key === "RAlt") return "Alt";
     return key;
-  };
-
-  const isModifier = (key: string): boolean => {
-    const norm = normalizeKey(key);
-    return ["Ctrl", "Shift", "Alt", "Win"].includes(norm);
-  };
-
-  const isDelimiter = (key: string): boolean => {
-    const norm = normalizeKey(key);
-    return ["Enter", "Tab", "Esc", "NumEnter"].includes(norm);
   };
 
   const getMapping = (key: string, mappingsJson: string): string => {
@@ -230,8 +219,20 @@ export function KeyboardPreview({
 
   // Capture keystrokes from the input field and process incrementally
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Prevent default behaviour for tab, enter, escape to keep focus and prevent default form actions
+    if (["Tab", "Enter", "Escape"].includes(e.key)) {
+      e.preventDefault();
+      if (e.key === "Enter") {
+        setSandboxText("");
+      }
+    }
+
     const key = e.key;
     const t = Date.now();
+    const ctrl = e.ctrlKey;
+    const shift = e.shiftKey;
+    const alt = e.altKey;
+    const win = e.metaKey;
 
     // Map system names to VK hook names
     let keyName = key;
@@ -247,7 +248,8 @@ export function KeyboardPreview({
 
     const SHIFT_MAP: Record<string, string> = {
       "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
-      "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?"
+      "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?",
+      "`": "~"
     };
 
     const norm = normalizeKey(keyName);
@@ -265,37 +267,118 @@ export function KeyboardPreview({
       }
       lastEventTimeRef.current = t;
 
-      if (norm === "Shift") {
-        lastShiftTimeRef.current = t;
-        return prev; 
-      }
+      const appendCharacter = (char: string) => {
+        const PUNCTUATION = [";", ":", ",", ".", "?", "!"];
+        if (PUNCTUATION.includes(char)) {
+          const last = nextBubbles[nextBubbles.length - 1];
+          if (last && last.type === "text") {
+            last.text += char;
+            last.timestamp = t;
+            last.id = "active";
+            return;
+          }
+        }
 
-      const isShiftActive = (t - lastShiftTimeRef.current) < 500;
+        if (active) {
+          active.text += char;
+          active.timestamp = t;
+        } else {
+          active = {
+            id: "active",
+            type: "text",
+            text: char,
+            timestamp: t
+          };
+          nextBubbles.push(active);
+        }
+      };
 
-      // Space delimiter split (seals active text bubble, does not create space block)
+      const getShiftedKey = (k: string) => {
+        if (/^[a-zA-Z]$/.test(k)) {
+          return k.toUpperCase();
+        }
+        return SHIFT_MAP[k] || null;
+      };
+
+      // Space delimiter split
       if (norm === "Space") {
         if (active) {
           active.id = `bubble-${active.timestamp}`; // seal
         }
+        appendCharacter(" ");
         return nextBubbles;
       }
 
-      // Punctuation attachment (attach to previous text block if available)
-      if ([";", ":", ",", ".", "?", "!"].includes(keyName)) {
-        const last = nextBubbles[nextBubbles.length - 1];
-        if (last && last.type === "text") {
-          last.text += keyName;
-          last.timestamp = t; // update timestamp for timeout
-          last.id = "active"; // make it active again
-          return nextBubbles;
+      // Arrow keys — MUST seal active text and be shown as their own box (as requested)
+      const isArrow = ["←", "↑", "→", "↓", "ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].includes(norm);
+      if (isArrow) {
+        if (active) {
+          active.id = `bubble-${active.timestamp}`; // seal
         }
+        let text = getMapping(norm, overlay.keyMappings);
+        if (ctrl || alt || win || shift) {
+          const parts = [];
+          if (ctrl) parts.push("Ctrl");
+          if (alt) parts.push("Alt");
+          if (win) parts.push("Win");
+          if (shift) parts.push("Shift");
+          parts.push(text);
+          text = parts.join(" + ");
+          nextBubbles.push({
+            id: `shortcut-${t}`,
+            type: "shortcut",
+            text: text,
+            timestamp: t
+          });
+        } else {
+          nextBubbles.push({
+            id: `special-${t}`,
+            type: "special",
+            text: text,
+            timestamp: t
+          });
+        }
+        return nextBubbles;
+      }
+
+      // Check if it's a shortcut combo:
+      const isSpecialKey = ["Enter", "Tab", "Esc", "NumEnter", "Backspace", "Delete", "Insert", "PageUp", "PageDown", "Home", "End", "CapsLock", "ScrollLock", "NumLock", "Pause", "PrintScreen"].includes(norm) || (norm.startsWith("F") && norm.length > 1);
+      
+      const isShortcut = ctrl || alt || win || (shift && isSpecialKey);
+
+      if (isShortcut) {
+        const parts = [];
+        if (ctrl) parts.push("Ctrl");
+        if (alt) parts.push("Alt");
+        if (win) parts.push("Win");
+        
+        if (shift && norm !== "Shift") {
+          parts.push("Shift");
+        }
+
+        if (norm !== "Ctrl" && norm !== "Alt" && norm !== "Win" && norm !== "Shift") {
+          parts.push(getMapping(keyName, overlay.keyMappings));
+        }
+
+        if (parts.length > 0) {
+          if (active) {
+            active.id = `bubble-${active.timestamp}`; // seal
+          }
+          nextBubbles.push({
+            id: `shortcut-${t}`,
+            type: "shortcut",
+            text: parts.join(" + "),
+            timestamp: t
+          });
+        }
+        return nextBubbles;
       }
 
       // Backspace logic
-      if (keyName === "Backspace") {
+      if (norm === "Backspace") {
         if (active && active.text.length > 0) {
           active.text = active.text.slice(0, -1);
-          active.timestamp = t; // update timestamp for timeout
+          active.timestamp = t;
           if (active.text.length === 0) {
             nextBubbles = nextBubbles.filter(b => b.id !== "active");
           }
@@ -303,8 +386,9 @@ export function KeyboardPreview({
         return nextBubbles;
       }
 
-      // Delimiters
-      if (isDelimiter(keyName)) {
+      // Delimiter keys
+      const isDelim = ["Enter", "Tab", "Esc", "NumEnter"].includes(norm);
+      if (isDelim) {
         if (active) {
           active.id = `bubble-${active.timestamp}`; // seal
         }
@@ -317,70 +401,35 @@ export function KeyboardPreview({
         return nextBubbles;
       }
 
-      // Modifier combo check
-      if (isModifier(keyName)) {
-        if (active) {
-          active.id = `bubble-${active.timestamp}`; // seal
+      // Handle Shift + printable keys (e.g. Shift + 1 -> !, Shift + a -> A)
+      if (shift && norm !== "Shift") {
+        const shifted = getShiftedKey(keyName);
+        if (shifted !== null) {
+          appendCharacter(shifted);
+          return nextBubbles;
         }
-        nextBubbles.push({
-          id: `mod-${t}`,
-          type: "special",
-          text: getMapping(keyName, overlay.keyMappings),
-          timestamp: t
-        });
-        return nextBubbles;
       }
 
-      // Normal characters
-      let char = "";
-      if (keyName === "Space") {
-        char = " ";
-      } else if (keyName.length === 1) {
-        const isLetter = /^[A-Z]$/i.test(keyName);
-        if (isLetter) {
-          char = isShiftActive ? keyName.toUpperCase() : keyName.toLowerCase();
+      // Normal characters / symbols (excluding modifier keys themselves)
+      if (norm !== "Ctrl" && norm !== "Alt" && norm !== "Win" && norm !== "Shift") {
+        if (keyName.length === 1) {
+          const char = /^[A-Z]$/.test(keyName) ? keyName.toLowerCase() : keyName;
+          appendCharacter(char);
         } else {
-          char = isShiftActive ? (SHIFT_MAP[keyName] || keyName) : keyName;
+          if (active) {
+            active.id = `bubble-${active.timestamp}`; // seal
+          }
+          nextBubbles.push({
+            id: `special-${t}`,
+            type: "special",
+            text: getMapping(keyName, overlay.keyMappings),
+            timestamp: t
+          });
         }
-      } else {
-        if (active) {
-          active.id = `bubble-${active.timestamp}`; // seal
-        }
-        nextBubbles.push({
-          id: `special-${t}`,
-          type: "special",
-          text: getMapping(keyName, overlay.keyMappings),
-          timestamp: t
-        });
-        return nextBubbles;
-      }
-
-      // Reset shift ref once consumed
-      lastShiftTimeRef.current = 0;
-
-      // Append character to active bubble, or create a new active bubble
-      if (active) {
-        active.text += char;
-        active.timestamp = t; // update timestamp
-      } else {
-        nextBubbles.push({
-          id: "active",
-          type: "text",
-          text: char,
-          timestamp: t
-        });
       }
 
       return nextBubbles;
     });
-
-    // Prevent default behaviour for tab, enter, escape to keep focus and prevent default form actions
-    if (["Tab", "Enter", "Escape"].includes(key)) {
-      e.preventDefault();
-      if (key === "Enter") {
-        setSandboxText("");
-      }
-    }
   };
 
   // If no user typing exists, show a nice mock preview

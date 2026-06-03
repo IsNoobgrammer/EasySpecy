@@ -533,11 +533,6 @@
         // ── Webcam PiP init ──
         initWebcam(cfg);
 
-        // Start polling keyboard events if enabled
-        if (kbConfig.enabled) {
-          setInterval(pollKeyboard, 50); // ~20Hz
-        }
-
         // Show window once configuration has been successfully loaded and applied
         if (window.__TAURI__ && window.__TAURI__.window) {
           window.__TAURI__.window.getCurrentWindow().show().catch(() => {});
@@ -555,31 +550,8 @@
     // Persistent bubble list & Incremental event processing state
     let persistentBubbles = [];
     let activeTextBubble = null;
-    let lastProcessedTimestamp = -1;
     let lastEventTime = 0;
     let recordingStartSystemTime = null;
-
-    // Poll keyboard events
-    async function pollKeyboard() {
-      try {
-        const events = await window.__TAURI__.core.invoke("get_keyboard_events");
-        
-        if (!recordingStartSystemTime && events.length > 0) {
-          recordingStartSystemTime = Date.now() - events[0].timestamp_ms;
-        }
-
-        // Process any new events
-        const newEvents = events.filter(e => e.timestamp_ms > lastProcessedTimestamp);
-        if (newEvents.length > 0) {
-          processEventsIncremental(newEvents);
-          lastProcessedTimestamp = newEvents[newEvents.length - 1].timestamp_ms;
-        }
-
-        updateKeyboardOverlay();
-      } catch (e) {
-        console.error("Keyboard poll failed:", e);
-      }
-    }
 
     function escapeHtml(text) {
       return text
@@ -591,11 +563,6 @@
     }
 
     function processEventsIncremental(newEvents) {
-      const SHIFT_MAP = {
-        "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
-        "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?"
-      };
-
       let mappings = {};
       try {
         mappings = JSON.parse(kbConfig.keyMappings);
@@ -606,20 +573,6 @@
         if (key === "LShift" || key === "RShift") return "Shift";
         if (key === "LAlt" || key === "RAlt") return "Alt";
         return key;
-      };
-
-      const isModifier = (key) => {
-        const norm = normalizeKey(key);
-        return ["Ctrl", "Shift", "Alt", "Win"].includes(norm);
-      };
-
-      const isShortcutTarget = (key) => {
-        return !isModifier(key);
-      };
-
-      const isDelimiter = (key) => {
-        const norm = normalizeKey(key);
-        return ["Enter", "Tab", "Esc", "NumEnter"].includes(norm);
       };
 
       const getMapping = (key) => {
@@ -652,10 +605,26 @@
         }
       };
 
+      const getShiftedKey = (k) => {
+        if (/^[a-zA-Z]$/.test(k)) {
+          return k.toUpperCase();
+        }
+        const SHIFT_MAP = {
+          "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
+          "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?",
+          "`": "~"
+        };
+        return SHIFT_MAP[k] || null;
+      };
+
       for (let i = 0; i < newEvents.length; i++) {
         const event = newEvents[i];
-        const key = event.key;
+        let key = event.key;
         const t = event.timestamp_ms;
+        const ctrl = event.ctrl || false;
+        const shift = event.shift || false;
+        const alt = event.alt || false;
+        const win = event.win || false;
 
         // Idle pause timeout check (1.2s between consecutive keys)
         if (activeTextBubble && lastEventTime > 0 && t - lastEventTime > 1200) {
@@ -665,71 +634,79 @@
 
         const norm = normalizeKey(key);
 
-        // Space delimiter split (no visible block created)
+        // Space delimiter split
         if (norm === "Space") {
           activeTextBubble = null;
+          if (key === "*") {
+            appendCharacter("*", t);
+          } else {
+            appendCharacter(" ", t);
+          }
           continue;
         }
 
-        // Handle Shift + key combos (e.g. Shift + E -> E, Shift + 1 -> !)
-        if (norm === "Shift") {
-          let nextIdx = i + 1;
-          if (nextIdx < newEvents.length && newEvents[nextIdx].timestamp_ms - t < 500) {
-            const nextKey = newEvents[nextIdx].key;
-            const normalizedNext = normalizeKey(nextKey);
-            
-            const isLetter = /^[A-Z]$/i.test(normalizedNext);
-            const shiftMapped = SHIFT_MAP[normalizedNext];
-            
-            if (isLetter || shiftMapped) {
-              const typedChar = isLetter ? normalizedNext.toUpperCase() : shiftMapped;
-              appendCharacter(typedChar, t);
-              i = nextIdx; // Skip Shift and the combined character
-              continue;
-            }
+        // Arrow keys — MUST seal active text and be shown as their own box (as requested)
+        const isArrow = ["←", "↑", "→", "↓", "ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"].includes(norm);
+        if (isArrow) {
+          activeTextBubble = null;
+          let text = getMapping(norm);
+          // If there are modifiers (e.g. Ctrl + Arrow)
+          if (ctrl || alt || win || shift) {
+            const parts = [];
+            if (ctrl) parts.push("Ctrl");
+            if (alt) parts.push("Alt");
+            if (win) parts.push("Win");
+            if (shift) parts.push("Shift");
+            parts.push(text);
+            text = parts.join(" + ");
+            persistentBubbles.push({
+              type: "shortcut",
+              text: text,
+              lastUpdatedTime: t,
+            });
+          } else {
+            persistentBubbles.push({
+              type: "special",
+              text: text,
+              lastUpdatedTime: t,
+            });
           }
+          continue;
         }
 
-        // Check modifier combinations
-        if (isModifier(key)) {
-          const comboKeys = [key];
-          let nextIdx = i + 1;
+        // Check if it's a shortcut combo:
+        // ctrl, alt, or win are active, OR (shift is active AND key is a special/non-printable key)
+        const isSpecialKey = ["Enter", "Tab", "Esc", "NumEnter", "Backspace", "Delete", "Insert", "PageUp", "PageDown", "Home", "End", "CapsLock", "ScrollLock", "NumLock", "Pause", "PrintScreen"].includes(norm) || (norm.startsWith("F") && norm.length > 1);
+        
+        const isShortcut = ctrl || alt || win || (shift && isSpecialKey);
+
+        if (isShortcut) {
+          const parts = [];
+          if (ctrl) parts.push("Ctrl");
+          if (alt) parts.push("Alt");
+          if (win) parts.push("Win");
           
-          while (
-            nextIdx < newEvents.length &&
-            (isModifier(newEvents[nextIdx].key) || isShortcutTarget(newEvents[nextIdx].key)) &&
-            newEvents[nextIdx].timestamp_ms - event.timestamp_ms < 500
-          ) {
-            comboKeys.push(newEvents[nextIdx].key);
-            if (!isModifier(newEvents[nextIdx].key)) {
-              break;
-            }
-            nextIdx++;
+          if (shift && norm !== "Shift") {
+            parts.push("Shift");
           }
 
-          if (comboKeys.length > 1) {
-            const formatted = comboKeys.map(getMapping).join(" + ");
+          if (norm !== "Ctrl" && norm !== "Alt" && norm !== "Win" && norm !== "Shift") {
+            parts.push(getMapping(key));
+          }
+
+          if (parts.length > 0) {
             activeTextBubble = null;
             persistentBubbles.push({
               type: "shortcut",
-              text: formatted,
+              text: parts.join(" + "),
               lastUpdatedTime: t,
             });
-            i = nextIdx;
-            continue;
-          } else {
-            activeTextBubble = null;
-            persistentBubbles.push({
-              type: "special",
-              text: getMapping(key),
-              lastUpdatedTime: t,
-            });
-            continue;
           }
+          continue;
         }
 
         // Backspace logic (modifies text in place, never shows backspace bubble)
-        if (key === "Backspace") {
+        if (norm === "Backspace") {
           if (activeTextBubble && activeTextBubble.text.length > 0) {
             activeTextBubble.text = activeTextBubble.text.slice(0, -1);
             activeTextBubble.lastUpdatedTime = t;
@@ -745,7 +722,8 @@
         }
 
         // Delimiter keys
-        if (isDelimiter(key)) {
+        const isDelim = ["Enter", "Tab", "Esc", "NumEnter"].includes(norm);
+        if (isDelim) {
           activeTextBubble = null;
           persistentBubbles.push({
             type: "special",
@@ -755,25 +733,29 @@
           continue;
         }
 
-        // Normal characters
-        let char = "";
-        if (key === "Space") {
-          char = " ";
-        } else if (key.length === 1) {
-          // Convert to lowercase if typed without Shift (Windows VK hook returns capital A-Z by default)
-          char = /^[A-Z]$/.test(key) ? key.toLowerCase() : key;
-        } else {
-          activeTextBubble = null;
-          persistentBubbles.push({
-            type: "special",
-            text: getMapping(key),
-            lastUpdatedTime: t,
-          });
-          continue;
+        // Handle Shift + printable keys (e.g. Shift + 1 -> !, Shift + a -> A)
+        if (shift && norm !== "Shift") {
+          const shifted = getShiftedKey(key);
+          if (shifted !== null) {
+            appendCharacter(shifted, t);
+            continue;
+          }
         }
 
-        // Append or create new bubble
-        appendCharacter(char, t);
+        // Normal characters / symbols (excluding modifier keys themselves)
+        if (norm !== "Ctrl" && norm !== "Alt" && norm !== "Win" && norm !== "Shift") {
+          if (key.length === 1) {
+            const char = /^[A-Z]$/.test(key) ? key.toLowerCase() : key;
+            appendCharacter(char, t);
+          } else {
+            activeTextBubble = null;
+            persistentBubbles.push({
+              type: "special",
+              text: getMapping(key),
+              lastUpdatedTime: t,
+            });
+          }
+        }
       }
     }
 
@@ -816,9 +798,7 @@
       // Reveal overlay when there are bubbles to show
       el.classList.remove("kb-hidden");
 
-      // ── Diff-based DOM update: only touch the DOM when content changes ──
-      // This is the key fix for preventing jitter/flashing —
-      // browsers tear-down and repaint even on identical innerHTML assignments.
+      // Diff-based DOM update: only touch the DOM when content changes
       const newHtml = persistentBubbles.map(b =>
         `<div class="kb-bubble">${escapeHtml(b.text)}</div>`
       ).join("");
@@ -846,6 +826,16 @@
         await listen("cursor-click", (event) => {
           const [x, y, _button] = event.payload;
           click.addClick(x / window.devicePixelRatio, y / window.devicePixelRatio);
+        });
+
+        // Keyboard events — arrives on key press from Rust to prevent background throttling
+        await listen("keyboard-event", (event) => {
+          const keyEvent = event.payload;
+          if (!recordingStartSystemTime) {
+            recordingStartSystemTime = Date.now() - keyEvent.timestamp_ms;
+          }
+          processEventsIncremental([keyEvent]);
+          updateKeyboardOverlay();
         });
 
         console.log("[EasySpecy] Event listeners registered — receiving cursor data from Rust");

@@ -77,6 +77,10 @@ export interface KeyEvent {
   key: string;
   timestamp_ms: number;
   duration_ms: number;
+  ctrl?: boolean;
+  shift?: boolean;
+  alt?: boolean;
+  win?: boolean;
 }
 
 export interface RecordingResult {
