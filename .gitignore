@@ -32,7 +32,7 @@ brand/
 scratch/
 
 # Test binaries (standalone test harnesses, not unit tests)
-src-tauri/src/bin/
+# src-tauri/src/bin/
 src-tauri/resources/ffmpeg.exe
 
 # EasySpecy extra ignores
