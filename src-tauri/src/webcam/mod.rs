@@ -124,12 +124,8 @@ pub fn stop_webcam_capture() -> (Option<String>, f64) {
         return (None, 0.0);
     }
 
-    // Compute elapsed time BEFORE signaling stop (so we don't include post-stop work)
-    let elapsed = WEBCAM_ARMED_TIME
-        .lock()
-        .unwrap()
-        .map(|t| t.elapsed().as_secs_f64())
-        .unwrap_or(0.0);
+    // Compute active elapsed time (excluding paused duration) BEFORE signaling stop
+    let elapsed = crate::capture::get_active_recording_time() as f64 / 1000.0;
 
     WEBCAM_STOP.store(true, Ordering::SeqCst);
 
@@ -506,6 +502,10 @@ fn webcam_capture_loop(
 
         match camera.frame() {
             Ok(frame) => {
+                if crate::capture::SYNC_MANAGER.overlay.webcam.is_paused() {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
+                }
                 // Decode the frame to RGB
                 let decoded = match frame.decode_image::<RgbFormat>() {
                     Ok(img) => img,

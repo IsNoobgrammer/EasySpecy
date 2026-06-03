@@ -199,17 +199,30 @@ export function Settings({ onBack }: { onBack: () => void }) {
             </Row>
             
             <div className="pt-2 border-t space-y-4" style={{ borderColor: "var(--border-default)" }}>
+              <Row label="Enable GPU Encoders" desc="Allow GPU-accelerated video encoders (Nvidia NVENC)">
+                <Toggle
+                  checked={local.gpu_encoders_enabled}
+                  onChange={(v) => {
+                    update("gpu_encoders_enabled", v);
+                    if (!v && ["AV1_NVENC", "H264_NVENC", "H265_NVENC"].includes(local.video_encoder)) {
+                      if (local.video_encoder === "AV1_NVENC") update("video_encoder", "AV1");
+                      else if (local.video_encoder === "H264_NVENC") update("video_encoder", "H264");
+                      else update("video_encoder", "H265");
+                    }
+                  }}
+                />
+              </Row>
               <Row label="Video Encoder" desc="Select video codec format (libx264 is default)">
                 <Select
                   value={local.video_encoder}
                   onChange={(v) => update("video_encoder", v as any)}
                   options={[
                     { label: "AV1 (SVT-AV1)", value: "AV1" },
-                    { label: "AV1 NVENC (RTX 40xx)", value: "AV1_NVENC" },
+                    ...(local.gpu_encoders_enabled ? [{ label: "AV1 NVENC (RTX 40xx)", value: "AV1_NVENC" }] : []),
                     { label: "H.264 CPU", value: "H264" },
-                    { label: "H.264 NVENC GPU", value: "H264_NVENC" },
+                    ...(local.gpu_encoders_enabled ? [{ label: "H.264 NVENC GPU", value: "H264_NVENC" }] : []),
                     { label: "H.265 CPU", value: "H265" },
-                    { label: "H.265 NVENC GPU", value: "H265_NVENC" },
+                    ...(local.gpu_encoders_enabled ? [{ label: "H.265 NVENC GPU", value: "H265_NVENC" }] : []),
                     { label: "VP9 CPU", value: "VP9" },
                   ]}
                 />

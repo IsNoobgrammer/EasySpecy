@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
@@ -24,12 +24,14 @@ export default function App() {
   const startAudioMonitor = useStore((s) => s.startAudioMonitor);
   const stopAudioMonitor = useStore((s) => s.stopAudioMonitor);
   const pollAudioLevels = useStore((s) => s.pollAudioLevels);
+  const syncRecordingStatus = useStore((s) => s.syncRecordingStatus);
   const { theme, toggleTheme } = useThemeStore();
   const [version, setVersion] = useState("0.1.0");
 
   useEffect(() => {
     loadConfig();
     loadHistory();
+    syncRecordingStatus();
     invoke<string>("get_version").then(setVersion).catch(() => {});
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
@@ -37,6 +39,17 @@ export default function App() {
     const unlisten = listen("region-recording-started", () => {
       useStore.setState({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       useStore.getState().addToast("Recording started (region)", "success");
+    });
+    // System tray listeners
+    const unlistenTrayStart = listen("tray-start-recording", () => {
+      if (useStore.getState().recordingPhase === "idle") {
+        useStore.getState().startRecording();
+      }
+    });
+    const unlistenTrayStop = listen("tray-stop-recording", () => {
+      if (useStore.getState().recordingPhase === "recording") {
+        useStore.getState().stopRecording();
+      }
     });
     // Release browser webcam when backend needs the device for nokhwa capture
     const unlistenWebcam = listen("release-webcam", () => {
@@ -56,6 +69,8 @@ export default function App() {
       unlisten.then((fn) => fn());
       unlistenWebcam.then((fn) => fn());
       unlistenWebcamError.then((fn) => fn());
+      unlistenTrayStart.then((fn) => fn());
+      unlistenTrayStop.then((fn) => fn());
     };
   }, []);
 
@@ -74,6 +89,27 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  // Periodic synchronization of recording status with Rust backend (every 2 seconds)
+  useEffect(() => {
+    const interval = setInterval(syncRecordingStatus, 2000);
+    return () => clearInterval(interval);
+  }, [syncRecordingStatus]);
+
+  // Disable browser default reloads (Ctrl+R, Ctrl+Shift+R, F5)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        (e.ctrlKey && e.key.toLowerCase() === "r") ||
+        (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "r") ||
+        e.key === "F5"
+      ) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const isRecording = recordingPhase === "recording";
   const appContextMenu = useAppContextMenu(setPage);

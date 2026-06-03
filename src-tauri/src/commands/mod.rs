@@ -82,7 +82,7 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
             config.cursor_trail_color = value.as_str().unwrap_or("#00ff88").to_string();
         }
         "video_encoder" => {
-            config.video_encoder = match value.as_str() {
+            let parsed = match value.as_str() {
                 Some("H264") => crate::config::VideoEncoder::H264,
                 Some("H265") => crate::config::VideoEncoder::H265,
                 Some("AV1") => crate::config::VideoEncoder::AV1,
@@ -92,6 +92,28 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
                 Some("VP9") => crate::config::VideoEncoder::VP9,
                 _ => crate::config::VideoEncoder::AV1,
             };
+            if !config.gpu_encoders_enabled {
+                config.video_encoder = match parsed {
+                    crate::config::VideoEncoder::AV1_NVENC => crate::config::VideoEncoder::AV1,
+                    crate::config::VideoEncoder::H264_NVENC => crate::config::VideoEncoder::H264,
+                    crate::config::VideoEncoder::H265_NVENC => crate::config::VideoEncoder::H265,
+                    other => other,
+                };
+            } else {
+                config.video_encoder = parsed;
+            }
+        }
+        "gpu_encoders_enabled" => {
+            let enabled = value.as_bool().unwrap_or(false);
+            config.gpu_encoders_enabled = enabled;
+            if !enabled {
+                match config.video_encoder {
+                    crate::config::VideoEncoder::AV1_NVENC => config.video_encoder = crate::config::VideoEncoder::AV1,
+                    crate::config::VideoEncoder::H264_NVENC => config.video_encoder = crate::config::VideoEncoder::H264,
+                    crate::config::VideoEncoder::H265_NVENC => config.video_encoder = crate::config::VideoEncoder::H265,
+                    _ => {}
+                }
+            }
         }
         "video_quality" => {
             config.video_quality = match value.as_str() {
@@ -357,13 +379,11 @@ pub fn get_encoding_progress() -> (u32, String) {
 
 #[tauri::command]
 pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingResult, String> {
-    // Restore main window if minimized/hidden to tray
-    let config = AppConfig::load();
-    if config.minimize_to_tray {
-        if let Some(main_window) = app.get_webview_window("main") {
-            let _ = main_window.show();
-            let _ = main_window.set_focus();
-        }
+    // Restore main window if minimized/hidden/out of focus so user sees encoding progress
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.unminimize();
+        let _ = main_window.show();
+        let _ = main_window.set_focus();
     }
 
     // Destroy effects overlay window (contains cursor trail, keyboard overlay AND webcam PiP)
@@ -412,13 +432,20 @@ pub fn resume_recording_cmd() {
     capture::resume_recording();
 }
 
+#[derive(serde::Serialize)]
+pub struct RecordingStatus {
+    pub is_recording: bool,
+    pub is_paused: bool,
+    pub active_time_ms: u64,
+}
+
 #[tauri::command]
-pub fn get_recording_status() -> (bool, bool, u32) {
-    (
-        capture::is_recording(),
-        capture::is_paused(),
-        capture::frame_count(),
-    )
+pub fn get_recording_status() -> RecordingStatus {
+    RecordingStatus {
+        is_recording: capture::is_recording(),
+        is_paused: capture::is_paused(),
+        active_time_ms: capture::get_active_recording_time(),
+    }
 }
 
 #[tauri::command]

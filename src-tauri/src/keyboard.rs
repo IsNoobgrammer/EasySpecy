@@ -337,6 +337,12 @@ fn run_worker(
     tracing::info!("Keyboard worker thread started (initial modifiers: shift={}, ctrl={}, alt={}, win={})", shift, ctrl, alt, win);
 
     while running.load(Ordering::Relaxed) {
+        if crate::capture::SYNC_MANAGER.overlay.keyboard.is_paused() {
+            while pop_raw_event().is_some() {}
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            continue;
+        }
+
         // Poll all events currently in the lock-free queue
         while let Some(raw_event) = pop_raw_event() {
             let vk = raw_event.vk_code;

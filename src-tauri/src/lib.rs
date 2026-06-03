@@ -10,6 +10,8 @@ mod region;
 pub mod sync_verifier;
 pub mod webcam;
 mod tray;
+pub mod sync_manager;
+
 
 use std::sync::OnceLock;
 use tauri::AppHandle;

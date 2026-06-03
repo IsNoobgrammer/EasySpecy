@@ -232,10 +232,23 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
   }, []);
 
   useEffect(() => {
-    if (recordingPhase !== "recording" || !recordingStartTime) return;
-    const interval = setInterval(() => setElapsed(formatDuration(Date.now() - recordingStartTime)), 1000);
+    if (recordingPhase !== "recording") return;
+
+    const updateTimer = () => {
+      const state = useStore.getState();
+      if (state.isPaused) {
+        setElapsed(formatDuration(state.accumulatedTimeMs));
+      } else if (state.recordingStartTime) {
+        setElapsed(formatDuration(state.accumulatedTimeMs + (Date.now() - state.recordingStartTime)));
+      }
+    };
+
+    updateTimer();
+    if (isPaused) return;
+
+    const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [recordingPhase, recordingStartTime]);
+  }, [recordingPhase, isPaused, recordingStartTime]);
 
   const isRecording = recordingPhase === "recording";
   const isEncoding = recordingPhase === "encoding";
@@ -492,11 +505,11 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
             label="Encoder" value={encoderValue} index={3} disabled={isRecording}
             options={[
               { label: "AV1 — Best compression", value: "AV1" },
-              { label: "AV1 NVENC — GPU (RTX 40+)", value: "AV1_NVENC" },
+              ...(config?.gpu_encoders_enabled ? [{ label: "AV1 NVENC — GPU (RTX 40+)", value: "AV1_NVENC" }] : []),
               { label: "H.265 — Great compression", value: "H265" },
-              { label: "H.265 NVENC — GPU", value: "H265_NVENC" },
+              ...(config?.gpu_encoders_enabled ? [{ label: "H.265 NVENC — GPU", value: "H265_NVENC" }] : []),
               { label: "H.264 — Fast, universal", value: "H264" },
-              { label: "H.264 NVENC — GPU", value: "H264_NVENC" },
+              ...(config?.gpu_encoders_enabled ? [{ label: "H.264 NVENC — GPU", value: "H264_NVENC" }] : []),
               { label: "VP9 — Web-friendly", value: "VP9" },
             ]}
             onSelect={(v) => { updateField("video_encoder", v); loadEstimatedSize(); }}

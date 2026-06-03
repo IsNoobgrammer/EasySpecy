@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { register, unregister } from "@tauri-apps/plugin-global-shortcut";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export interface AppConfig {
   output_dir: string;
@@ -72,6 +73,8 @@ export interface AppConfig {
   keyboard_overlay_max_bubbles: number;
   keyboard_overlay_bubble_timeout_ms: number;
   keyboard_overlay_width: number;
+
+  gpu_encoders_enabled: boolean;
 }
 
 export interface KeyEvent {
@@ -135,6 +138,7 @@ interface AppState {
   recordingPhase: RecordingPhase;
   isPaused: boolean;
   recordingStartTime: number | null;
+  accumulatedTimeMs: number;
   lastRecording: RecordingResult | null;
   history: RecordingEntry[];
   audioDevices: string[];
@@ -148,6 +152,7 @@ interface AppState {
   audioLevels: AudioLevels;
 
   loadConfig: () => Promise<void>;
+  syncRecordingStatus: () => Promise<void>;
   saveConfig: (config: AppConfig) => Promise<void>;
   updateField: (key: string, value: string | number | boolean) => Promise<void>;
   startRecording: () => Promise<void>;
@@ -180,6 +185,7 @@ export const useStore = create<AppState>((set, get) => ({
   recordingPhase: "idle",
   isPaused: false,
   recordingStartTime: null,
+  accumulatedTimeMs: 0,
   lastRecording: null,
   history: [],
   audioDevices: [],
@@ -238,13 +244,31 @@ export const useStore = create<AppState>((set, get) => ({
     const { config } = get();
     if (!config) return;
     try {
-      const startKey = config.hotkey_start.toLowerCase().replace(/\s/g, "");
-      const stopKey = config.hotkey_stop.toLowerCase().replace(/\s/g, "");
-      await register(startKey, (event) => {
-        if (event.state === "Pressed" && get().recordingPhase === "idle") get().startRecording();
+      const formatKey = (key: string) => {
+        return key
+          .replace(/Ctrl/gi, "Control")
+          .replace(/Win/gi, "Super")
+          .replace(/\s/g, "");
+      };
+
+      const startKey = formatKey(config.hotkey_start);
+      const stopKey = formatKey(config.hotkey_stop);
+      const pauseKey = formatKey(config.hotkey_pause);
+
+      await register(startKey, () => {
+        if (get().recordingPhase === "idle") get().startRecording();
       });
-      await register(stopKey, (event) => {
-        if (event.state === "Pressed" && get().recordingPhase === "recording") get().stopRecording();
+      await register(stopKey, () => {
+        if (get().recordingPhase === "recording") get().stopRecording();
+      });
+      await register(pauseKey, () => {
+        if (get().recordingPhase === "recording") {
+          if (get().isPaused) {
+            get().resumeRecording();
+          } else {
+            get().pauseRecording();
+          }
+        }
       });
       set({ hotkeysRegistered: true });
     } catch (e) { console.error("Hotkey registration failed:", e); }
@@ -254,8 +278,15 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const { config } = get();
       if (config) {
-        await unregister(config.hotkey_start.toLowerCase().replace(/\s/g, "")).catch(() => {});
-        await unregister(config.hotkey_stop.toLowerCase().replace(/\s/g, "")).catch(() => {});
+        const formatKey = (key: string) => {
+          return key
+            .replace(/Ctrl/gi, "Control")
+            .replace(/Win/gi, "Super")
+            .replace(/\s/g, "");
+        };
+        await unregister(formatKey(config.hotkey_start)).catch(() => {});
+        await unregister(formatKey(config.hotkey_stop)).catch(() => {});
+        await unregister(formatKey(config.hotkey_pause)).catch(() => {});
       }
       set({ hotkeysRegistered: false });
     } catch {}
@@ -272,7 +303,7 @@ export const useStore = create<AppState>((set, get) => ({
       get().addToast("Initializing capture...", "info");
       await invoke("start_recording", { outputPath: null });
       // Only now is capture truly active
-      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now(), accumulatedTimeMs: 0 });
       get().addToast(`Recording region: ${region.width}×${region.height}`, "success");
     } catch (e) {
       await invoke("exit_region_mode").catch(() => {});
@@ -301,13 +332,23 @@ export const useStore = create<AppState>((set, get) => ({
       // and audio is armed — guaranteeing perfect sync
       await invoke("start_recording", { outputPath: null });
       // Only NOW do we start the timer — capture is truly active
-      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now(), accumulatedTimeMs: 0 });
       get().addToast("Recording started", "success");
     } catch (e) { get().addToast(`Start failed: ${e}`, "error"); }
   },
 
   stopRecording: async () => {
     try {
+      // Bring the window to the front so the user can see the encoding progress!
+      try {
+        const win = getCurrentWindow();
+        await win.unminimize();
+        await win.show();
+        await win.setFocus();
+      } catch (e) {
+        console.warn("Failed to restore/focus window:", e);
+      }
+
       set({ recordingPhase: "encoding", encodingProgress: 0, encodingStage: "Stopping capture..." });
       // Start polling encoding progress
       const progressInterval = setInterval(async () => {
@@ -337,13 +378,83 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   pauseRecording: async () => {
-    try { await invoke("pause_recording_cmd"); set({ isPaused: true }); get().addToast("Paused", "info"); }
+    try {
+      await invoke("pause_recording_cmd");
+      const { recordingStartTime, accumulatedTimeMs } = get();
+      const currentSessionTime = recordingStartTime ? Date.now() - recordingStartTime : 0;
+      set({
+        isPaused: true,
+        accumulatedTimeMs: accumulatedTimeMs + currentSessionTime,
+        recordingStartTime: null
+      });
+      get().addToast("Paused", "info");
+    }
     catch (e) { get().addToast(`Pause failed: ${e}`, "error"); }
   },
 
   resumeRecording: async () => {
-    try { await invoke("resume_recording_cmd"); set({ isPaused: false }); get().addToast("Resumed", "info"); }
+    try {
+      await invoke("resume_recording_cmd");
+      set({
+        isPaused: false,
+        recordingStartTime: Date.now()
+      });
+      get().addToast("Resumed", "info");
+    }
     catch (e) { get().addToast(`Resume failed: ${e}`, "error"); }
+  },
+
+  syncRecordingStatus: async () => {
+    try {
+      const status = await invoke<{ is_recording: boolean; is_paused: boolean; active_time_ms: number }>("get_recording_status");
+      const { recordingPhase, isPaused } = get();
+
+      if (status.is_recording) {
+        if (recordingPhase !== "recording") {
+          if (status.is_paused) {
+            set({
+              recordingPhase: "recording",
+              isPaused: true,
+              accumulatedTimeMs: status.active_time_ms,
+              recordingStartTime: null,
+            });
+          } else {
+            set({
+              recordingPhase: "recording",
+              isPaused: false,
+              accumulatedTimeMs: 0,
+              recordingStartTime: Date.now() - status.active_time_ms,
+            });
+          }
+        } else {
+          if (status.is_paused !== isPaused) {
+            if (status.is_paused) {
+              set({
+                isPaused: true,
+                accumulatedTimeMs: status.active_time_ms,
+                recordingStartTime: null,
+              });
+            } else {
+              set({
+                isPaused: false,
+                accumulatedTimeMs: 0,
+                recordingStartTime: Date.now() - status.active_time_ms,
+              });
+            }
+          }
+        }
+      } else {
+        if (recordingPhase === "recording") {
+          set({
+            recordingPhase: "idle",
+            isPaused: false,
+            recordingStartTime: null,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Failed to sync recording status:", e);
+    }
   },
 
   loadAudioDevices: async () => {

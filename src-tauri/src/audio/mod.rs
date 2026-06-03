@@ -265,7 +265,6 @@ impl AudioCapture {
             let samples = self.mic_samples.clone();
             let recording = self.recording.clone();
             let armed = self.armed.clone();
-            let paused = self.paused.clone();
             let stream_config: cpal::StreamConfig = supported.clone().into();
 
             let stream = match supported.sample_format() {
@@ -274,7 +273,7 @@ impl AudioCapture {
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
-                            && !paused.load(Ordering::Relaxed)
+                            && !crate::capture::SYNC_MANAGER.audio.mic.is_paused()
                         {
                             samples.lock().unwrap().extend_from_slice(data);
                         }
@@ -287,7 +286,7 @@ impl AudioCapture {
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
-                            && !paused.load(Ordering::Relaxed)
+                            && !crate::capture::SYNC_MANAGER.audio.mic.is_paused()
                         {
                             let mut buf = samples.lock().unwrap();
                             for &s in data {
@@ -319,7 +318,6 @@ impl AudioCapture {
             let samples = self.sys_samples.clone();
             let recording = self.recording.clone();
             let armed = self.armed.clone();
-            let paused = self.paused.clone();
             // Shared timing state for timeline alignment (see aligned_append).
             // WASAPI loopback delivers NO packets while the system is silent, so we
             // must place each batch at its true wall-clock offset, not at buf end.
@@ -335,7 +333,7 @@ impl AudioCapture {
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
-                            && !paused.load(Ordering::Relaxed)
+                            && !crate::capture::SYNC_MANAGER.audio.system.is_paused()
                         {
                             let mut buf = samples.lock().unwrap();
                             aligned_append(&mut buf, data, &armed_instant, &paused_dur, sys_rate, sys_channels);
@@ -349,7 +347,7 @@ impl AudioCapture {
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         if recording.load(Ordering::Relaxed)
                             && armed.load(Ordering::Relaxed)
-                            && !paused.load(Ordering::Relaxed)
+                            && !crate::capture::SYNC_MANAGER.audio.system.is_paused()
                         {
                             let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                             let mut buf = samples.lock().unwrap();
@@ -545,10 +543,10 @@ impl AudioCapture {
     }
 
     pub fn resume(&self) {
-        self.paused.store(false, Ordering::SeqCst);
         if let Some(start) = self.pause_start.lock().unwrap().take() {
             *self.paused_duration.lock().unwrap() += start.elapsed();
         }
+        self.paused.store(false, Ordering::SeqCst);
     }
 }
 

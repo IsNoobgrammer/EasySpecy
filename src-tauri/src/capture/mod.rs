@@ -56,24 +56,19 @@ pub struct RecordingConfig {
     pub webcam_opacity: f32,
 }
 
+pub static SYNC_MANAGER: crate::sync_manager::SyncManager = crate::sync_manager::SyncManager::new();
+
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
-static SHOULD_STOP: AtomicBool = AtomicBool::new(false);
 static OUTPUT_PATH: Mutex<String> = Mutex::new(String::new());
 static VIDEO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
 static AUDIO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
-static START_TIME: Mutex<Option<Instant>> = Mutex::new(None);
-static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
-static RECORDING_PAUSED: AtomicBool = AtomicBool::new(false);
 static AUDIO_CAPTURE: Mutex<Option<AudioCapture>> = Mutex::new(None);
 static ENABLE_AUDIO: AtomicBool = AtomicBool::new(false);
-/// Sync gate: audio records only when this is true. Set on first video frame.
-static CAPTURE_ARMED: AtomicBool = AtomicBool::new(false);
-/// Signal to frontend: capture is ready and actively recording
-static CAPTURE_READY: AtomicBool = AtomicBool::new(false);
-/// Encoding progress: 0-100 (polled by frontend during encoding phase)
 static ENCODING_PROGRESS: AtomicU32 = AtomicU32::new(0);
-/// Encoding stage description
 static ENCODING_STAGE: Mutex<String> = Mutex::new(String::new());
+static CAPTURE_CONTROL: Mutex<Option<windows_capture::capture::CaptureControl<CaptureHandler, Box<dyn std::error::Error + Send + Sync>>>> = Mutex::new(None);
+
+
 
 struct CaptureHandler {
     encoder: Option<VideoEncoder>,
@@ -108,9 +103,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         capture_control: InternalCaptureControl,
     ) -> Result<(), Self::Error> {
         // ═══ SYNC POINT: First frame = arm everything simultaneously ═══
-        if !CAPTURE_ARMED.load(Ordering::SeqCst) {
-            CAPTURE_ARMED.store(true, Ordering::SeqCst);
-            *START_TIME.lock().unwrap() = Some(Instant::now());
+        if !SYNC_MANAGER.capture_armed.load(Ordering::SeqCst) {
+            SYNC_MANAGER.set_armed();
 
             // Arm audio capture to start recording NOW (synced with video)
             if ENABLE_AUDIO.load(Ordering::SeqCst) {
@@ -123,16 +117,14 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             // Arm webcam capture (synced with video + audio)
             crate::webcam::arm_webcam();
 
-            // Signal frontend: we are LIVE
-            CAPTURE_READY.store(true, Ordering::SeqCst);
             tracing::info!("══ CAPTURE ARMED ══ video + audio synced at t=0");
         }
 
-        if RECORDING_PAUSED.load(Ordering::Relaxed) {
+        if SYNC_MANAGER.video.is_paused() {
             return Ok(());
         }
 
-        if SHOULD_STOP.load(Ordering::SeqCst) {
+        if SYNC_MANAGER.video.should_stop() {
             if let Some(encoder) = self.encoder.take() {
                 encoder.finish()?;
             }
@@ -153,6 +145,16 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         let count = FRAME_COUNT.load(Ordering::Relaxed);
         tracing::info!("Capture session closed. Total frames: {}", count);
+        if let Some(encoder) = self.encoder.take() {
+            if let Err(e) = encoder.finish() {
+                tracing::error!("Error finishing encoder in on_closed: {}", e);
+            } else {
+                tracing::info!("Encoder finished successfully in on_closed");
+            }
+        }
+        SYNC_MANAGER.recording_active.store(false, Ordering::SeqCst);
+        SYNC_MANAGER.capture_ready.store(false, Ordering::SeqCst);
+        let _ = AUDIO_CAPTURE.lock().unwrap().take();
         Ok(())
     }
 }
@@ -161,7 +163,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 /// Initializes capture pipeline and spawns threads. Returns immediately.
 /// Frontend must poll `is_capture_ready()` before showing timer.
 pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
-    if RECORDING_ACTIVE.load(Ordering::SeqCst) {
+    if SYNC_MANAGER.is_recording() {
         return Err("Recording already in progress".to_string());
     }
 
@@ -180,13 +182,11 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
     *VIDEO_TEMP_PATH.lock().unwrap() = video_temp.clone();
     *AUDIO_TEMP_PATH.lock().unwrap() = audio_temp.clone();
 
-    // Reset all state atomics
+    // Reset all state atomics via SYNC_MANAGER
     FRAME_COUNT.store(0, Ordering::SeqCst);
-    SHOULD_STOP.store(false, Ordering::SeqCst);
-    RECORDING_PAUSED.store(false, Ordering::SeqCst);
-    CAPTURE_ARMED.store(false, Ordering::SeqCst);
-    CAPTURE_READY.store(false, Ordering::SeqCst);
+    SYNC_MANAGER.start();
     ENABLE_AUDIO.store(config.enable_audio, Ordering::SeqCst);
+
 
     // Initialize monitor and settings BEFORE spawning threads
     let monitor = Monitor::primary().map_err(|e| e.to_string())?;
@@ -264,20 +264,12 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
         }
     }
 
-    RECORDING_ACTIVE.store(true, Ordering::SeqCst);
+    SYNC_MANAGER.recording_active.store(true, Ordering::SeqCst);
 
-    // ═══ Spawn video capture thread ═══
-    std::thread::Builder::new()
-        .name("easyspecy-capture".to_string())
-        .spawn(move || {
-            if let Err(e) = CaptureHandler::start(settings) {
-                tracing::error!("Capture thread error: {}", e);
-            }
-            RECORDING_ACTIVE.store(false, Ordering::SeqCst);
-            CAPTURE_READY.store(false, Ordering::SeqCst);
-            let _ = AUDIO_CAPTURE.lock().unwrap().take();
-        })
-        .map_err(|e| format!("Failed to spawn capture thread: {}", e))?;
+    // ═══ Start free threaded capture ═══
+    let control = CaptureHandler::start_free_threaded(settings)
+        .map_err(|e| format!("Failed to start free-threaded capture: {}", e))?;
+    *CAPTURE_CONTROL.lock().unwrap() = Some(control);
 
     // ═══ Spawn mouse tracking thread for cursor trail + click effects ═══
     // Polls cursor position at ~120Hz for smooth overlay rendering.
@@ -304,8 +296,8 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
             tracing::info!("Mouse tracking thread started");
 
             // Wait until capture is armed (first video frame)
-            while !CAPTURE_ARMED.load(Ordering::SeqCst) {
-                if !RECORDING_ACTIVE.load(Ordering::SeqCst) {
+            while !SYNC_MANAGER.capture_armed.load(Ordering::SeqCst) {
+                if !SYNC_MANAGER.recording_active.load(Ordering::SeqCst) {
                     return; // Recording stopped before arming
                 }
                 std::thread::sleep(Duration::from_millis(5));
@@ -314,7 +306,12 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
             // ═══ SYNC: Reset cursor timestamp origin to NOW (= first video frame) ═══
             crate::postprocess::reset_session_start();
 
-            while RECORDING_ACTIVE.load(Ordering::SeqCst) {
+            while SYNC_MANAGER.recording_active.load(Ordering::SeqCst) {
+                if SYNC_MANAGER.overlay.cursor.is_paused() {
+                    std::thread::sleep(Duration::from_millis(50));
+                    continue;
+                }
+
                 // Get cursor position (screen coordinates = video coordinates)
                 let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
                 let (mut vx, mut vy) = (last_x as f32, last_y as f32);
@@ -401,10 +398,8 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// Returns true once the first video frame has been captured and audio is armed.
-/// Frontend should poll this before showing the recording timer.
 pub fn is_capture_ready() -> bool {
-    CAPTURE_READY.load(Ordering::SeqCst)
+    SYNC_MANAGER.is_capture_ready()
 }
 
 /// Get encoding progress (0-100) and current stage description
@@ -497,10 +492,23 @@ pub(crate) fn run_ffmpeg_with_progress(
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn trigger_screen_update() {
+    use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, SetCursorPos};
+    let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
+    if unsafe { GetCursorPos(&mut point).is_ok() } {
+        unsafe {
+            let _ = SetCursorPos(point.x + 1, point.y);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            let _ = SetCursorPos(point.x, point.y);
+        }
+    }
+}
+
 /// Stop recording, merge audio+video if needed, crop if region is set.
 /// This is a blocking call — should be run on a background thread from the command layer.
 pub fn stop_recording() -> Result<RecordingResult, String> {
-    if !RECORDING_ACTIVE.load(Ordering::SeqCst) {
+    if !SYNC_MANAGER.is_recording() {
         return Err("No recording in progress".to_string());
     }
 
@@ -519,32 +527,81 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         None
     };
 
-    // Signal video to stop on next frame
-    SHOULD_STOP.store(true, Ordering::SeqCst);
+    // Signal video to stop on next frame via SYNC_MANAGER
+    SYNC_MANAGER.stop();
+
+    // Trigger a screen update by moving cursor slightly to force a frame callback (safeguard)
+    #[cfg(target_os = "windows")]
+    trigger_screen_update();
+
+    // Stop WGC capture session using CaptureControl
+    if let Some(control) = CAPTURE_CONTROL.lock().unwrap().take() {
+        tracing::info!("Stopping WGC capture session via CaptureControl...");
+        if let Err(e) = control.stop() {
+            tracing::error!("Failed to stop capture control: {:?}", e);
+        } else {
+            tracing::info!("Capture control stopped successfully");
+        }
+    }
 
     // Wait for video capture thread to finish flushing encoder
     let wait_start = Instant::now();
-    while RECORDING_ACTIVE.load(Ordering::SeqCst) {
-        if wait_start.elapsed() > Duration::from_secs(15) {
+    while SYNC_MANAGER.is_recording() {
+        if wait_start.elapsed() > Duration::from_secs(5) {
             tracing::error!("Timeout waiting for capture thread to stop");
-            RECORDING_ACTIVE.store(false, Ordering::SeqCst);
+            SYNC_MANAGER.recording_active.store(false, Ordering::SeqCst);
             break;
         }
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(10));
     }
 
     let video_path = VIDEO_TEMP_PATH.lock().unwrap().clone();
     let output_path = OUTPUT_PATH.lock().unwrap().clone();
     let frame_count = FRAME_COUNT.load(Ordering::Relaxed);
-    let start = START_TIME.lock().unwrap().take();
-    // Use the precise duration from arm-time to stop-time
-    let duration = start.map(|s| (stop_instant - s).as_secs_f64()).unwrap_or(0.0);
+
+    // If currently paused, add the last slice of pause time
+    if let Some(start) = SYNC_MANAGER.current_pause_start.lock().unwrap().take() {
+        let mut paused_dur = SYNC_MANAGER.total_paused_duration.lock().unwrap();
+        *paused_dur += start.elapsed();
+    }
+    let paused_duration = *SYNC_MANAGER.total_paused_duration.lock().unwrap();
+
+    let start = SYNC_MANAGER.start_time.lock().unwrap().take();
+    // Use the precise duration from arm-time to stop-time, subtracting paused time
+    let duration = start.map(|s| {
+        let total_dur = stop_instant - s;
+        if total_dur > paused_duration {
+            (total_dur - paused_duration).as_secs_f64()
+        } else {
+            0.0
+        }
+    }).unwrap_or(0.0);
     let has_audio = audio_path.is_some();
 
     tracing::info!(
         "Recording stopped: {} frames, {:.2}s, audio={}",
         frame_count, duration, has_audio
     );
+
+    // Step 0: Fix timestamps to remove pause gaps by re-timestamping frames sequentially
+    set_encoding_progress(5, "Removing pause gaps...");
+    let config_loaded = crate::config::AppConfig::load();
+    
+    // Calculate actual FPS (average frame rate during active recording period)
+    let actual_fps = if duration > 0.1 && frame_count > 0 {
+        frame_count as f64 / duration
+    } else {
+        config_loaded.fps as f64
+    };
+    
+    let temp_fixed = std::env::temp_dir()
+        .join("easyspecy")
+        .join("video_fixed.mp4")
+        .to_string_lossy()
+        .to_string();
+    reconstruct_video_timestamps(&video_path, &temp_fixed, actual_fps)?;
+    let _ = std::fs::remove_file(&video_path);
+    let video_path = temp_fixed;
 
     set_encoding_progress(10, "Processing audio...");
 
@@ -679,7 +736,7 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         // Apply trail + click effects to the video
         let effects_output = output_path.replace(".mp4", "_fx.mp4");
         tracing::info!("══ calling apply_effects({}) ══", output_path);
-        match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
+        let res_path = match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
             Ok(ref effects_path) if effects_path != &output_path => {
                 tracing::info!("══ apply_effects SUCCESS: {} → {} ══", effects_path, output_path);
                 // Effects were applied — swap files
@@ -696,7 +753,19 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
                 tracing::error!("══ apply_effects ERROR: {} ══", e);
                 output_path.clone()
             }
+        };
+
+        // Clean up temporary metadata JSON file
+        let meta_path = output_path.replace(".mp4", ".meta.json");
+        if std::path::Path::new(&meta_path).exists() {
+            if let Err(e) = std::fs::remove_file(&meta_path) {
+                tracing::warn!("Failed to delete metadata JSON file: {}", e);
+            } else {
+                tracing::info!("Deleted temporary metadata JSON file: {}", meta_path);
+            }
         }
+
+        res_path
     } else {
         tracing::info!("══ finalize() returned None — no metadata! ══");
         output_path.clone()
@@ -929,6 +998,44 @@ fn fix_video_timestamps(input: &str, output: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn reconstruct_video_timestamps(input: &str, output: &str, fps: f64) -> Result<(), String> {
+    let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
+    
+    let setpts_filter = format!("setpts=N/({:.6}*TB)", fps);
+    let fps_str = format!("{:.6}", fps);
+    let args = vec![
+        "-y",
+        "-fflags", "+genpts+igndts",
+        "-i", input,
+        "-vf", &setpts_filter,
+        "-r", &fps_str,
+        "-vsync", "cfr",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "0",
+        "-an",
+        output,
+    ];
+    
+    let mut cmd = std::process::Command::new(&ffmpeg);
+    cmd.args(&args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let output = cmd.output().map_err(|e| format!("FFmpeg re-timestamp error: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg re-timestamp failed: {}", stderr));
+    }
+    Ok(())
+}
+
 fn find_ffmpeg() -> Option<String> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
 
@@ -1001,7 +1108,7 @@ fn capture_window_bounds_on_click() {
 }
 
 pub fn pause_recording() {
-    RECORDING_PAUSED.store(true, Ordering::SeqCst);
+    SYNC_MANAGER.pause();
     let lock = AUDIO_CAPTURE.lock().unwrap();
     if let Some(audio) = lock.as_ref() {
         audio.pause();
@@ -1009,7 +1116,7 @@ pub fn pause_recording() {
 }
 
 pub fn resume_recording() {
-    RECORDING_PAUSED.store(false, Ordering::SeqCst);
+    SYNC_MANAGER.resume();
     let lock = AUDIO_CAPTURE.lock().unwrap();
     if let Some(audio) = lock.as_ref() {
         audio.resume();
@@ -1017,11 +1124,15 @@ pub fn resume_recording() {
 }
 
 pub fn is_recording() -> bool {
-    RECORDING_ACTIVE.load(Ordering::SeqCst)
+    SYNC_MANAGER.is_recording()
 }
 
 pub fn is_paused() -> bool {
-    RECORDING_PAUSED.load(Ordering::Relaxed)
+    SYNC_MANAGER.is_paused()
+}
+
+pub fn get_active_recording_time() -> u64 {
+    SYNC_MANAGER.get_active_recording_time()
 }
 
 pub fn frame_count() -> u32 {

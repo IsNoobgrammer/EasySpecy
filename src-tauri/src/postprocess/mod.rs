@@ -109,64 +109,64 @@ pub fn reset_session_start() {
 
 /// Record a cursor position sample
 pub fn record_cursor(x: f32, y: f32) {
-    let start = SESSION_START.lock().unwrap();
-    if let Some(t) = *start {
-        let ms = t.elapsed().as_millis() as u64;
-        let mut meta = METADATA.lock().unwrap();
-        if let Some(ref mut m) = *meta {
-            // Only record if cursor actually MOVED (skip stationary duplicates)
-            let moved = m.cursor_trail.last().map_or(true, |s| {
-                let dx = (x - s.x).abs();
-                let dy = (y - s.y).abs();
-                dx > 0.5 || dy > 0.5 // Must move at least 0.5px
-            });
-            if moved {
-                m.cursor_trail.push(CursorSample { timestamp_ms: ms, x, y });
-            }
+    if crate::capture::is_paused() {
+        return;
+    }
+    let ms = crate::capture::get_active_recording_time();
+    let mut meta = METADATA.lock().unwrap();
+    if let Some(ref mut m) = *meta {
+        // Only record if cursor actually MOVED (skip stationary duplicates)
+        let moved = m.cursor_trail.last().map_or(true, |s| {
+            let dx = (x - s.x).abs();
+            let dy = (y - s.y).abs();
+            dx > 0.5 || dy > 0.5 // Must move at least 0.5px
+        });
+        if moved {
+            m.cursor_trail.push(CursorSample { timestamp_ms: ms, x, y });
         }
     }
 }
 
 /// Record a click event
 pub fn record_click(x: f32, y: f32, button: &str) {
-    let start = SESSION_START.lock().unwrap();
-    if let Some(t) = *start {
-        let ms = t.elapsed().as_millis() as u64;
-        let mut meta = METADATA.lock().unwrap();
-        if let Some(ref mut m) = *meta {
-            m.click_events.push(ClickEvent { timestamp_ms: ms, x, y, button: button.to_string() });
-        }
+    if crate::capture::is_paused() {
+        return;
+    }
+    let ms = crate::capture::get_active_recording_time();
+    let mut meta = METADATA.lock().unwrap();
+    if let Some(ref mut m) = *meta {
+        m.click_events.push(ClickEvent { timestamp_ms: ms, x, y, button: button.to_string() });
     }
 }
 
 /// Record window bounds at click time (for auto-zoom)
 pub fn record_window_bounds(x: i32, y: i32, width: i32, height: i32, title: &str) {
-    let start = SESSION_START.lock().unwrap();
-    if let Some(t) = *start {
-        let ms = t.elapsed().as_millis() as u64;
-        let mut meta = METADATA.lock().unwrap();
-        if let Some(ref mut m) = *meta {
-            m.window_events.push(WindowBoundsEvent {
-                timestamp_ms: ms,
-                x,
-                y,
-                width,
-                height,
-                title: title.chars().take(256).collect(),
-            });
-        }
+    if crate::capture::is_paused() {
+        return;
+    }
+    let ms = crate::capture::get_active_recording_time();
+    let mut meta = METADATA.lock().unwrap();
+    if let Some(ref mut m) = *meta {
+        m.window_events.push(WindowBoundsEvent {
+            timestamp_ms: ms,
+            x,
+            y,
+            width,
+            height,
+            title: title.chars().take(256).collect(),
+        });
     }
 }
 
 /// Record a keyboard event timestamp + key
 pub fn record_keyboard_event(key: &str) {
-    let start = SESSION_START.lock().unwrap();
-    if let Some(t) = *start {
-        let ms = t.elapsed().as_millis() as u64;
-        let mut meta = METADATA.lock().unwrap();
-        if let Some(ref mut m) = *meta {
-            m.keyboard_events.push(KeyboardEvent { timestamp_ms: ms, key: key.to_string() });
-        }
+    if crate::capture::is_paused() {
+        return;
+    }
+    let ms = crate::capture::get_active_recording_time();
+    let mut meta = METADATA.lock().unwrap();
+    if let Some(ref mut m) = *meta {
+        m.keyboard_events.push(KeyboardEvent { timestamp_ms: ms, key: key.to_string() });
     }
 }
 
