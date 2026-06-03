@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sources & Methodology - Keyboard Game Capture Research</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Sources & Methodology</h1>
+      <div class="meta">
+        Research Date: June 3, 2026 | Topic: Win32 Input Hook Limitations
+      </div>
+    </header>
+
+    <main>
+      <div class="card">
+        <h2>Literature & Reference Sources</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Source Title / Link</th>
+              <th>Type</th>
+              <th>Date</th>
+              <th>Description / Relevance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><a href="https://learn.microsoft.com/en-us/windows/win32/winmsg/about-hooks" target="_blank" style="color: var(--accent-blue);">About Hooks - MSDN</a></td>
+              <td><span class="badge badge-official">Official</span></td>
+              <td>2024-05</td>
+              <td>MSDN documentation outlining limits of low-level hooks and security isolation.</td>
+            </tr>
+            <tr>
+              <td><a href="https://stackoverflow.com/questions/11505354/hook-wh-keyboard-ll-doesnt-work-on-administrator-mode-applications" target="_blank" style="color: var(--accent-blue);">StackOverflow: Hooks on Elevated Applications</a></td>
+              <td><span class="badge badge-community">Community</span></td>
+              <td>2023-11</td>
+              <td>Developers describing hook blocking on elevated Windows (UIPI).</td>
+            </tr>
+            <tr>
+              <td><a href="https://learn.microsoft.com/en-us/previous-versions/dotnet/netframework-4.0/bb625963(v=vs.100)" target="_blank" style="color: var(--accent-blue);">User Interface Privilege Isolation (UIPI) MSDN</a></td>
+              <td><span class="badge badge-official">Official</span></td>
+              <td>2022-09</td>
+              <td>MSDN description of privilege boundaries protecting elevated window inputs.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Methodology Summary</h2>
+        <p>Our research analyzed why <code>WH_KEYBOARD_LL</code> fails to record keystrokes specifically when active game windows (such as Dead Cells) are focused, while successfully capturing keys during standard desktop tasks (file navigation, text fields, etc.).</p>
+        <p>Three main constraints were cross-referenced: privilege boundaries (UIPI), raw input bypassing, and anti-cheat hooks. The consensus points to privilege matching as the primary, immediate fix for users, and Raw Input API design as the secondary structural developer workaround.</p>
+      </div>
+
+      <div class="nav-links">
+        <a href="index.html">← Back to Findings Report</a>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
