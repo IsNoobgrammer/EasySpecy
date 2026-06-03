@@ -86,10 +86,7 @@ jobs:
       # ── Build Tauri app ───────────────────────────────────────
       - name: Build Tauri (NSIS installer)
         uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          includeRelease: false
           args: "--bundles nsis"
 
       # ── Collect NSIS installer ────────────────────────────────
