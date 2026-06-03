@@ -74,17 +74,22 @@ jobs:
           $size = (Get-Item $f).Length / 1MB
           Write-Host "ffmpeg.exe present — $([math]::Round($size, 1)) MB"
 
+      # ── Extract app version ───────────────────────────────────
+      - name: Extract app version
+        id: extract-version
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          Write-Host "Extracted version: $version"
+          echo "APP_VERSION=$version" >> $env:GITHUB_ENV
+
       # ── Build Tauri app ───────────────────────────────────────
       - name: Build Tauri (NSIS installer)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "EasySpecy ${{ github.ref_name }}"
-          releaseBody: "See release assets for downloads."
-          releaseDraft: true
-          prerelease: false
+          includeRelease: false
           args: "--bundles nsis"
 
       # ── Collect NSIS installer ────────────────────────────────
@@ -130,19 +135,17 @@ jobs:
           Write-Host "Portable ZIP: $([math]::Round($zip.Length / 1MB, 1)) MB"
 
       # ── Upload Release Assets ─────────────────────────────────
-      - name: Upload NSIS installer to release
+      - name: Create and Upload Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.collect-nsis.outputs.installer_path }}
-          draft: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Portable ZIP to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: EasySpecy-Portable.zip
-          draft: true
+          tag_name: v${{ env.APP_VERSION }}
+          name: EasySpecy v${{ env.APP_VERSION }}
+          body: "See release assets for downloads."
+          draft: false
+          prerelease: false
+          files: |
+            ${{ steps.collect-nsis.outputs.installer_path }}
+            EasySpecy-Portable.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
