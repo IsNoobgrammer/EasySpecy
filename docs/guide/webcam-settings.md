@@ -14,13 +14,39 @@ EasySpecy's webcam overlay records a picture-in-picture (PiP) webcam feed compos
 
 Webcam capture uses a **sync-manager pattern** with producer-consumer design:
 
-1. `start_webcam_capture()` spawns a thread that opens the camera immediately
-2. Thread verifies camera works (captures test frame), signals `WEBCAM_READY`
-3. Thread waits for `CAPTURE_ARMED` (sync point with video + audio)
-4. When armed, captures frames at native camera FPS
-5. PNG encoding and file I/O offloaded to a separate writer thread
-6. On stop, computes actual FPS from `frame_count / elapsed_time`
-7. FFmpeg composites webcam onto video with the computed FPS
+```mermaid
+graph TD
+    %% Styling and layout
+    classDef step fill:#151828,stroke:#00e88a,stroke-width:1px,color:#fff;
+    classDef system fill:#0d0f1a,stroke:#2a2d42,stroke-width:1px,color:#9a9eb5;
+
+    subgraph Init_Phase ["Initialization Phase"]
+        A[start_webcam_capture Command] -->|Spawn Thread| B[Open Device via nokhwa]:::step
+        B -->|Capture Test Frame| C[Signal WEBCAM_READY]:::step
+    end
+
+    subgraph Sync_Phase ["Sync Barrier Phase"]
+        C --> D[Wait loop: Check CAPTURE_ARMED]:::step
+        D -->|CAPTURE_ARMED fires| E[Discard early frames / Begin capture sync]:::step
+    end
+
+    subgraph Recording_Phase ["Capture & Output Phase"]
+        E -->|Read raw frames at native FPS| F[Producer Thread]:::step
+        F -->|Offload raw bytes to channel| G[Asynchronous PNG Writer Thread]:::step
+        G -->|Save PNGs to temp directory| H[(Temp Directory)]:::system
+    end
+
+    subgraph Composite_Phase ["Post-Processing Composite"]
+        H -->|PNG Frames| I[FFmpeg overlay filter with shape mask]:::system
+        I -->|Apply brightness/contrast/sharpen| J[Final Video Output]:::system
+    end
+```
+
+The capture engine works in four distinct phases:
+1. **Initialization**: The camera device is opened and verified by capturing a test frame before signaling that the camera is ready.
+2. **Sync Barrier**: The capture loop discards early frames until the recording starts globally and `CAPTURE_ARMED` fires, synchronizing audio, video, and webcam to frame 0.
+3. **Capture & I/O**: The producer thread captures frames at native FPS and sends raw bytes to an asynchronous consumer thread to avoid I/O bottlenecks.
+4. **Compositing**: In post-processing, FFmpeg applies shapes (circle/rectangle), borders, and image enhancements (sharpen, brightness, contrast) before rendering onto the main recording.
 
 ### Synchronization
 

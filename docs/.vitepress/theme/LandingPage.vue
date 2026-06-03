@@ -521,7 +521,7 @@ onUnmounted(() => {
               <div class="gate-monitor-grid">
                 <div class="audio-source-status">
                   <div class="source-info">
-                    <span class="source-name">🎙️ MICROPHONE LEVEL</span>
+                    <span class="source-name">MIC LEVEL</span>
                     <span class="source-db">-12.4 dB</span>
                   </div>
                   <div class="level-indicator-bar-wrapper">
@@ -531,7 +531,7 @@ onUnmounted(() => {
 
                 <div class="audio-source-status">
                   <div class="source-info">
-                    <span class="source-name">💻 SYSTEM OUTPUT</span>
+                    <span class="source-name">SYSTEM LEVEL</span>
                     <span class="source-db">-6.2 dB</span>
                   </div>
                   <div class="level-indicator-bar-wrapper">

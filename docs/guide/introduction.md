@@ -117,6 +117,102 @@ Record **microphone + system audio** simultaneously:
 
 EasySpecy uses a layered architecture with clear separation of concerns:
 
+### Subsystem Flowchart
+
+```mermaid
+graph TD
+    %% Styling and layout
+    classDef frontend fill:#1e2030,stroke:#61dafb,stroke-width:2px,color:#fff;
+    classDef tauri fill:#16192b,stroke:#ffc131,stroke-width:2px,color:#fff;
+    classDef backend fill:#11131e,stroke:#00e88a,stroke-width:2px,color:#fff;
+    classDef external fill:#0c0e18,stroke:#f04040,stroke-width:2px,color:#fff;
+
+    %% Subgraph layers
+    subgraph UI_Layer ["UI Layer (React + Vite)"]
+        UI[Settings Panel & Recording Controls]:::frontend
+        KeyOverlay[Keyboard Overlay Window]:::frontend
+        WebcamOverlay[Webcam PIP Preview & Positioner]:::frontend
+    end
+
+    subgraph Bridge_Layer ["Bridge Layer (Tauri v2)"]
+        IPC[Tauri IPC / Command Router & Events]:::tauri
+    end
+
+    subgraph Backend_Layer ["Backend Engine (Rust Core)"]
+        %% Screen capture
+        VideoCapture[Windows Graphics Capture / SCK]:::backend
+        CursorTracker[Cursor Position Logger]:::backend
+        
+        %% Audio capture
+        AudioCapture[CPAL Audio Capture: System & Mic]:::backend
+        RNNoise[RNN Noise Gate Filter]:::backend
+        
+        %% Keyboard overlay backend
+        KeyHook[Low-Level Hook: WH_KEYBOARD_LL]:::backend
+        SPSC[SPSC Lock-Free Ring Buffer]:::backend
+        KeyWorker[Keyboard Worker Thread]:::backend
+        
+        %% Webcam capture backend
+        WebcamCapture[nokhwa Camera Capture]:::backend
+        WebcamSync[Sync-Manager: CAPTURE_ARMED]:::backend
+        WebcamWriter[Asynchronous PNG Writer Thread]:::backend
+        
+        %% Post-processor
+        FrameProcessor[Frame Post-Processor: Easing, Splines, Zoom]:::backend
+        Rayon[Rayon Parallel Thread Pool]:::backend
+        FFmpegPipe[FFmpeg Sub-process Pipeline]:::backend
+    end
+
+    subgraph OS_Layer ["Hardware & OS Layer"]
+        OS_Video[OS Display Surface Buffer]:::external
+        OS_Audio[DirectSound / WASAPI Streams]:::external
+        OS_Webcam[Webcam Hardware Stream]:::external
+        OS_Keys[OS Keyboard Input Stream]:::external
+    end
+
+    %% Connections
+    
+    %% UI to Bridge
+    UI -->|IPC Settings & State| IPC
+    WebcamOverlay -->|Positional Coordinates & Size| IPC
+    IPC -->|Command Dispatch| FrameProcessor
+    IPC -->|Capture Parameters| VideoCapture
+
+    %% Hardware to Backend
+    OS_Video -->|DXGI / SCK Frames| VideoCapture
+    OS_Audio -->|cpal Host Stream| AudioCapture
+    OS_Webcam -->|nokhwa Device Query| WebcamCapture
+    OS_Keys -->|Win32 Hook Events| KeyHook
+
+    %% Keyboard Pipeline
+    KeyHook -->|Raw Keystrokes| SPSC
+    SPSC -->|Lock-Free Pop| KeyWorker
+    KeyWorker -->|Tauri Event Broadcast| IPC
+    IPC -->|Real-Time Key Event| KeyOverlay
+
+    %% Webcam Pipeline
+    WebcamCapture -->|Raw Frames| WebcamSync
+    WebcamSync -->|Webcam armed & synced| WebcamWriter
+    WebcamOverlay -.->|HTML5 getUserMedia Preview| OS_Webcam
+    WebcamWriter -->|Encoded PNG Frames to Temp Dir| FFmpegPipe
+
+    %% Video/Audio Capture & Processing
+    VideoCapture -->|Raw BGRA Frames & Timestamps| CursorTracker
+    CursorTracker -->|Frames with Cursor Log| FrameProcessor
+    AudioCapture -->|Raw PCM Buffers| RNNoise
+    RNNoise -->|Clean PCM Audio| FFmpegPipe
+
+    %% Parallel post-processing
+    FrameProcessor -->|Parallel Spline & Click Transforms| Rayon
+    Rayon -->|Processed RGBA Frames| FrameProcessor
+    FrameProcessor -->|Encoded Frame Stream| FFmpegPipe
+
+    %% Output
+    FFmpegPipe -->|Overlay Webcam & Multiplex| OutFile[(Output MP4 File)]:::external
+```
+
+### Module Breakdown
+
 **Frontend (React):**
 - Dashboard with recording controls
 - Settings panel for all configuration
@@ -162,14 +258,14 @@ EasySpecy uses a layered architecture with clear separation of concerns:
 
 ## Who is EasySpecy For?
 
-### ✅ Good Fit
+### Target Audience
 
 - **Developers** recording tutorials, demos, or bug reports
 - **Creators** making YouTube videos, course content, or social media
 - **Educators** recording lectures or presentations
 - **Anyone** who wants polished recordings without paying subscriptions
 
-### ❌ Not a Good Fit
+### Non-Target Use Cases
 
 - **Live streaming** — EasySpecy records to file, not streams
 - **Enterprise deployment** — No centralized management (yet)

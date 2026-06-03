@@ -89,13 +89,35 @@ Cursor trails render a smooth, animated path behind the cursor position. Trails 
 
 ### Trail Rendering Architecture
 
-Trails use a **post-processing approach**:
+Trails use a **post-processing approach** to guarantee zero impact on capture performance:
 
-1. During recording, cursor positions are logged with timestamps
-2. After recording stops, the entire path is pre-smoothed with a **Catmull-Rom spline**
-3. Trail segments are computed in parallel using `rayon::par_iter`
-4. Frames are batch-rendered (2× CPU cores) and piped to FFmpeg in order
-5. Final output has smooth, gap-free trails at video FPS
+```mermaid
+graph TD
+    %% Styling and layout
+    classDef step fill:#151828,stroke:#00e88a,stroke-width:1px,color:#fff;
+    classDef system fill:#0d0f1a,stroke:#2a2d42,stroke-width:1px,color:#9a9eb5;
+
+    subgraph Active_Recording ["Active Recording Phase"]
+        A[Cursor Movement / Clicks] -->|Log Coordinates & Timestamps| B[Memory Buffer Vector]:::step
+    end
+
+    subgraph Post_Processing ["Post-Processing Phase (On Stop)"]
+        B --> C[Catmull-Rom Spline Interpolation]:::step
+        C --> D[Smooth Spline Path]:::step
+        D -->|Split path into frame batches| E[Rayon parallel iteration]:::step
+        E --> F[Render Comet/Glow Trail and Click Ripple on Screen Frame]:::step
+        F --> G[Pipe Frame Stream to FFmpeg]:::step
+    end
+
+    subgraph Final_Encode ["Final Encoding Phase"]
+        G --> H[Output Video File - MP4]:::system
+    end
+```
+
+The pipeline operates in three phases:
+1. **Log**: During recording, cursor positions and click events are stored in a lock-free memory vector, consuming negligible CPU.
+2. **Smooth**: When recording stops, a Catmull-Rom spline interpolates missing points between samples to ensure gap-free motion.
+3. **Render**: The trail and click effects (ripple, pulse, explosion) are parallel-rendered across CPU cores using `rayon` and piped directly to FFmpeg.
 
 ### Configuration
 

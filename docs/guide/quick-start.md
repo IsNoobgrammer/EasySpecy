@@ -75,16 +75,16 @@ Open the saved MP4 file in any video player:
 - **Linux:** VLC, MPV, Celluloid
 
 You should see:
-- ✅ Your screen capture
-- ✅ Custom cursor (if enabled)
-- ✅ Cursor trail effect (if enabled)
-- ✅ Audio (if enabled)
+- **Screen**: High-fidelity screen capture
+- **Cursor**: Custom cursor theme (if enabled)
+- **Trail**: Spline-smoothed cursor trail (if enabled)
+- **Audio**: Microphone and system audio (if enabled)
 
 ## What's Next?
 
 Now that you've recorded your first video, explore EasySpecy's powerful features:
 
-### 🎬 Enable Auto-Zoom
+### Enable Auto-Zoom
 
 Automatically zoom toward your clicks for cinematic effect:
 
@@ -92,7 +92,7 @@ Automatically zoom toward your clicks for cinematic effect:
 2. Enable **Auto-Zoom**
 3. Adjust zoom level and duration
 
-### 🖱️ Add Cursor Trails
+### Add Cursor Trails
 
 Make your cursor more visible with smooth trails:
 
@@ -100,7 +100,7 @@ Make your cursor more visible with smooth trails:
 2. Enable **Cursor Trail**
 3. Choose trail length, color, and thickness
 
-### 🎤 Record Audio
+### Record Audio
 
 Add microphone or system audio:
 
@@ -108,7 +108,7 @@ Add microphone or system audio:
 2. Enable **Microphone** or **System Audio**
 3. Adjust levels and noise reduction
 
-### 🎥 Add Webcam Overlay
+### Add Webcam Overlay
 
 Picture-in-picture webcam for personal touch:
 
