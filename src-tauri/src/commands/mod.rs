@@ -216,7 +216,7 @@ pub fn restore_cursors() -> Result<(), String> {
 /// Start recording — waits until capture is actually armed (first frame received)
 /// before returning success. This ensures the frontend timer is perfectly synced.
 #[tauri::command]
-pub async fn start_recording(output_path: Option<String>) -> Result<(), String> {
+pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>) -> Result<(), String> {
     let config = AppConfig::load();
 
     // ═══ Apply cursor pack BEFORE capture starts ═══
@@ -244,7 +244,7 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
         audio_source: format!("{:?}", config.audio_source),
         audio_sample_rate: config.audio_sample_rate,
         fps: config.fps,
-        webcam_enabled: config.webcam_enabled,
+        webcam_enabled: false, // Bypassed because we use live HTML5 overlay window!
         webcam_device: config.webcam_device.clone(),
         webcam_size: config.webcam_size,
         webcam_x: config.webcam_x,
@@ -262,6 +262,13 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
     if config.keyboard_overlay_enabled {
         crate::keyboard::start_keyboard_capture();
     }
+
+    // Create effects overlay window — handles cursor trail, keyboard overlay, AND webcam PiP.
+    // All three live inside the same fullscreen transparent WebView2 window (overlay.html).
+    if config.keyboard_overlay_enabled || config.cursor_trail_enabled || config.webcam_enabled {
+        let _ = create_effects_overlay(app.clone());
+    }
+
     // ═══ WAIT until capture is actually armed (first video frame received) ═══
     // This is the key fix: frontend won't show "recording" until we're ACTUALLY recording.
     // Timeout after 10s to avoid hanging forever if something goes wrong.
@@ -283,6 +290,22 @@ pub async fn start_recording(output_path: Option<String>) -> Result<(), String> 
 
     wait_result?;
 
+    // Minimize / hide main window to tray if enabled
+    if config.minimize_to_tray {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.hide();
+        }
+    }
+
+    // Make effects overlay visible from Rust side
+    if let Some(overlay) = app.get_webview_window("effects-overlay") {
+        let _ = overlay.show();
+        tracing::info!("Effects overlay window made visible from Rust");
+    }
+
+    // Webcam overlay is shown from JS (webcam.html) once the video stream starts playing.
+    // The JS has a 2-second fallback timer as well, so no Rust-side show needed.
+
     tracing::info!("start_recording: capture armed, returning to frontend");
     Ok(())
 }
@@ -300,7 +323,20 @@ pub fn get_encoding_progress() -> (u32, String) {
 }
 
 #[tauri::command]
-pub async fn stop_recording() -> Result<capture::RecordingResult, String> {
+pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingResult, String> {
+    // Restore main window if minimized/hidden to tray
+    let config = AppConfig::load();
+    if config.minimize_to_tray {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.show();
+            let _ = main_window.set_focus();
+        }
+    }
+
+    // Destroy effects overlay window (contains cursor trail, keyboard overlay AND webcam PiP)
+    let _ = destroy_effects_overlay(app.clone());
+    // Note: webcam-overlay window no longer exists as a separate window — it's part of effects overlay
+
     // Stop keyboard capture
     crate::keyboard::stop_keyboard_capture();
 
@@ -462,17 +498,18 @@ pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
         .primary_monitor()
         .map_err(|e| format!("Monitor query failed: {}", e))?
         .ok_or("No primary monitor found")?;
+    let scale_factor = monitor.scale_factor();
     let size = monitor.size();
-    let width = size.width as f64;
-    let height = size.height as f64;
+    let logical_width = size.width as f64 / scale_factor;
+    let logical_height = size.height as f64 / scale_factor;
 
-    let _overlay = tauri::WebviewWindowBuilder::new(
+    let overlay = tauri::WebviewWindowBuilder::new(
         &app,
         "effects-overlay",
         WebviewUrl::App("/overlay.html".into()),
     )
     .title("EasySpecy Effects")
-    .inner_size(width, height)
+    .inner_size(logical_width, logical_height)
     .position(0.0, 0.0)
     .decorations(false)
     .transparent(true)
@@ -480,10 +517,13 @@ pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
     .skip_taskbar(true)
     .resizable(false)
     .focused(false)
+    .visible(false) // Start hidden to prevent white background flash on Windows
     .build()
     .map_err(|e| format!("Failed to create overlay window: {}", e))?;
 
-    tracing::info!("Effects overlay window created: {}x{}", width, height);
+    let _ = overlay.set_ignore_cursor_events(true);
+
+    tracing::info!("Effects overlay window created: {}x{} (logical)", logical_width, logical_height);
     Ok(())
 }
 
@@ -524,6 +564,101 @@ pub fn destroy_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Create a transparent webcam overlay window for live webcam PiP during recording.
+#[tauri::command]
+pub fn create_webcam_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::WebviewUrl;
+
+    if app.get_webview_window("webcam-overlay").is_some() {
+        return Ok(());
+    }
+
+    let config = AppConfig::load();
+    if !config.webcam_enabled {
+        tracing::info!("Webcam overlay skipped: webcam_enabled=false");
+        return Ok(());
+    }
+
+    // Get primary monitor dimensions and scale factor
+    let monitor = app
+        .primary_monitor()
+        .map_err(|e| format!("Monitor query failed: {}", e))?
+        .ok_or("No primary monitor found")?;
+    let scale_factor = monitor.scale_factor();
+    let mon_phys_w = monitor.size().width as f64;
+    let mon_phys_h = monitor.size().height as f64;
+    // Logical monitor dimensions = physical / scale_factor
+    let mon_log_w = mon_phys_w / scale_factor;
+    let mon_log_h = mon_phys_h / scale_factor;
+
+    // Config stores x/y/size in OUTPUT resolution space (resolution_width x resolution_height).
+    // Convert to logical monitor pixels:
+    //   logical = config_val * (monitor_logical_dim / config_resolution_dim)
+    let res_w = config.resolution_width as f64;
+    let res_h = config.resolution_height as f64;
+    let scale_x = mon_log_w / res_w;
+    let scale_y = mon_log_h / res_h;
+
+    let mut logical_x = config.webcam_x as f64 * scale_x;
+    let mut logical_y = config.webcam_y as f64 * scale_y;
+    // Use average scale for size (keep aspect ratio)
+    let logical_size = config.webcam_size as f64 * ((scale_x + scale_y) / 2.0);
+
+    // In region mode, offset by region origin (also scaled)
+    if config.recording_mode == crate::config::RecordingMode::Region {
+        if let Some(r) = crate::region::get_region() {
+            logical_x += r.x as f64 * scale_x;
+            logical_y += r.y as f64 * scale_y;
+        }
+    }
+
+    // Clamp to screen bounds
+    logical_x = logical_x.clamp(0.0, mon_log_w - logical_size);
+    logical_y = logical_y.clamp(0.0, mon_log_h - logical_size);
+
+    tracing::info!(
+        "Webcam overlay: config({}, {}) size={} | monitor={}x{} (logical) scale={} | res={}x{} \
+         → logical({:.1}, {:.1}) size={:.1}",
+        config.webcam_x, config.webcam_y, config.webcam_size,
+        mon_log_w, mon_log_h, scale_factor,
+        res_w, res_h,
+        logical_x, logical_y, logical_size
+    );
+
+    let overlay = tauri::WebviewWindowBuilder::new(
+        &app,
+        "webcam-overlay",
+        WebviewUrl::App("/webcam.html".into()),
+    )
+    .title("EasySpecy Webcam")
+    .inner_size(logical_size, logical_size)
+    .position(logical_x, logical_y)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .resizable(false)
+    .focused(false)
+    .visible(false) // JS shows it once camera stream starts
+    .build()
+    .map_err(|e| format!("Failed to create webcam window: {}", e))?;
+
+    let _ = overlay.set_ignore_cursor_events(true);
+    tracing::info!("Webcam overlay window created OK");
+    Ok(())
+}
+
+/// Destroy the webcam overlay window
+#[tauri::command]
+pub fn destroy_webcam_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("webcam-overlay") {
+        window.close().map_err(|e| e.to_string())?;
+        tracing::info!("Webcam overlay window destroyed");
+    }
+    Ok(())
+}
+
 
 #[derive(serde::Serialize)]
 pub struct WebcamDeviceInfo {

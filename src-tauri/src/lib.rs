@@ -36,11 +36,17 @@ fn exe_log_dir() -> std::path::PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // ═══ LOG TO BOTH STDERR + FILE ═══
+    // ═══ LOG TO BOTH STDERR + FILE (TRUNCATED ON STARTUP) ═══
     // File goes to <exe_dir>/logs/easyspecy.log (next to the release binary)
     let log_dir = exe_log_dir();
-    let file_appender = tracing_appender::rolling::never(&log_dir, "easyspecy.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let log_path = log_dir.join("easyspecy.log");
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(log_path)
+        .expect("Failed to open log file");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file);
     // Keep _guard alive for the entire process — dropping it flushes logs
     // We leak it intentionally since this is the app's main run function
     std::mem::forget(_guard);
@@ -101,6 +107,8 @@ pub fn run() {
             commands::restore_cursors,
             commands::create_effects_overlay,
             commands::destroy_effects_overlay,
+            commands::create_webcam_overlay,
+            commands::destroy_webcam_overlay,
             commands::start_audio_monitor_cmd,
             commands::stop_audio_monitor_cmd,
             commands::get_audio_levels,

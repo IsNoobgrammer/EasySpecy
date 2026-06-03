@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overlay Research Sources</title>
+  <style>
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-card: #21262d;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --border: #30363d;
+      --accent-blue: #58a6ff;
+      --accent-green: #3fb950;
+    }
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      padding: 2rem;
+    }
+    h1 { color: var(--accent-blue); margin-bottom: 1.5rem; }
+    .source-block {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      padding: 1.5rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+    }
+    .source-title {
+      font-size: 1.15rem;
+      font-weight: bold;
+      color: var(--accent-green);
+      margin-bottom: 0.5rem;
+    }
+    .source-meta {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.75rem;
+    }
+    a { color: var(--accent-blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>Consulted Research Sources</h1>
+  <div class="source-block">
+    <div class="source-title">Tauri v2 WebviewWindow API Reference</div>
+    <div class="source-meta">Type: Official Documentation | Freshness: May 2026 | Reliability: Authoritative</div>
+    <p>Provides details on WebviewWindow builder attributes such as transparency, decorations, focus controls, and methods like <code>set_ignore_cursor_events</code>.</p>
+    <p><a href="https://v2.tauri.app/reference/js/webviewWindow/" target="_blank">Tauri Developer Center</a></p>
+  </div>
+  <div class="source-block">
+    <div class="source-title">Windows API Low-Level Mouse &amp; Keyboard Hooks</div>
+    <div class="source-meta">Type: Platform Reference | Freshness: 2025 | Reliability: High</div>
+    <p>Documentation of WH_KEYBOARD_LL hook message loop requirement, UIPI limitations on standard processes, and raw structure definitions (KBDLLHOOKSTRUCT).</p>
+    <p><a href="https://learn.microsoft.com/en-us/windows/win32/winmsg/about-hooks" target="_blank">Microsoft Learn</a></p>
+  </div>
+  <p><a href="index.html">&larr; Back to Report</a></p>
+</body>
+</html>

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
 import { useThemeStore } from "../lib/theme";
 import { WebcamPreview } from "./WebcamPreview";
+import { KeyboardPreview } from "./KeyboardPreview";
 import { invoke } from "@tauri-apps/api/core";
 import {
   TrailRenderer, ClickEffectRenderer, drawPreviewBackground,
@@ -45,6 +46,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
   const [local, setLocal] = useState<AppConfig | null>(null);
   const [saved, setSaved] = useState(false);
   const [showWebcamPreview, setShowWebcamPreview] = useState(false);
+  const [showKeyboardPreview, setShowKeyboardPreview] = useState(false);
   
   // Lists
   const [cursorPacks, setCursorPacks] = useState<CursorPackInfo[]>([]);
@@ -390,8 +392,36 @@ export function Settings({ onBack }: { onBack: () => void }) {
             </AnimatePresence>
           </Card>
 
+          {/* ── Keyboard Overlay Section ── */}
+          <Card title="Keyboard Overlay" icon="keyboard" index={3}>
+            <Row label="Enable Keyboard Overlay" desc="Show real-time keys and shortcut bubbles during recording">
+              <Toggle checked={local.keyboard_overlay_enabled} onChange={(v) => update("keyboard_overlay_enabled", v)} />
+            </Row>
+            <AnimatePresence>
+              {local.keyboard_overlay_enabled && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden space-y-4 pt-4 border-t border-[#2d314d]/40"
+                >
+                  <motion.button
+                    onClick={() => setShowKeyboardPreview(true)}
+                    className="w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 border border-[#00e88a] text-[#00391e] rounded shadow-lg"
+                    style={{ background: "#00e88a" }}
+                    whileHover={{ scale: 1.01, boxShadow: "0 0 15px rgba(0, 232, 138, 0.3)" }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <Icon name="visibility" size={14} /> Configure Keyboard Preview & Glass Styles
+                  </motion.button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Card>
+
           {/* ── Auto-Zoom Section ── */}
-          <Card title="Auto-Zoom" icon="zoom_in" index={3} badge="Post-processing">
+          <Card title="Auto-Zoom" icon="zoom_in" index={4} badge="Post-processing">
             <Row label="Enable Auto-Zoom" desc="Automatically pan and zoom towards mouse click positions in post-processing">
               <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
             </Row>
@@ -437,7 +467,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── Cursor & Click Effects Redesign ── */}
-          <Card title="Cursor & Click Effects" icon="mouse" index={4} badge="Post-processing">
+          <Card title="Cursor & Click Effects" icon="mouse" index={5} badge="Post-processing">
             <Row label="Cursor Custom Pack" desc="Visual pointer pack override used in post-processing">
               <Select
                 value={local.cursor_pack || "default"}
@@ -561,7 +591,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── Hotkeys Section ── */}
-          <Card title="Global Hotkeys" icon="keyboard" index={5}>
+          <Card title="Global Hotkeys" icon="keyboard" index={6}>
             <Row label="Start Recording" desc="Global keyboard shortcut to trigger capture starting">
               <HotkeyRecorder value={local.hotkey_start} onChange={(v) => update("hotkey_start", v)} />
             </Row>
@@ -574,7 +604,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
           </Card>
 
           {/* ── General Section ── */}
-          <Card title="General Settings" icon="settings" index={6}>
+          <Card title="General Settings" icon="settings" index={7}>
             <Row label="Output Capture Directory" desc="Absolute directory path where recorded video packages save to">
               <Input value={local.output_dir} onChange={(v) => update("output_dir", v)} />
             </Row>
@@ -622,6 +652,54 @@ export function Settings({ onBack }: { onBack: () => void }) {
               setShowWebcamPreview(false);
             }}
             onCancel={() => setShowWebcamPreview(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Keyboard Preview Overlay Modal Wrapper */}
+      <AnimatePresence>
+        {showKeyboardPreview && (
+          <KeyboardPreview
+            initial={{
+              enabled: local.keyboard_overlay_enabled,
+              fontFamily: local.keyboard_overlay_font_family,
+              fontSize: local.keyboard_overlay_font_size,
+              opacity: local.keyboard_overlay_opacity,
+              x: local.keyboard_overlay_x,
+              y: local.keyboard_overlay_y,
+              width: local.keyboard_overlay_width,
+              cornerRadius: local.keyboard_overlay_corner_radius,
+              borderWidth: local.keyboard_overlay_border_width,
+              borderColor: local.keyboard_overlay_border_color,
+              backgroundColor: local.keyboard_overlay_background_color,
+              textColor: local.keyboard_overlay_text_color,
+              theme: local.keyboard_overlay_theme,
+              keyMappings: local.keyboard_overlay_key_mappings,
+              maxBubbles: local.keyboard_overlay_max_bubbles,
+              bubbleTimeoutMs: local.keyboard_overlay_bubble_timeout_ms,
+            }}
+            recordingWidth={local.resolution_width}
+            recordingHeight={local.resolution_height}
+            onSave={(cfg) => {
+              update("keyboard_overlay_enabled", cfg.enabled);
+              update("keyboard_overlay_font_family", cfg.fontFamily);
+              update("keyboard_overlay_font_size", cfg.fontSize);
+              update("keyboard_overlay_opacity", cfg.opacity);
+              update("keyboard_overlay_x", cfg.x);
+              update("keyboard_overlay_y", cfg.y);
+              update("keyboard_overlay_width", cfg.width);
+              update("keyboard_overlay_corner_radius", cfg.cornerRadius);
+              update("keyboard_overlay_border_width", cfg.borderWidth);
+              update("keyboard_overlay_border_color", cfg.borderColor);
+              update("keyboard_overlay_background_color", cfg.backgroundColor);
+              update("keyboard_overlay_text_color", cfg.textColor);
+              update("keyboard_overlay_theme", cfg.theme);
+              update("keyboard_overlay_key_mappings", cfg.keyMappings);
+              update("keyboard_overlay_max_bubbles", cfg.maxBubbles);
+              update("keyboard_overlay_bubble_timeout_ms", cfg.bubbleTimeoutMs);
+              setShowKeyboardPreview(false);
+            }}
+            onCancel={() => setShowKeyboardPreview(false)}
           />
         )}
       </AnimatePresence>

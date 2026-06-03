@@ -68,6 +68,9 @@ export interface AppConfig {
   keyboard_overlay_text_color: string;
   keyboard_overlay_theme: string;
   keyboard_overlay_key_mappings: string;
+  keyboard_overlay_max_bubbles: number;
+  keyboard_overlay_bubble_timeout_ms: number;
+  keyboard_overlay_width: number;
 }
 
 export interface KeyEvent {

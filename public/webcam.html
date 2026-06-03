@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EasySpecy Webcam Overlay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .webcam-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: transparent;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+  </style>
+</head>
+<body>
+  <div class="webcam-container" id="container">
+    <video id="webcam-video" autoplay muted playsinline></video>
+  </div>
+  <script>
+    async function initWebcam() {
+      const container = document.getElementById("container");
+      const video = document.getElementById("webcam-video");
+      const { invoke } = window.__TAURI__.core;
+      const { getCurrentWindow } = window.__TAURI__.window;
+
+      console.log("[Webcam] initWebcam() called");
+
+      try {
+        const cfg = await invoke("get_config");
+        console.log("[Webcam] config loaded: enabled=" + cfg.webcam_enabled
+          + " device=" + cfg.webcam_device
+          + " shape=" + cfg.webcam_shape
+          + " opacity=" + cfg.webcam_opacity
+          + " size=" + cfg.webcam_size);
+
+        if (!cfg.webcam_enabled) {
+          console.log("[Webcam] disabled in config, exiting");
+          return;
+        }
+
+        // Apply visual properties
+        container.style.opacity = cfg.webcam_opacity ?? 1.0;
+
+        // Shape style
+        const shapes = { "Circle": "50%", "Rounded": "16px", "Squircle": "25%" };
+        const borderRadius = shapes[cfg.webcam_shape] || "0px";
+        container.style.borderRadius = borderRadius;
+        video.style.borderRadius = borderRadius;
+
+        // Border style
+        if (cfg.webcam_border_width > 0) {
+          container.style.border = `${cfg.webcam_border_width}px solid ${cfg.webcam_border_color || '#fff'}`;
+          console.log("[Webcam] border: " + cfg.webcam_border_width + "px " + cfg.webcam_border_color);
+        }
+
+        // Filters: brightness is an offset (-50 to +50), contrast is a multiplier (0.5–2.0)
+        const brightness = 100 + (cfg.webcam_brightness || 0);
+        const contrast = (cfg.webcam_contrast ?? 1.0) * 100;
+        video.style.filter = `brightness(${brightness}%) contrast(${contrast}%)`;
+
+        // Build getUserMedia constraints
+        // cfg.webcam_device is either "default" or a numeric index string from nokhwa
+        let videoConstraints;
+        if (!cfg.webcam_device || cfg.webcam_device === "default" || cfg.webcam_device === "") {
+          videoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+          console.log("[Webcam] using default camera");
+        } else {
+          // Try to find the device by label/index via enumerateDevices
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const camDevices = devices.filter(d => d.kind === "videoinput");
+          console.log("[Webcam] available cameras: " + camDevices.map(d => d.label + "(" + d.deviceId + ")").join(", "));
+          // Match by index (nokhwa index = position in the list)
+          const idx = parseInt(cfg.webcam_device);
+          const targetDevice = !isNaN(idx) ? camDevices[idx] : null;
+          if (targetDevice) {
+            videoConstraints = { deviceId: { exact: targetDevice.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } };
+            console.log("[Webcam] using device index " + idx + ": " + targetDevice.label);
+          } else {
+            videoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+            console.log("[Webcam] device index not found, falling back to default");
+          }
+        }
+
+        const constraints = { video: videoConstraints, audio: false };
+        console.log("[Webcam] calling getUserMedia...");
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log("[Webcam] getUserMedia succeeded, stream active=" + stream.active);
+        video.srcObject = stream;
+
+        // Show window once video starts playing; 2s fallback
+        let shown = false;
+        function showOnce(reason) {
+          if (shown) return;
+          shown = true;
+          console.log("[Webcam] showing window, reason=" + reason);
+          getCurrentWindow().show().catch(e => console.error("[Webcam] show failed:", e));
+        }
+        video.addEventListener("playing", () => showOnce("playing"), { once: true });
+        video.onloadedmetadata = () => showOnce("loadedmetadata");
+        setTimeout(() => showOnce("2s-fallback"), 2000);
+
+      } catch (e) {
+        console.error("[Webcam] initialization failed:", e.name, e.message);
+        container.style.background = "#1b1d2e";
+        container.style.borderRadius = "50%";
+        container.innerHTML = `<span style="font-family:sans-serif;font-size:10px;color:#bacbbc;text-align:center;padding:8px">CAM ERR<br>${e.name}</span>`;
+        getCurrentWindow().show().catch(console.error);
+      }
+    }
+
+    initWebcam();
+  </script>
+</body>
+</html>

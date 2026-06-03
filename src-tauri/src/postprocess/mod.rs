@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Post-processing module — FFmpeg encoding, auto-zoom, cursor trail filters
 //!
 //! Phase 2: Cursor trail + click metadata collection during recording.
@@ -48,11 +49,13 @@ pub struct WindowBoundsEvent {
     pub title: String,
 }
 
-/// Keyboard event timestamp (for auto-zoom typing detection)
+/// Keyboard event with key name and timestamp
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyboardEvent {
     pub timestamp_ms: u64,
+    pub key: String,
 }
+
 
 /// Collected cursor + click metadata for a recording session
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -151,14 +154,14 @@ pub fn record_window_bounds(x: i32, y: i32, width: i32, height: i32, title: &str
     }
 }
 
-/// Record a keyboard event timestamp (for auto-zoom typing detection)
-pub fn record_keyboard_event() {
+/// Record a keyboard event timestamp + key
+pub fn record_keyboard_event(key: &str) {
     let start = SESSION_START.lock().unwrap();
     if let Some(t) = *start {
         let ms = t.elapsed().as_millis() as u64;
         let mut meta = METADATA.lock().unwrap();
         if let Some(ref mut m) = *meta {
-            m.keyboard_events.push(KeyboardEvent { timestamp_ms: ms });
+            m.keyboard_events.push(KeyboardEvent { timestamp_ms: ms, key: key.to_string() });
         }
     }
 }
@@ -189,7 +192,11 @@ pub fn save_metadata(meta: &RecordingMetadata, output_path: &str) -> Result<(), 
 /// Apply cursor trail and click effects to the recorded video using FFmpeg.
 /// Renders smooth trail as transparent PNG frames, composites via FFmpeg overlay.
 /// Returns the path to the effects-applied video (or input if no effects).
+#[allow(unreachable_code, unused_variables)]
 pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Result<String, String> {
+    tracing::info!("apply_effects: bypassing post-processing overlays (recorded live)");
+    return Ok(input.to_string());
+
     let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found")?;
 
     // ═══ ORIGINAL PIPELINE (overlay only — no zoom) ═══
@@ -218,7 +225,10 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
 
     // Video is captured at MONITOR resolution, not config resolution
     // Get actual monitor size for the trail frame buffer
-    let (width, height) = {
+    let region = crate::region::get_region();
+    let (width, height) = if let Some(ref r) = region {
+        (r.width as u32, r.height as u32)
+    } else {
         #[cfg(target_os = "windows")]
         {
             use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
@@ -311,6 +321,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
     // Each frame's trail segment + click data is independent → parallel compute.
     let smooth_path_ref = &smooth_path;
     let click_ref = &meta.click_events;
+    let region_ref = &region;
     let pre_computed: Vec<(Vec<(f32, f32, f64, f64)>, Vec<(f32, f32, f64, bool)>)> = (0..total_frames)
         .into_par_iter()
         .map(|frame_idx| {
@@ -337,7 +348,12 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                             } else {
                                 0.0
                             };
-                            (p.0, p.1, age, speed)
+                            let (px, py) = if let Some(ref r) = region_ref {
+                                (p.0 - r.x as f32, p.1 - r.y as f32)
+                            } else {
+                                (p.0, p.1)
+                            };
+                            (px, py, age, speed)
                         })
                         .collect();
                     seg
@@ -356,7 +372,12 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                     let click_age_ms = frame_time_ms - click.timestamp_ms as f64;
                     if click_age_ms >= 0.0 && click_age_ms < click_window_ms {
                         let is_right = click.button == "right";
-                        Some((click.x, click.y, click_age_ms / click_window_ms, is_right))
+                        let (cx, cy) = if let Some(ref r) = region_ref {
+                            (click.x - r.x as f32, click.y - r.y as f32)
+                        } else {
+                            (click.x, click.y)
+                        };
+                        Some((cx, cy, click_age_ms / click_window_ms, is_right))
                     } else {
                         None
                     }
@@ -377,6 +398,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
         &meta.click_effect,
         color,
         secondary_color,
+        region.as_ref(),
     );
 
     tracing::info!(
@@ -395,6 +417,11 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
     // Find first/last frames with cursor activity for start/stop markers
     let first_cursor_frame = pre_computed.iter().position(|(seg, _)| seg.len() >= 2);
     let last_cursor_frame = pre_computed.iter().rposition(|(seg, _)| seg.len() >= 2);
+
+    // Parse keyboard overlay bubbles
+    let bubble_timeout_ms = config.keyboard_overlay_bubble_timeout_ms as u64;
+    let max_bubbles = config.keyboard_overlay_max_bubbles as usize;
+    let keyboard_bubbles = parse_keyboard_bubbles(&meta.keyboard_events, bubble_timeout_ms, max_bubbles);
 
     for batch_start in (0..total_frames as usize).step_by(batch_size) {
         let batch_end = (batch_start + batch_size).min(total_frames as usize);
@@ -439,6 +466,27 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                 let confetti_slice = &confetti_per_frame[frame_idx];
                 for cs in confetti_slice {
                     render_confetti_particle(&mut frame_buf, width, height, cs);
+                }
+
+                // Keyboard overlay
+                if config.keyboard_overlay_enabled {
+                    let frame_time_ms = frame_idx as f64 * ms_per_frame;
+                    let active_bubbles = get_active_bubbles_at_time(&keyboard_bubbles, frame_time_ms as u64, max_bubbles);
+                    if !active_bubbles.is_empty() {
+                        let scale_factor = crate::app_handle()
+                            .and_then(|app| app.primary_monitor().ok().flatten())
+                            .map(|m| m.scale_factor())
+                            .unwrap_or(1.0);
+                        render_keyboard_overlay(
+                            &mut frame_buf,
+                            width,
+                            height,
+                            &active_bubbles,
+                            &config,
+                            scale_factor,
+                            region.as_ref(),
+                        );
+                    }
                 }
 
                 // Recording start/stop markers
@@ -1077,6 +1125,7 @@ fn precompute_confetti(
     click_effect: &str,
     primary_color: (u8, u8, u8),
     _secondary_color: (u8, u8, u8),
+    region: Option<&crate::region::CaptureRegion>,
 ) -> Vec<Vec<ConfettiState>> {
     if click_effect != "confetti" {
         return vec![Vec::new(); total_frames as usize];
@@ -1121,8 +1170,16 @@ fn precompute_confetti(
             let pshape = (rand_f32(&mut seed) * 3.0) as u8; // 0=rect, 1=circle, 2=triangle
             let max_age = 45 + (rand_f32(&mut seed) * 25.0) as u32;
 
-            let mut px = click.x;
-            let mut py = click.y;
+            let mut px = if let Some(r) = region {
+                click.x - r.x as f32
+            } else {
+                click.x
+            };
+            let mut py = if let Some(r) = region {
+                click.y - r.y as f32
+            } else {
+                click.y
+            };
             let mut rotation = 0.0f32;
 
             // Simulate this particle's lifetime frame by frame
@@ -1282,4 +1339,358 @@ fn blend_pixel(pixel: &mut [u8], color: (u8, u8, u8), alpha: f32) {
         pixel[3] = (out_a * 255.0) as u8;
     }
 }
+
+#[derive(Debug, Clone)]
+struct BakedBubble {
+    text: String,
+    start_time_ms: u64,
+    end_time_ms: u64,
+}
+
+fn parse_keyboard_bubbles(events: &[KeyboardEvent], bubble_timeout_ms: u64, _max_bubbles: usize) -> Vec<BakedBubble> {
+    let mut bubbles: Vec<BakedBubble> = Vec::new();
+    let mut active_text: Option<(String, u64, u64)> = None;
+
+    let is_modifier = |k: &str| -> bool {
+        ["Ctrl", "Shift", "Alt", "Win"].contains(&k)
+    };
+    let is_delimiter = |k: &str| -> bool {
+        ["Enter", "Tab", "Esc", "NumEnter"].contains(&k)
+    };
+
+    let flush_active = |active: &mut Option<(String, u64, u64)>, bubbles: &mut Vec<BakedBubble>| {
+        if let Some((text, start, last)) = active.take() {
+            bubbles.push(BakedBubble {
+                text,
+                start_time_ms: start,
+                end_time_ms: last + bubble_timeout_ms,
+            });
+        }
+    };
+
+    let mut last_event_time = 0;
+
+    for ev in events {
+        let key = &ev.key;
+        let t = ev.timestamp_ms;
+
+        // Skip "Activity" events (they are only for auto-zoom typing detection)
+        if key == "Activity" {
+            continue;
+        }
+
+        if active_text.is_some() && last_event_time > 0 && t - last_event_time > 1200 {
+            flush_active(&mut active_text, &mut bubbles);
+        }
+        last_event_time = t;
+
+        if key == "Space" {
+            flush_active(&mut active_text, &mut bubbles);
+            continue;
+        }
+
+        if is_delimiter(key) {
+            flush_active(&mut active_text, &mut bubbles);
+            bubbles.push(BakedBubble {
+                text: key.to_string(),
+                start_time_ms: t,
+                end_time_ms: t + bubble_timeout_ms,
+            });
+            continue;
+        }
+
+        if key == "Backspace" {
+            if let Some(ref mut act) = active_text {
+                if !act.0.is_empty() {
+                    act.0.pop();
+                    act.2 = t;
+                    if act.0.is_empty() {
+                        active_text = None;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if is_modifier(key) || key.contains(" + ") {
+            flush_active(&mut active_text, &mut bubbles);
+            bubbles.push(BakedBubble {
+                text: key.to_string(),
+                start_time_ms: t,
+                end_time_ms: t + bubble_timeout_ms,
+            });
+            continue;
+        }
+
+        let char_str = if key.len() == 1 {
+            key.to_lowercase()
+        } else {
+            key.to_string()
+        };
+
+        if let Some(ref mut act) = active_text {
+            act.0.push_str(&char_str);
+            act.2 = t;
+        } else {
+            active_text = Some((char_str, t, t));
+        }
+    }
+
+    flush_active(&mut active_text, &mut bubbles);
+    bubbles
+}
+
+fn get_active_bubbles_at_time<'a>(bubbles: &'a [BakedBubble], time_ms: u64, max_bubbles: usize) -> Vec<&'a BakedBubble> {
+    let mut active: Vec<&BakedBubble> = bubbles
+        .iter()
+        .filter(|b| time_ms >= b.start_time_ms && time_ms < b.end_time_ms)
+        .collect();
+
+    active.sort_by_key(|b| b.start_time_ms);
+
+    if active.len() > max_bubbles {
+        let skip = active.len() - max_bubbles;
+        active.drain(0..skip);
+    }
+
+    active
+}
+
+fn parse_color_string(color_str: &str) -> ((u8, u8, u8), f32) {
+    let clean = color_str.trim();
+    if clean.starts_with('#') {
+        let rgb = parse_hex_color(clean);
+        (rgb, 1.0)
+    } else if clean.starts_with("rgba") {
+        let content = clean
+            .trim_start_matches("rgba(")
+            .trim_end_matches(')')
+            .split(',')
+            .map(|s| s.trim())
+            .collect::<Vec<&str>>();
+        if content.len() >= 4 {
+            let r = content[0].parse::<u8>().unwrap_or(0);
+            let g = content[1].parse::<u8>().unwrap_or(0);
+            let b = content[2].parse::<u8>().unwrap_or(0);
+            let a = content[3].parse::<f32>().unwrap_or(1.0);
+            ((r, g, b), a)
+        } else {
+            ((20, 20, 20), 0.75)
+        }
+    } else if clean.starts_with("rgb") {
+        let content = clean
+            .trim_start_matches("rgb(")
+            .trim_end_matches(')')
+            .split(',')
+            .map(|s| s.trim())
+            .collect::<Vec<&str>>();
+        if content.len() >= 3 {
+            let r = content[0].parse::<u8>().unwrap_or(0);
+            let g = content[1].parse::<u8>().unwrap_or(0);
+            let b = content[2].parse::<u8>().unwrap_or(0);
+            ((r, g, b), 1.0)
+        } else {
+            ((20, 20, 20), 1.0)
+        }
+    } else {
+        ((20, 20, 20), 0.75)
+    }
+}
+
+fn draw_rect(buf: &mut [u8], w: u32, h: u32, rx: u32, ry: u32, rw: u32, rh: u32, color: (u8, u8, u8), alpha: f32) {
+    for y in ry..(ry + rh) {
+        if y >= h { continue; }
+        for x in rx..(rx + rw) {
+            if x >= w { continue; }
+            let idx = ((y * w + x) * 4) as usize;
+            if idx + 3 < buf.len() {
+                blend_pixel(&mut buf[idx..idx + 4], color, alpha);
+            }
+        }
+    }
+}
+
+fn draw_border(
+    buf: &mut [u8],
+    w: u32,
+    h: u32,
+    rx: u32,
+    ry: u32,
+    rw: u32,
+    rh: u32,
+    color: (u8, u8, u8),
+    alpha: f32,
+) {
+    for x in rx..(rx + rw) {
+        if x >= w { continue; }
+        // top
+        let idx_t = ((ry * w + x) * 4) as usize;
+        if idx_t + 3 < buf.len() {
+            blend_pixel(&mut buf[idx_t..idx_t + 4], color, alpha);
+        }
+        // bottom
+        let by = ry + rh - 1;
+        if by < h {
+            let idx_b = ((by * w + x) * 4) as usize;
+            if idx_b + 3 < buf.len() {
+                blend_pixel(&mut buf[idx_b..idx_b + 4], color, alpha);
+            }
+        }
+    }
+    for y in ry..(ry + rh) {
+        if y >= h { continue; }
+        // left
+        let idx_l = ((y * w + rx) * 4) as usize;
+        if idx_l + 3 < buf.len() {
+            blend_pixel(&mut buf[idx_l..idx_l + 4], color, alpha);
+        }
+        // right
+        let rx_r = rx + rw - 1;
+        if rx_r < w {
+            let idx_r = ((y * w + rx_r) * 4) as usize;
+            if idx_r + 3 < buf.len() {
+                blend_pixel(&mut buf[idx_r..idx_r + 4], color, alpha);
+            }
+        }
+    }
+}
+
+fn draw_text(
+    buf: &mut [u8],
+    w: u32,
+    h: u32,
+    text: &str,
+    x: u32,
+    y: u32,
+    scale: u32,
+    color: (u8, u8, u8),
+    alpha: f32,
+) {
+    use font8x8::UnicodeFonts;
+    let mut current_x = x;
+    for c in text.chars() {
+        if let Some(glyph) = font8x8::BASIC_FONTS.get(c) {
+            for gy in 0..8 {
+                let byte = glyph[gy];
+                for gx in 0..8 {
+                    if byte & (1 << gx) != 0 {
+                        for dy in 0..scale {
+                            let py = y + gy as u32 * scale + dy;
+                            if py >= h { continue; }
+                            for dx in 0..scale {
+                                let px = current_x + gx as u32 * scale + dx;
+                                if px >= w { continue; }
+                                let idx = ((py * w + px) * 4) as usize;
+                                if idx + 3 < buf.len() {
+                                    blend_pixel(&mut buf[idx..idx + 4], color, alpha);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        current_x += 8 * scale + scale;
+    }
+}
+
+fn render_keyboard_overlay(
+    buf: &mut [u8],
+    w: u32,
+    h: u32,
+    active_bubbles: &[&BakedBubble],
+    config: &crate::config::AppConfig,
+    scale_factor: f64,
+    region: Option<&crate::region::CaptureRegion>,
+) {
+    let scale = (config.keyboard_overlay_font_size as f64 * scale_factor / 8.0).round().max(1.0) as u32;
+    let padding_x = 8 * scale;
+    let padding_y = 6 * scale;
+    let char_w = 8 * scale + scale;
+    let gap = 10 * scale;
+
+    let physical_ox = config.keyboard_overlay_x as f64 * scale_factor;
+    let physical_oy = config.keyboard_overlay_y as f64 * scale_factor;
+
+    let (ox, oy) = if let Some(r) = region {
+        (physical_ox - r.x as f64, physical_oy - r.y as f64)
+    } else {
+        (physical_ox, physical_oy)
+    };
+
+    let mut total_width = 0;
+    for (i, b) in active_bubbles.iter().enumerate() {
+        let text_w = b.text.chars().count() as u32 * char_w;
+        let bubble_w = text_w + padding_x * 2;
+        total_width += bubble_w;
+        if i > 0 {
+            total_width += gap;
+        }
+    }
+
+    let container_w = (config.keyboard_overlay_width as f64 * scale_factor) as u32;
+    let mut start_x = if total_width < container_w {
+        ox as i32 + (container_w as i32 - total_width as i32) / 2
+    } else {
+        ox as i32
+    };
+
+    let start_y = oy as i32;
+
+    let (bg_color, bg_alpha) = parse_color_string(&config.keyboard_overlay_background_color);
+    let (border_color, border_alpha) = parse_color_string(&config.keyboard_overlay_border_color);
+    let (text_color, _text_alpha) = parse_color_string(&config.keyboard_overlay_text_color);
+
+    let final_bg_alpha = bg_alpha * config.keyboard_overlay_opacity;
+    let final_border_alpha = border_alpha * config.keyboard_overlay_opacity;
+
+    for b in active_bubbles {
+        let text_w = b.text.chars().count() as u32 * char_w;
+        let bubble_w = text_w + padding_x * 2;
+        let bubble_h = 8 * scale + padding_y * 2;
+
+        if start_x >= 0 && start_y >= 0 {
+            draw_rect(
+                buf,
+                w,
+                h,
+                start_x as u32,
+                start_y as u32,
+                bubble_w,
+                bubble_h,
+                bg_color,
+                final_bg_alpha,
+            );
+
+            if config.keyboard_overlay_border_width > 0 {
+                draw_border(
+                    buf,
+                    w,
+                    h,
+                    start_x as u32,
+                    start_y as u32,
+                    bubble_w,
+                    bubble_h,
+                    border_color,
+                    final_border_alpha,
+                );
+            }
+
+            draw_text(
+                buf,
+                w,
+                h,
+                &b.text,
+                (start_x as u32) + padding_x,
+                (start_y as u32) + padding_y,
+                scale,
+                text_color,
+                config.keyboard_overlay_opacity,
+            );
+        }
+
+        start_x += (bubble_w + gap) as i32;
+    }
+}
+
 

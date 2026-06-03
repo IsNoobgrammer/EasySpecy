@@ -380,7 +380,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
                     let key_down = unsafe { GetAsyncKeyState(vk as i32) } & 0x8000u16 as i16 != 0;
                     let idx = vk as usize;
                     if idx < 256 && key_down && !last_key_state[idx] {
-                        crate::postprocess::record_keyboard_event();
+                        crate::postprocess::record_keyboard_event("Activity");
                         break; // Only record one key event per poll cycle
                     }
                     if idx < 256 {

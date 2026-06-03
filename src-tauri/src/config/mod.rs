@@ -86,6 +86,9 @@ pub struct AppConfig {
     pub keyboard_overlay_text_color: String,
     pub keyboard_overlay_theme: String,
     pub keyboard_overlay_key_mappings: String,
+    pub keyboard_overlay_max_bubbles: u32,
+    pub keyboard_overlay_bubble_timeout_ms: u32,
+    pub keyboard_overlay_width: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -224,11 +227,14 @@ impl Default for AppConfig {
             keyboard_overlay_y: 800,
             keyboard_overlay_corner_radius: 8,
             keyboard_overlay_border_width: 1,
-            keyboard_overlay_border_color: "rgba(255, 255, 255, 0.15)".to_string(),
-            keyboard_overlay_background_color: "rgba(0, 0, 0, 0.65)".to_string(),
-            keyboard_overlay_text_color: "#ffffff".to_string(),
-            keyboard_overlay_theme: "classic".to_string(),
+            keyboard_overlay_border_color: "rgba(140, 140, 140, 0.15)".to_string(),
+            keyboard_overlay_background_color: "rgba(20, 20, 20, 0.75)".to_string(),
+            keyboard_overlay_text_color: "#e5e5e0".to_string(),
+            keyboard_overlay_theme: "speccy-classic".to_string(),
             keyboard_overlay_key_mappings: r#"{"Ctrl":"⌃","Shift":"⇧","Alt":"⌥","Win":"⊞","Enter":"↵","Backspace":"⌫","Space":"␣","Esc":"⎋"}"#.to_string(),
+            keyboard_overlay_max_bubbles: 4,
+            keyboard_overlay_bubble_timeout_ms: 3000,
+            keyboard_overlay_width: 360,
         }
     }
 }

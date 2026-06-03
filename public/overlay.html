@@ -4,14 +4,68 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EasySpecy Effects Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; -webkit-user-select: none; }
     canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; }
+    
+    #keyboard-overlay {
+      position: absolute;
+      display: none; /* hidden until enabled */
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 16px;
+      pointer-events: none;
+      z-index: 99999;
+      transition: opacity 0.15s ease-out;
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      white-space: nowrap;
+    }
+
+    #keyboard-overlay.kb-hidden {
+      opacity: 0 !important;
+    }
+
+    .kb-bubble {
+      padding: 6px 12px;
+      font-weight: bold;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      white-space: nowrap;
+      text-align: center;
+      min-width: 32px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+      /* No CSS animation — prevents jitter and flashing */
+    }
+
+    /* ── Webcam PiP ── */
+    #webcam-pip {
+      position: absolute;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 99998; /* just below keyboard overlay */
+      display: none;  /* hidden until config loaded */
+    }
+    #webcam-pip video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
   </style>
 </head>
 <body>
   <canvas id="fx"></canvas>
+  <div id="webcam-pip"><video id="webcam-video" autoplay muted playsinline></video></div>
+  <div id="keyboard-overlay"></div>
   <script>
     /**
      * EasySpecy Effects Overlay v3 — Event-driven + Spline Interpolation
@@ -295,6 +349,142 @@
 
     function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
     resize(); window.addEventListener("resize", resize);
+    // Keyboard Overlay state
+    const kbConfig = {
+      enabled: false,
+      fontFamily: "JetBrains Mono",
+      fontSize: 14,
+      opacity: 0.9,
+      x: 480,
+      y: 800,
+      width: 360,
+      cornerRadius: 8,
+      borderWidth: 1,
+      borderColor: "rgba(255, 255, 255, 0.15)",
+      backgroundColor: "rgba(0, 0, 0, 0.65)",
+      textColor: "#ffffff",
+      theme: "classic",
+      keyMappings: "{}",
+      maxBubbles: 4,
+      bubbleTimeoutMs: 3000
+    };
+
+    function applyKeyboardStyles() {
+      const el = document.getElementById("keyboard-overlay");
+      if (!el) return;
+
+      if (!kbConfig.enabled) {
+        el.style.display = "none";
+        return;
+      }
+
+      // Position and geometry
+      el.style.display     = "flex";
+      el.style.left        = `${kbConfig.x}px`;
+      el.style.top         = `${kbConfig.y}px`;
+      el.style.width       = `${kbConfig.width}px`;
+      el.style.minWidth    = `${kbConfig.width}px`;
+      el.style.borderRadius = `${kbConfig.cornerRadius}px`;
+
+      // Border
+      if (kbConfig.borderWidth > 0) {
+        el.style.borderStyle = "solid";
+        el.style.borderWidth = `${kbConfig.borderWidth}px`;
+        el.style.borderColor = kbConfig.borderColor;
+      } else {
+        el.style.borderStyle = "none";
+        el.style.borderWidth = "0";
+      }
+
+      // Colors
+      el.style.backgroundColor = kbConfig.backgroundColor;
+      el.style.color           = kbConfig.textColor;
+
+      // Typography — applied to container so all child .kb-bubble elements inherit it
+      el.style.fontFamily = `"${kbConfig.fontFamily}", "JetBrains Mono", monospace`;
+      el.style.fontSize   = `${kbConfig.fontSize}px`;
+
+      // Opacity — set directly; show/hide via kb-hidden class
+      el.style.opacity = String(kbConfig.opacity);
+
+      // Start hidden (no bubbles yet)
+      el.classList.add("kb-hidden");
+    }
+
+    // \u2500\u2500 Webcam PiP \u2500\u2500
+    // Runs once after config is loaded. Starts the camera stream and positions
+    // the #webcam-pip element directly inside this fullscreen overlay window.
+    async function initWebcam(cfg) {
+      if (!cfg.webcam_enabled) return;
+
+      const pip   = document.getElementById("webcam-pip");
+      const video = document.getElementById("webcam-video");
+      if (!pip || !video) return;
+
+      // Scale position from output-resolution space to this window's CSS space
+      // (same formula as keyboard overlay)
+      const scaleX = window.innerWidth  / (cfg.resolution_width  || window.innerWidth);
+      const scaleY = window.innerHeight / (cfg.resolution_height || window.innerHeight);
+      const size   = Math.round(cfg.webcam_size * ((scaleX + scaleY) / 2));
+      const posX   = Math.max(0, Math.min(window.innerWidth  - size, Math.round(cfg.webcam_x * scaleX)));
+      const posY   = Math.max(0, Math.min(window.innerHeight - size, Math.round(cfg.webcam_y * scaleY)));
+
+      // Shape
+      const shapeMap = { "Circle": "50%", "Rounded": "20%", "Squircle": "30%", "Square": "0px" };
+      const radius   = shapeMap[cfg.webcam_shape] || "50%";
+
+      // Apply all styles to the container
+      pip.style.display      = "block";
+      pip.style.left         = `${posX}px`;
+      pip.style.top          = `${posY}px`;
+      pip.style.width        = `${size}px`;
+      pip.style.height       = `${size}px`;
+      pip.style.borderRadius = radius;
+      pip.style.opacity      = cfg.webcam_opacity ?? 1.0;
+
+      if (cfg.webcam_border_width > 0) {
+        pip.style.border    = `${cfg.webcam_border_width}px solid ${cfg.webcam_border_color || "#00e88a"}`;
+        pip.style.boxShadow = `0 0 16px ${cfg.webcam_border_color || "#00e88a"}66, 0 4px 20px rgba(0,0,0,0.5)`;
+      }
+
+      // CSS filters: brightness offset (-50..+50), contrast multiplier (0.5-2.0), sharpen via blur+contrast trick
+      const brightness = 100 + (cfg.webcam_brightness || 0);
+      const contrast   = Math.round((cfg.webcam_contrast ?? 1.0) * 100);
+      // Sharpen via saturate + slight contrast boost (no kernel in CSS, but saturate helps perceived sharpness)
+      const saturate   = Math.round(100 + (cfg.webcam_sharpen || 0) * 50);
+      video.style.borderRadius = radius;
+      video.style.filter       = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturate}%)`;
+
+      console.log(`[Webcam PiP] pos=(${posX},${posY}) size=${size} radius=${radius} brightness=${brightness}% contrast=${contrast}% saturate=${saturate}%`);
+
+      // Device selection — cfg.webcam_device is either "default" or a nokhwa numeric index
+      let videoConstraints;
+      try {
+        if (!cfg.webcam_device || cfg.webcam_device === "default" || cfg.webcam_device === "") {
+          videoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
+        } else {
+          const allDevices = await navigator.mediaDevices.enumerateDevices();
+          const cams       = allDevices.filter(d => d.kind === "videoinput");
+          const idx        = parseInt(cfg.webcam_device, 10);
+          const target     = !isNaN(idx) && cams[idx] ? cams[idx] : null;
+          videoConstraints = target
+            ? { deviceId: { exact: target.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            : { width: { ideal: 1280 }, height: { ideal: 720 } };
+          console.log(`[Webcam PiP] device index=${idx} -> ${target ? target.label : "fallback default"}`);
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+        video.srcObject = stream;
+        console.log("[Webcam PiP] stream started OK");
+      } catch (e) {
+        console.error("[Webcam PiP] getUserMedia failed:", e.name, e.message);
+        pip.style.background   = "rgba(30,30,50,0.85)";
+        pip.style.display      = "flex";
+        pip.style.alignItems   = "center";
+        pip.style.justifyContent = "center";
+        pip.innerHTML = `<span style="color:#bacbbc;font-size:11px;font-family:monospace;text-align:center">CAM<br>${e.name}</span>`;
+      }
+    }
 
     // Load config
     async function loadConfig() {
@@ -304,9 +494,340 @@
         trail.color = cfg.cursor_trail_color || "#00e88a";
         click.style = cfg.click_effect || "ripple";
         click.color = cfg.cursor_trail_color || "#00e88a";
-      } catch (e) { console.error("Config load failed:", e); }
+
+        // Keyboard overlay configuration
+        // The overlay HTML window is fullscreen at monitor logical resolution.
+        // Config values (x, y, width) are stored in OUTPUT resolution space.
+        // Scale: logical_val = config_val * (window.innerWidth / cfg.resolution_width)
+        const scaleX = window.innerWidth  / (cfg.resolution_width  || window.innerWidth);
+        const scaleY = window.innerHeight / (cfg.resolution_height || window.innerHeight);
+
+        kbConfig.enabled      = cfg.keyboard_overlay_enabled || false;
+        kbConfig.fontFamily   = cfg.keyboard_overlay_font_family || "JetBrains Mono";
+        kbConfig.fontSize     = cfg.keyboard_overlay_font_size     !== undefined ? cfg.keyboard_overlay_font_size     : 14;
+        kbConfig.opacity      = cfg.keyboard_overlay_opacity        !== undefined ? cfg.keyboard_overlay_opacity        : 0.9;
+        kbConfig.cornerRadius = cfg.keyboard_overlay_corner_radius  !== undefined ? cfg.keyboard_overlay_corner_radius  : 8;
+        kbConfig.borderWidth  = cfg.keyboard_overlay_border_width   !== undefined ? cfg.keyboard_overlay_border_width   : 1;
+        kbConfig.borderColor  = cfg.keyboard_overlay_border_color  || "rgba(255, 255, 255, 0.15)";
+        kbConfig.backgroundColor = cfg.keyboard_overlay_background_color || "rgba(0, 0, 0, 0.65)";
+        kbConfig.textColor    = cfg.keyboard_overlay_text_color     || "#e5e5e0";
+        kbConfig.theme        = cfg.keyboard_overlay_theme          || "speccy-classic";
+        kbConfig.keyMappings  = cfg.keyboard_overlay_key_mappings   || "{}";
+        kbConfig.maxBubbles   = cfg.keyboard_overlay_max_bubbles    !== undefined ? cfg.keyboard_overlay_max_bubbles    : 4;
+        kbConfig.bubbleTimeoutMs = cfg.keyboard_overlay_bubble_timeout_ms !== undefined ? cfg.keyboard_overlay_bubble_timeout_ms : 3000;
+
+        // Scale position and width from output-resolution space to screen logical space
+        const rawWidth = cfg.keyboard_overlay_width !== undefined ? cfg.keyboard_overlay_width : 360;
+        const rawX     = cfg.keyboard_overlay_x     !== undefined ? cfg.keyboard_overlay_x     : Math.round((cfg.resolution_width - rawWidth) / 2);
+        const rawY     = cfg.keyboard_overlay_y     !== undefined ? cfg.keyboard_overlay_y     : Math.round(cfg.resolution_height - 120);
+
+        kbConfig.width = Math.round(rawWidth * scaleX);
+        kbConfig.x     = Math.max(0, Math.min(window.innerWidth  - kbConfig.width,  Math.round(rawX * scaleX)));
+        kbConfig.y     = Math.max(0, Math.min(window.innerHeight - 80,              Math.round(rawY * scaleY)));
+
+        console.log(`[KB] scale=(${scaleX.toFixed(3)}, ${scaleY.toFixed(3)}) raw=(${rawX}, ${rawY}) → css=(${kbConfig.x}, ${kbConfig.y}) width=${kbConfig.width}`);
+
+
+        applyKeyboardStyles();
+
+        // ── Webcam PiP init ──
+        initWebcam(cfg);
+
+        // Start polling keyboard events if enabled
+        if (kbConfig.enabled) {
+          setInterval(pollKeyboard, 50); // ~20Hz
+        }
+
+        // Show window once configuration has been successfully loaded and applied
+        if (window.__TAURI__ && window.__TAURI__.window) {
+          window.__TAURI__.window.getCurrentWindow().show().catch(() => {});
+        }
+      } catch (e) { 
+        console.error("Config load failed:", e);
+        // Fallback show if config load fails
+        if (window.__TAURI__ && window.__TAURI__.window) {
+          window.__TAURI__.window.getCurrentWindow().show().catch(() => {});
+        }
+      }
     }
     loadConfig();
+
+    // Persistent bubble list & Incremental event processing state
+    let persistentBubbles = [];
+    let activeTextBubble = null;
+    let lastProcessedTimestamp = -1;
+    let lastEventTime = 0;
+    let recordingStartSystemTime = null;
+
+    // Poll keyboard events
+    async function pollKeyboard() {
+      try {
+        const events = await window.__TAURI__.core.invoke("get_keyboard_events");
+        
+        if (!recordingStartSystemTime && events.length > 0) {
+          recordingStartSystemTime = Date.now() - events[0].timestamp_ms;
+        }
+
+        // Process any new events
+        const newEvents = events.filter(e => e.timestamp_ms > lastProcessedTimestamp);
+        if (newEvents.length > 0) {
+          processEventsIncremental(newEvents);
+          lastProcessedTimestamp = newEvents[newEvents.length - 1].timestamp_ms;
+        }
+
+        updateKeyboardOverlay();
+      } catch (e) {
+        console.error("Keyboard poll failed:", e);
+      }
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function processEventsIncremental(newEvents) {
+      const SHIFT_MAP = {
+        "1": "!", "2": "@", "3": "#", "4": "$", "5": "%", "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
+        "-": "_", "=": "+", "[": "{", "]": "}", "\\": "|", ";": ":", "'": "\"", ",": "<", ".": ">", "/": "?"
+      };
+
+      let mappings = {};
+      try {
+        mappings = JSON.parse(kbConfig.keyMappings);
+      } catch (e) {}
+
+      const normalizeKey = (key) => {
+        if (key === "LCtrl" || key === "RCtrl") return "Ctrl";
+        if (key === "LShift" || key === "RShift") return "Shift";
+        if (key === "LAlt" || key === "RAlt") return "Alt";
+        return key;
+      };
+
+      const isModifier = (key) => {
+        const norm = normalizeKey(key);
+        return ["Ctrl", "Shift", "Alt", "Win"].includes(norm);
+      };
+
+      const isShortcutTarget = (key) => {
+        return !isModifier(key);
+      };
+
+      const isDelimiter = (key) => {
+        const norm = normalizeKey(key);
+        return ["Enter", "Tab", "Esc", "NumEnter"].includes(norm);
+      };
+
+      const getMapping = (key) => {
+        const norm = normalizeKey(key);
+        return mappings[norm] || mappings[key] || norm;
+      };
+
+      const appendCharacter = (char, t) => {
+        const PUNCTUATION = [";", ":", ",", ".", "?", "!"];
+        if (PUNCTUATION.includes(char)) {
+          const lastBubble = persistentBubbles[persistentBubbles.length - 1];
+          if (lastBubble && lastBubble.type === "text") {
+            lastBubble.text += char;
+            lastBubble.lastUpdatedTime = t;
+            activeTextBubble = lastBubble;
+            return;
+          }
+        }
+
+        if (activeTextBubble) {
+          activeTextBubble.text += char;
+          activeTextBubble.lastUpdatedTime = t;
+        } else {
+          activeTextBubble = {
+            type: "text",
+            text: char,
+            lastUpdatedTime: t,
+          };
+          persistentBubbles.push(activeTextBubble);
+        }
+      };
+
+      for (let i = 0; i < newEvents.length; i++) {
+        const event = newEvents[i];
+        const key = event.key;
+        const t = event.timestamp_ms;
+
+        // Idle pause timeout check (1.2s between consecutive keys)
+        if (activeTextBubble && lastEventTime > 0 && t - lastEventTime > 1200) {
+          activeTextBubble = null;
+        }
+        lastEventTime = t;
+
+        const norm = normalizeKey(key);
+
+        // Space delimiter split (no visible block created)
+        if (norm === "Space") {
+          activeTextBubble = null;
+          continue;
+        }
+
+        // Handle Shift + key combos (e.g. Shift + E -> E, Shift + 1 -> !)
+        if (norm === "Shift") {
+          let nextIdx = i + 1;
+          if (nextIdx < newEvents.length && newEvents[nextIdx].timestamp_ms - t < 500) {
+            const nextKey = newEvents[nextIdx].key;
+            const normalizedNext = normalizeKey(nextKey);
+            
+            const isLetter = /^[A-Z]$/i.test(normalizedNext);
+            const shiftMapped = SHIFT_MAP[normalizedNext];
+            
+            if (isLetter || shiftMapped) {
+              const typedChar = isLetter ? normalizedNext.toUpperCase() : shiftMapped;
+              appendCharacter(typedChar, t);
+              i = nextIdx; // Skip Shift and the combined character
+              continue;
+            }
+          }
+        }
+
+        // Check modifier combinations
+        if (isModifier(key)) {
+          const comboKeys = [key];
+          let nextIdx = i + 1;
+          
+          while (
+            nextIdx < newEvents.length &&
+            (isModifier(newEvents[nextIdx].key) || isShortcutTarget(newEvents[nextIdx].key)) &&
+            newEvents[nextIdx].timestamp_ms - event.timestamp_ms < 500
+          ) {
+            comboKeys.push(newEvents[nextIdx].key);
+            if (!isModifier(newEvents[nextIdx].key)) {
+              break;
+            }
+            nextIdx++;
+          }
+
+          if (comboKeys.length > 1) {
+            const formatted = comboKeys.map(getMapping).join(" + ");
+            activeTextBubble = null;
+            persistentBubbles.push({
+              type: "shortcut",
+              text: formatted,
+              lastUpdatedTime: t,
+            });
+            i = nextIdx;
+            continue;
+          } else {
+            activeTextBubble = null;
+            persistentBubbles.push({
+              type: "special",
+              text: getMapping(key),
+              lastUpdatedTime: t,
+            });
+            continue;
+          }
+        }
+
+        // Backspace logic (modifies text in place, never shows backspace bubble)
+        if (key === "Backspace") {
+          if (activeTextBubble && activeTextBubble.text.length > 0) {
+            activeTextBubble.text = activeTextBubble.text.slice(0, -1);
+            activeTextBubble.lastUpdatedTime = t;
+            if (activeTextBubble.text.length === 0) {
+              const idx = persistentBubbles.indexOf(activeTextBubble);
+              if (idx > -1) {
+                persistentBubbles.splice(idx, 1);
+              }
+              activeTextBubble = null;
+            }
+          }
+          continue;
+        }
+
+        // Delimiter keys
+        if (isDelimiter(key)) {
+          activeTextBubble = null;
+          persistentBubbles.push({
+            type: "special",
+            text: getMapping(key),
+            lastUpdatedTime: t,
+          });
+          continue;
+        }
+
+        // Normal characters
+        let char = "";
+        if (key === "Space") {
+          char = " ";
+        } else if (key.length === 1) {
+          // Convert to lowercase if typed without Shift (Windows VK hook returns capital A-Z by default)
+          char = /^[A-Z]$/.test(key) ? key.toLowerCase() : key;
+        } else {
+          activeTextBubble = null;
+          persistentBubbles.push({
+            type: "special",
+            text: getMapping(key),
+            lastUpdatedTime: t,
+          });
+          continue;
+        }
+
+        // Append or create new bubble
+        appendCharacter(char, t);
+      }
+    }
+
+    // Track last rendered state to avoid unnecessary DOM mutations
+    let lastRenderedHtml = "";
+    let lastBubbleCount = -1;
+
+    function updateKeyboardOverlay() {
+      const el = document.getElementById("keyboard-overlay");
+      if (!el || !kbConfig.enabled) return;
+
+      // Calculate elapsed time since recording start
+      const elapsed = recordingStartSystemTime ? (Date.now() - recordingStartSystemTime) : 0;
+
+      // Seal active text bubble if user has been idle for >1.2s
+      if (activeTextBubble && lastEventTime > 0 && elapsed - lastEventTime > 1200) {
+        activeTextBubble = null;
+      }
+
+      // Prune timed-out bubbles (keep the active one alive regardless)
+      persistentBubbles = persistentBubbles.filter(b => {
+        if (b === activeTextBubble) return true;
+        return (elapsed - b.lastUpdatedTime) < kbConfig.bubbleTimeoutMs;
+      });
+
+      // Clamp to max bubble count from config
+      while (persistentBubbles.length > kbConfig.maxBubbles) {
+        persistentBubbles.shift();
+      }
+
+      // Show/hide overlay container based on whether there are active bubbles
+      if (persistentBubbles.length === 0) {
+        if (!el.classList.contains("kb-hidden")) {
+          el.classList.add("kb-hidden");
+          lastRenderedHtml = "";
+        }
+        return;
+      }
+
+      // Reveal overlay when there are bubbles to show
+      el.classList.remove("kb-hidden");
+
+      // ── Diff-based DOM update: only touch the DOM when content changes ──
+      // This is the key fix for preventing jitter/flashing —
+      // browsers tear-down and repaint even on identical innerHTML assignments.
+      const newHtml = persistentBubbles.map(b =>
+        `<div class="kb-bubble">${escapeHtml(b.text)}</div>`
+      ).join("");
+
+      if (newHtml !== lastRenderedHtml) {
+        el.innerHTML = newHtml;
+        lastRenderedHtml = newHtml;
+      }
+    }
 
     // ── Listen to Tauri events from Rust mouse tracking thread ──
     // This is the KEY FIX: we receive cursor data via IPC events, not DOM events
@@ -318,13 +839,13 @@
         // Cursor movement — arrives at ~120Hz from Rust
         await listen("cursor-move", (event) => {
           const [x, y] = event.payload;
-          trail.addRawPoint(x, y);
+          trail.addRawPoint(x / window.devicePixelRatio, y / window.devicePixelRatio);
         });
 
         // Click events — arrives on mouse button press
         await listen("cursor-click", (event) => {
           const [x, y, _button] = event.payload;
-          click.addClick(x, y);
+          click.addClick(x / window.devicePixelRatio, y / window.devicePixelRatio);
         });
 
         console.log("[EasySpecy] Event listeners registered — receiving cursor data from Rust");

@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use tauri::Emitter;
 
 /// A single keypress event with timing info
 #[derive(Debug, Clone, serde::Serialize)]
@@ -25,6 +26,10 @@ pub struct KeyEvent {
     pub timestamp_ms: f64,
     /// Duration the key was held in milliseconds (0 if just pressed)
     pub duration_ms: f64,
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub win: bool,
 }
 
 /// Keyboard capture state
@@ -39,6 +44,7 @@ struct KeyboardCapture {
 unsafe impl Send for KeyboardCapture {}
 
 static KEYBOARD_CAPTURE: std::sync::OnceLock<Mutex<Option<KeyboardCapture>>> = std::sync::OnceLock::new();
+static HOOK_THREAD_ID: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
 
 /// Start capturing keyboard events.
 /// Must be called when recording starts.
@@ -50,6 +56,7 @@ pub fn start_keyboard_capture() {
     if capture.is_some() {
         *capture = None;
     }
+    *HOOK_THREAD_ID.lock().unwrap() = None;
 
     let events = Arc::new(Mutex::new(VecDeque::with_capacity(256)));
     let running = Arc::new(AtomicBool::new(true));
@@ -82,6 +89,14 @@ pub fn stop_keyboard_capture() -> Vec<KeyEvent> {
 
     if let Some(ref mut cap) = *capture {
         cap.running.store(false, Ordering::SeqCst);
+    }
+
+    if let Some(thread_id) = *HOOK_THREAD_ID.lock().unwrap() {
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+            use windows::Win32::Foundation::{LPARAM, WPARAM};
+            let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+        }
     }
 
     // Extract remaining events
@@ -129,9 +144,10 @@ fn run_keyboard_hook(
     running: Arc<AtomicBool>,
     start_time: Instant,
 ) {
-    use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-    use windows::Win32::UI::Input::KeyboardAndMouse::*;
+    use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows::Win32::System::Threading::GetCurrentThreadId;
 
     // Shared state for the hook callback
     // We use a raw pointer because the hook callback can't capture environment
@@ -149,6 +165,7 @@ fn run_keyboard_hook(
             start_time,
             running: running.clone(),
         }));
+        *HOOK_THREAD_ID.lock().unwrap() = Some(GetCurrentThreadId());
     }
 
     unsafe extern "system" fn keyboard_hook_proc(
@@ -160,26 +177,65 @@ fn run_keyboard_hook(
             let kbd = *(l_param.0 as *const KBDLLHOOKSTRUCT);
             let key_code = w_param.0 as u32;
 
+            tracing::info!("keyboard_hook_proc: vkCode=0x{:X}, key_code=0x{:X}", kbd.vkCode, key_code);
+
             // Only capture keydown events (not keyup)
             if key_code == WM_KEYDOWN || key_code == WM_SYSKEYDOWN {
                 if let Some(ref state) = HOOK_STATE {
                     if state.running.load(Ordering::Relaxed) {
-                        let key = vk_to_name(kbd.vkCode);
+                        let mut key = vk_to_name(kbd.vkCode);
                         let timestamp_ms = state.start_time.elapsed().as_millis() as f64;
 
+                        // Query modifier states
+                        use windows::Win32::UI::Input::KeyboardAndMouse::{
+                            GetKeyState, VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN
+                        };
+                        let shift = (unsafe { GetKeyState(VK_SHIFT.0 as i32) } as u16 & 0x8000) != 0;
+                        let ctrl = (unsafe { GetKeyState(VK_CONTROL.0 as i32) } as u16 & 0x8000) != 0;
+                        let alt = (unsafe { GetKeyState(VK_MENU.0 as i32) } as u16 & 0x8000) != 0;
+                        let win = ((unsafe { GetKeyState(VK_LWIN.0 as i32) } as u16 & 0x8000) != 0) 
+                               || ((unsafe { GetKeyState(VK_RWIN.0 as i32) } as u16 & 0x8000) != 0);
+
+                        // If password field is focused, mask non-modifier keys as "*"
+                        let is_mod = kbd.vkCode == 0x10 || kbd.vkCode == 0x11 || kbd.vkCode == 0x12 
+                            || kbd.vkCode == 0x5B || kbd.vkCode == 0x5C 
+                            || (kbd.vkCode >= 0xA0 && kbd.vkCode <= 0xA5);
+
+                        if !is_mod && unsafe { check_is_password_focused() } {
+                            key = "*".to_string();
+                        }
+
+                        tracing::info!("keyboard_hook_proc keydown: key={}, ctrl={}, shift={}, alt={}, win={}, timestamp={}", key, ctrl, shift, alt, win, timestamp_ms);
+
                         let event = KeyEvent {
-                            key,
+                            key: key.clone(),
                             timestamp_ms,
                             duration_ms: 0.0,
+                            ctrl,
+                            shift,
+                            alt,
+                            win,
                         };
 
-                        if let Ok(mut evts) = state.events.try_lock() {
-                            evts.push_back(event);
+                        if let Ok(mut evts) = state.events.lock() {
+                            evts.push_back(event.clone());
                             // Cap at 512 events to prevent memory growth
                             while evts.len() > 512 {
                                 evts.pop_front();
                             }
                         }
+
+                        // Emit event directly to the effects overlay window to prevent Webview2 timer throttling
+                        if let Some(app) = crate::app_handle() {
+                            let _ = app.emit_to(
+                                "effects-overlay",
+                                "keyboard-event",
+                                event,
+                            );
+                        }
+
+                        // Record for post-processing/video baking
+                        crate::postprocess::record_keyboard_event(&key);
                     }
                 }
             }
@@ -190,10 +246,11 @@ fn run_keyboard_hook(
 
     unsafe {
         // Install the hook
+        let h_instance = GetModuleHandleW(None).map(|h| HINSTANCE(h.0)).ok();
         let hook = SetWindowsHookExW(
             WH_KEYBOARD_LL,
             Some(keyboard_hook_proc),
-            None,
+            h_instance,
             0,
         );
 
@@ -206,17 +263,9 @@ fn run_keyboard_hook(
 
         // Message loop — required for WH_KEYBOARD_LL to work
         let mut msg = MSG::default();
-        while running.load(Ordering::Relaxed) {
-            // PeekMessage with PM_REMOVE + short timeout so we can check `running`
-            if PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                if msg.message == WM_QUIT {
-                    break;
-                }
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            } else {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
+        while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
         }
 
         // Unhook
@@ -231,8 +280,6 @@ fn run_keyboard_hook(
 /// Convert Windows virtual key code to human-readable name
 #[cfg(target_os = "windows")]
 fn vk_to_name(vk: u32) -> String {
-    use windows::Win32::UI::Input::KeyboardAndMouse::*;
-
     match vk {
         0x08 => "Backspace".into(),
         0x09 => "Tab".into(),
@@ -315,6 +362,26 @@ fn vk_to_name(vk: u32) -> String {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub unsafe fn check_is_password_focused() -> bool {
+    use windows::Win32::System::Com::{CoInitializeEx, CoCreateInstance, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED};
+    use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
+
+    let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+
+    let automation: IUIAutomation = match CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) {
+        Ok(auto) => auto,
+        Err(_) => return false,
+    };
+
+    if let Ok(el) = automation.GetFocusedElement() {
+        if let Ok(is_password) = el.CurrentIsPassword() {
+            return is_password.as_bool();
+        }
+    }
+    false
+}
+
 /// No-op for non-Windows platforms
 #[cfg(not(target_os = "windows"))]
 fn run_keyboard_hook(
@@ -324,3 +391,4 @@ fn run_keyboard_hook(
 ) {
     tracing::warn!("Keyboard overlay not supported on this platform");
 }
+
