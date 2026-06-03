@@ -1,1 +1,0 @@
-React 18 with TypeScript, Zustand for global state management with persistence middleware, Framer Motion (motion/react) for complex UI animations and layout transitions, Tailwind CSS for utility-first styling alongside custom CSS variables, Tauri v2 API for OS-level integration (global shortcuts, file system, window management)

@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: tauri_backend
-title: EasySpecy Screen Recording Backend
-scope:
-    - src-tauri/
-source_files: []
-depends_on: []
-related_to:
-    - path: frontend_ui

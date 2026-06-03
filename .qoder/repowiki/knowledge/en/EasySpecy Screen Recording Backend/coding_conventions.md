@@ -1,4 +1,0 @@
-- Synchronization via Atomic Gates: Video, audio, and webcam threads use a shared `CAPTURE_ARMED` atomic boolean to ensure all streams start recording at the exact same instant (the first video frame).
-- FFmpeg Progress Parsing: Long-running FFmpeg processes (encoding, merging) are spawned with `-progress pipe:1`, and their stdout is parsed in real-time to update a global `ENCODING_PROGRESS` atomic for frontend feedback.
-- Overlay Window Management: Visual effects (cursor trails, keyboard input) and webcam feeds are rendered in separate, transparent, always-on-top Tauri `WebviewWindow` instances layered over the main application.
-- Platform-Specific Dependencies: The `Cargo.toml` uses `[target.'cfg(...)'.dependencies]` to include OS-specific capture backends like `screencapturekit` (macOS) and `pipewire` (Linux) while defaulting to `windows-capture` on Windows.

@@ -13,8 +13,7 @@ dist-ssr
 *.local
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -35,3 +34,10 @@ scratch/
 # Test binaries (standalone test harnesses, not unit tests)
 src-tauri/src/bin/
 src-tauri/resources/ffmpeg.exe
+
+# EasySpecy extra ignores
+research/
+.kiro/
+.qoder/
+AGENTS.md
+

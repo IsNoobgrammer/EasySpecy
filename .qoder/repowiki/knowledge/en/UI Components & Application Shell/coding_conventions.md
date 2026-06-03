@@ -1,4 +1,0 @@
-- Components use inline style objects referencing CSS variables (e.g., `var(--bg-surface)`) for dynamic theming instead of hardcoded color values.
-- Interactive elements consistently utilize `motion.div` or `motion.button` with `whileHover` and `whileTap` props for micro-interactions.
-- Configuration updates in settings forms use a generic `update` helper function that creates a new state object with the specific field changed.
-- Async Tauri invocations are wrapped in try-catch blocks within store actions, with errors reported via the `addToast` state method.

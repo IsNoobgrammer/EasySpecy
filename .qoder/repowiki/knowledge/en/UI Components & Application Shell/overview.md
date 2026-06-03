@@ -1,1 +1,0 @@
-Provides the core React component architecture, global state management, and design system implementation for the EasySpecy screen recording application.

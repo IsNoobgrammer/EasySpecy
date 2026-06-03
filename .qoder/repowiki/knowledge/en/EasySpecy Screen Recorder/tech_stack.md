@@ -1,1 +1,0 @@
-Tauri v2 framework binding a Rust (Cargo) backend with a React (Vite/TypeScript) frontend.
