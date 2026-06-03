@@ -14,10 +14,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "easyspecy"
 path = "src/main.rs"
 
-[[bin]]
-name = "sync_test"
-path = "src/bin/sync_test.rs"
-
 
 
 [build-dependencies]
