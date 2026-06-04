@@ -134,14 +134,6 @@ jobs:
           $zip = Get-Item "EasySpecy-Portable.zip"
           Write-Host "Portable ZIP: $([math]::Round($zip.Length / 1MB, 1)) MB"
 
-      # ── Sign release artifacts for updater ─────────────────
-      - name: Install Tauri signer
-        shell: pwsh
-        run: |
-          cargo install tauri-signer --locked --force
-        env:
-          CARGO_TERM_COLOR: always
-
       - name: Sign NSIS installer
         id: sign-nsis
         shell: pwsh
@@ -150,7 +142,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         run: |
           $installer = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Filter "*.exe" | Select-Object -First 1
-          tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $installer.FullName
+          npx tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $installer.FullName
           $sigFile = "$($installer.FullName).sig"
           if (Test-Path $sigFile) {
             $sig = Get-Content $sigFile -Raw
@@ -167,7 +159,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         run: |
-          tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD EasySpecy-Portable.zip
+          npx tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD EasySpecy-Portable.zip
           if (Test-Path "EasySpecy-Portable.zip.sig") {
             $sig = Get-Content "EasySpecy-Portable.zip.sig" -Raw
             echo "portable_signature=$sig" >> $env:GITHUB_OUTPUT
