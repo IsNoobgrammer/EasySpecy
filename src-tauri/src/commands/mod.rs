@@ -371,6 +371,7 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
     // The JS has a 2-second fallback timer as well, so no Rust-side show needed.
 
     tracing::info!("start_recording: capture armed, returning to frontend");
+    crate::tray::update_tray_state(true, false);
     Ok(())
 }
 
@@ -429,17 +430,20 @@ pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingR
     };
     let mut history = RecordingHistory::load();
     history.add(entry);
+    crate::tray::update_tray_state(false, false);
     Ok(result)
 }
 
 #[tauri::command]
 pub fn pause_recording_cmd() {
     capture::pause_recording();
+    crate::tray::update_tray_state(true, true);
 }
 
 #[tauri::command]
 pub fn resume_recording_cmd() {
     capture::resume_recording();
+    crate::tray::update_tray_state(true, false);
 }
 
 #[tauri::command]

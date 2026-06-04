@@ -160,6 +160,30 @@ export default function App() {
       useStore.setState({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
       useStore.getState().addToast("Recording started (region)", "success");
     });
+    
+    // Tray menu event listeners
+    const unlistenTrayStart = listen("tray-start-recording", async () => {
+      const { recordingPhase, startRecording } = useStore.getState();
+      if (recordingPhase === "idle") await startRecording();
+    });
+    
+    const unlistenTrayStop = listen("tray-stop-recording", async () => {
+      const { recordingPhase, stopRecording } = useStore.getState();
+      if (recordingPhase === "recording" || recordingPhase === "encoding") {
+        await stopRecording();
+      }
+    });
+    
+    const unlistenTrayPause = listen("tray-pause-recording", async () => {
+      const { recordingPhase, isPaused, pauseRecording } = useStore.getState();
+      if (recordingPhase === "recording" && !isPaused) await pauseRecording();
+    });
+    
+    const unlistenTrayResume = listen("tray-resume-recording", async () => {
+      const { recordingPhase, isPaused, resumeRecording } = useStore.getState();
+      if (recordingPhase === "recording" && isPaused) await resumeRecording();
+    });
+    
     // Release browser webcam when backend needs the device for nokhwa capture
     const unlistenWebcam = listen("release-webcam", () => {
       // Stop any existing video element streams (from WebcamPreview etc.)
@@ -176,6 +200,10 @@ export default function App() {
     });
     return () => {
       unlisten.then((fn) => fn());
+      unlistenTrayStart.then((fn) => fn());
+      unlistenTrayStop.then((fn) => fn());
+      unlistenTrayPause.then((fn) => fn());
+      unlistenTrayResume.then((fn) => fn());
       unlistenWebcam.then((fn) => fn());
       unlistenWebcamError.then((fn) => fn());
     };

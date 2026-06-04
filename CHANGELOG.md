@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.1.5] - 2026-06-05
+
+### Added
+- **Single-instance enforcement** — Prevents multiple EasySpecy windows; re-launching restores and focuses the existing window.
+- **Tray menu state management** — Menu items now enable/disable based on recording state (Start/Stop/Pause/Resume).
+- **Tray pause/resume controls** — Added "Pause Recording" and "Resume Recording" options to system tray menu.
+- **Tray "Open" command** — Renamed "Show Window" to "Open" for clarity; opens and focuses main app window.
+
+### Fixed
+- **"Reveal in Explorer" context menu** — Now correctly opens file explorer with recording highlighted instead of playing the video.
+- **Toast notifications blocked on Settings page** — Increased z-index from 50 to 10000 to prevent Settings header from blocking notifications.
+- **Tray menu static state** — Menu items now dynamically update enabled/disabled state during recording lifecycle.
+
+### Changed
+- **Tray module architecture** — Rewritten with state-aware menu item management using `MenuItem::set_enabled()`.
+
+---
+
 ## [0.1.4] - 2026-06-04
 
 ### Added

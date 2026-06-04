@@ -12,7 +12,7 @@ pub mod webcam;
 mod tray;
 
 use std::sync::OnceLock;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tracing_subscriber::EnvFilter;
 
 /// Global AppHandle for emitting events from background threads (e.g. cursor tracking)
@@ -94,6 +94,16 @@ pub fn run() {
     tracing::info!("EasySpecy starting... (logs → {})", log_dir.display());
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Second instance detected — show and focus the main window
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                if let Ok(true) = window.is_minimized() {
+                    let _ = window.unminimize();
+                }
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

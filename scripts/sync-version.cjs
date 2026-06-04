@@ -19,7 +19,7 @@ console.log(`✅ Updated package.json → ${version}`);
 // Update src-tauri/Cargo.toml
 const cargoTomlPath = path.join(rootDir, 'src-tauri', 'Cargo.toml');
 let cargoToml = fs.readFileSync(cargoTomlPath, 'utf8');
-cargoToml = cargoToml.replace(/^version = \{.*\}$/m, `version = "${version}"`);
+cargoToml = cargoToml.replace(/^version = ".*"$/m, `version = "${version}"`);
 fs.writeFileSync(cargoTomlPath, cargoToml);
 console.log(`✅ Updated Cargo.toml → ${version}`);
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "EasySpecy",
-  "version": "../VERSION.txt",
+  "version": "../package.json",
   "identifier": "com.easyspecy.recorder",
   "build": {
     "beforeDevCommand": "npm run dev",

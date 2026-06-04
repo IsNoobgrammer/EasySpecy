@@ -182,6 +182,7 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
 /** Build context menu items for a recording entry */
 export function useRecordingContextMenu() {
   const openPath = useStore((s) => s.openPath);
+  const revealInExplorer = useStore((s) => s.revealInExplorer);
   const copyToClipboard = useStore((s) => s.copyToClipboard);
   const loadHistory = useStore((s) => s.loadHistory);
   const addToast = useStore((s) => s.addToast);
@@ -199,7 +200,7 @@ export function useRecordingContextMenu() {
           id: "reveal",
           label: "Reveal in Explorer",
           icon: "folder_open",
-          onClick: () => openPath(entry.output_path),
+          onClick: () => revealInExplorer(entry.output_path),
         },
         {
           id: "copy-path",

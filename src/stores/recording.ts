@@ -170,6 +170,7 @@ interface AppState {
   addToast: (message: string, type: Toast["type"], action?: Toast["action"]) => void;
   removeToast: (id: number) => void;
   openPath: (path: string) => Promise<void>;
+  revealInExplorer: (path: string) => Promise<void>;
   copyToClipboard: (text: string) => Promise<void>;
   pollEncodingProgress: () => Promise<void>;
   loadEstimatedSize: () => Promise<void>;
@@ -382,6 +383,15 @@ export const useStore = create<AppState>((set, get) => ({
 
   openPath: async (path: string) => {
     try { await invoke("open_path", { path }); } catch (e) { get().addToast(`Open failed: ${e}`, "error"); }
+  },
+
+  revealInExplorer: async (path: string) => {
+    try {
+      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+      await revealItemInDir(path);
+    } catch (e) { 
+      get().addToast(`Reveal failed: ${e}`, "error"); 
+    }
   },
 
   copyToClipboard: async (text: string) => {

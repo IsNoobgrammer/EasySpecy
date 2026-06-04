@@ -1,6 +1,6 @@
 [package]
 name = "easyspecy"
-version = "0.1.4"
+version = "0.1.5"
 description = "Free, cross-platform screen recorder with auto-zoom and cursor effects"
 authors = ["Shaurya"]
 edition = "2021"
@@ -25,6 +25,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 zip = "2"
 serde = { version = "1", features = ["derive"] }
