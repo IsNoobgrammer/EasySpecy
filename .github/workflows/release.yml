@@ -142,14 +142,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         run: |
           $installer = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Filter "*.exe" | Select-Object -First 1
-          npx tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $installer.FullName
+          Write-Host "Signing: $($installer.FullName)"
+          node node_modules/@tauri-apps/cli/tauri.js signer sign $installer.FullName
           $sigFile = "$($installer.FullName).sig"
           if (Test-Path $sigFile) {
             $sig = Get-Content $sigFile -Raw
+            # Trim whitespace/newlines for clean output
+            $sig = $sig.Trim()
             echo "nsis_signature=$sig" >> $env:GITHUB_OUTPUT
-            Write-Host "NSIS signed: $sig.Substring(0, 60)..."
+            Write-Host "NSIS signed successfully"
           } else {
-            Write-Warning "NSIS signature file not found!"
+            throw "NSIS signature file not found after signing!"
           }
 
       - name: Sign portable ZIP
@@ -159,13 +162,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
         run: |
-          npx tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD EasySpecy-Portable.zip
+          Write-Host "Signing: EasySpecy-Portable.zip"
+          node node_modules/@tauri-apps/cli/tauri.js signer sign EasySpecy-Portable.zip
           if (Test-Path "EasySpecy-Portable.zip.sig") {
             $sig = Get-Content "EasySpecy-Portable.zip.sig" -Raw
+            $sig = $sig.Trim()
             echo "portable_signature=$sig" >> $env:GITHUB_OUTPUT
-            Write-Host "Portable signed: $sig.Substring(0, 60)..."
+            Write-Host "Portable signed successfully"
           } else {
-            Write-Warning "Portable signature file not found!"
+            throw "Portable signature file not found after signing!"
           }
 
       # ── Extract changelog for this release ───────────────────
