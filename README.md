@@ -41,7 +41,7 @@
 Here is how EasySpecy looks in action, displaying the sleek, high-fidelity light-mode interface:
 
 <div align="center">
-  <img src="docs/public/app-preview-light.png" alt="EasySpecy Dashboard View" width="100%" style="border-radius: 12px; border: 1px solid rgba(0, 0, 0, 0.05); box-shadow: 0 20px 40px rgba(0,0,0,0.12);">
+  <img src="resources/app-preview-light.png" alt="EasySpecy Dashboard View" width="100%" style="border-radius: 12px; border: 1px solid rgba(0, 0, 0, 0.05); box-shadow: 0 20px 40px rgba(0,0,0,0.12);">
 </div>
 
 ---
@@ -51,7 +51,7 @@ Here is how EasySpecy looks in action, displaying the sleek, high-fidelity light
 The modular capture layers are represented in our high-end bento architecture:
 
 <div align="center">
-  <img src="docs/public/bento-showcase.svg" alt="EasySpecy Bento Feature Showcase" width="100%" style="border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 20px 40px rgba(0,0,0,0.35);">
+  <img src="resources/bento-showcase.svg" alt="EasySpecy Bento Feature Showcase" width="100%" style="border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 20px 40px rgba(0,0,0,0.35);">
 </div>
 
 ---

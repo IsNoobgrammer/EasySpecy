@@ -76,48 +76,28 @@ Cursor packs are **Windows-only**. The pack system uses `SetSystemCursor` from t
 
 ## Cursor Trails
 
-Cursor trails render a smooth, animated path behind the cursor position. Trails are added during post-processing, not live—so there's zero performance impact during recording.
+Cursor trails render a smooth, animated vector path behind the cursor position. Trails are rendered **live and in real-time** inside the transparent, click-through Tauri overlay window (`effects-overlay`), and are recorded directly into the output video by the Windows Graphics Capture (WGC) loop. This real-time approach minimizes post-processing latency and ensures the video is ready immediately on stop.
 
 ### Trail Styles
 
 | Style | Description | Visual |
 |-------|-------------|--------|
 | **Glow** | Soft glow around cursor path with fading opacity | Luminous, subtle |
-| **Comet** | Bright head at cursor, fading tail behind | Meteor-like |
-| **Rainbow** | HSL color cycling along the trail | Vibrant, colorful |
-| **Classic** | Simple solid line with configurable color | Minimal, clean |
+| **Particles** | Stream of glowing particles decaying over time | Magical, energetic |
+| **Ribbon** | Sleek solid line with custom dash styling | Modern, clean |
+| **Dots** | Discrete circular nodes connecting recent positions | Minimal, precise |
+| **Aurora** | Color-cycling fluid wave following cursor movement | Vibrant, organic |
 
 ### Trail Rendering Architecture
 
-Trails use a **post-processing approach** to guarantee zero impact on capture performance:
+Trails are rendered on screen at 60 FPS using an event-driven HTML5 `<canvas>` inside `overlay.html`:
 
-```mermaid
-graph TD
-    %% Styling and layout
-    classDef step fill:#151828,stroke:#00e88a,stroke-width:1px,color:#fff;
-    classDef system fill:#0d0f1a,stroke:#2a2d42,stroke-width:1px,color:#9a9eb5;
+![Trail Rendering Architecture](/cursor-flowchart.png)
 
-    subgraph Active_Recording ["Active Recording Phase"]
-        A[Cursor Movement / Clicks] -->|Log Coordinates & Timestamps| B[Memory Buffer Vector]:::step
-    end
-
-    subgraph Post_Processing ["Post-Processing Phase (On Stop)"]
-        B --> C[Catmull-Rom Spline Interpolation]:::step
-        C --> D[Smooth Spline Path]:::step
-        D -->|Split path into frame batches| E[Rayon parallel iteration]:::step
-        E --> F[Render Comet/Glow Trail and Click Ripple on Screen Frame]:::step
-        F --> G[Pipe Frame Stream to FFmpeg]:::step
-    end
-
-    subgraph Final_Encode ["Final Encoding Phase"]
-        G --> H[Output Video File - MP4]:::system
-    end
-```
-
-The pipeline operates in three phases:
-1. **Log**: During recording, cursor positions and click events are stored in a lock-free memory vector, consuming negligible CPU.
-2. **Smooth**: When recording stops, a Catmull-Rom spline interpolates missing points between samples to ensure gap-free motion.
-3. **Render**: The trail and click effects (ripple, pulse, explosion) are parallel-rendered across CPU cores using `rayon` and piped directly to FFmpeg.
+The loop operates in three steps:
+1. **Poll**: During recording, a background Rust mouse listener thread polls Windows cursor coordinates at ~60Hz and detects clicks.
+2. **Broadcast**: The coordinates are instantly broadcast as Tauri IPC events (`cursor-move`, `cursor-click`) to the overlay window.
+3. **Interpolate & Render**: The Canvas script receives coordinates and applies real-time **Catmull-Rom spline** interpolation between samples to ensure a smooth, gap-free trail at the display's native refresh rate, completely eliminating frame latency.
 
 ### Configuration
 
@@ -126,49 +106,42 @@ The pipeline operates in three phases:
 cursor_trail_enabled = true
 
 # Trail appearance
-trail_style = "glow"              # glow, comet, rainbow, classic
-cursor_trail_color = "#00ff88"    # Primary color (glow, classic, rainbow start)
-cursor_secondary_color = "#ff4488" # Secondary color (right-click, gradients, rainbow end)
-cursor_trail_size = 1.0           # Trail width multiplier (0.5 - 2.0)
-cursor_smoothing = true           # Catmull-Rom spline interpolation
-cursor_size_multiplier = 1.0      # Cursor scale (0.5 - 2.0)
+trail_style = "glow"              # glow, particles, ribbon, dots, aurora, none
+cursor_trail_color = "#00ff88"    # Primary color (glow, ribbon, particles start)
+cursor_secondary_color = "#ff4488" # Secondary color (right-clicks, aurora cycles)
 ```
 
 ### Trail Colors
 
-- **Glow**: `cursor_trail_color` defines the glow color
-- **Comet**: `cursor_trail_color` for head, fades to transparent
-- **Rainbow**: Gradient from `cursor_trail_color` to `cursor_secondary_color`
-- **Classic**: Solid `cursor_trail_color`
+- **Glow / Ribbon**: Draws a path with `cursor_trail_color`, fading out in opacity.
+- **Particles / Dots**: Decays from `cursor_trail_color` to transparent.
+- **Aurora**: Cycles colors dynamically starting from `cursor_trail_color` and using `cursor_secondary_color` for gradients.
 
 ### Smoothing
 
-When `cursor_smoothing = true`, EasySpecy applies a **Catmull-Rom spline** to the entire cursor path before rendering any frames. This produces:
-- No jitter or gaps
-- Natural, fluid motion
-- Consistent trail width
-
-Disabling smoothing renders raw cursor positions—useful for precise, pixel-level accuracy but may appear jagged.
+Smoothing uses a real-time **Catmull-Rom spline** interpolation algorithm. It ensures that even during fast mouse movements across the screen, the trail renders as a continuous, elegant curve without breaks or jagged vertices.
 
 ---
 
 ## Click Effects
 
-Click effects render an animation at the cursor position when you click.
+Click effects render an animation at the cursor position live on the screen when you click.
 
 ### Available Effects
 
 | Effect | Description |
 |--------|-------------|
-| **Ripple** | Expanding circle that fades out (default) |
-| **Pulse** | Quick scale-up and fade |
-| **Explosion** | Particle burst effect |
+| **Ripple** | Expanding concentric circles fading out (default) |
+| **Spotlight** | Translucent radial gradient focusing on click |
+| **Ring** | Sleek singular expanding ring |
+| **Pulse** | Quick scale-up and rhythmic vibration |
+| **Confetti** | Burst of multi-colored falling physics particles |
 | **None** | No click effect |
 
 ### Configuration
 
 ```toml
-click_effect = "ripple"  # ripple, pulse, explosion, none
+click_effect = "ripple"  # ripple, spotlight, ring, pulse, confetti, none
 ```
 
 ---
@@ -176,19 +149,16 @@ click_effect = "ripple"  # ripple, pulse, explosion, none
 ## Performance Impact
 
 ### During Recording
-- **Cursor packs**: Negligible (one-time `SetSystemCursor` call)
-- **Trail logging**: Minimal (appending to in-memory vector)
-- **Total overhead**: < 1% CPU
+- **Cursor Overlay**: Hardware-accelerated Webview canvas rendering uses <1% CPU and negligible GPU.
+- **Mouse Hook Polling**: Lock-free atomic coordinate checking runs in a low-priority thread, consuming <0.1% CPU.
+- **Total Overhead**: Practically unnoticeable, keeping your computer's resources free for screen capture and encoding.
 
 ### Post-Processing
-- **Trail rendering**: CPU-bound, parallelized across all cores
-- **Typical time**: 1-3× real-time (depends on trail length and video duration)
-- **Memory**: ~200 MB for 10-minute recording at 1080p60
+- **Trail rendering overhead**: **Zero**. Since all effects are composited live and burned-in by WGC, there is no rendering or encoding of trails during the post-processing phase.
 
 ### Optimization Tips
-- Use `cursor_smoothing = false` for faster rendering (lower quality)
-- Reduce `cursor_trail_size` for less GPU work in FFmpeg
-- Use shorter recordings if post-processing is too slow
+- For lower-end GPUs, choose simpler trail styles like **Dots** or **Ribbon** rather than physics-intensive ones like **Particles**.
+- Disable trails entirely (`cursor_trail_enabled = false`) if you prefer a clean desktop recording.
 
 ---
 

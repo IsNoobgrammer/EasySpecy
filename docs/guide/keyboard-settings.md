@@ -14,53 +14,24 @@ EasySpecy's keyboard overlay captures and displays your keystrokes in real-time 
 
 ### Keyboard Hook
 
-EasySpecy uses the Windows **Low-Level Keyboard Hook** (`WH_KEYBOARD_LL`) to capture keystrokes system-wide:
+EasySpecy uses the Windows **Low-Level Keyboard Hook** (`WH_KEYBOARD_LL`) to capture keystrokes system-wide, rendering bubbles live on screen:
 
-```mermaid
-graph TD
-    %% Styling and layout
-    classDef step fill:#151828,stroke:#00e88a,stroke-width:1px,color:#fff;
-    classDef system fill:#0d0f1a,stroke:#2a2d42,stroke-width:1px,color:#9a9eb5;
-
-    subgraph OS_Interaction ["OS Input Layer"]
-        A[Physical Key Press] -->|Sends Virtual Key Code| B[Win32 LL Keyboard Hook Callback]:::step
-    end
-
-    subgraph Thread_Safe_Queue ["Zero-Allocation Buffer"]
-        B -->|Push Event <1 microsecond| C[Lock-Free SPSC Ring Buffer]:::step
-    end
-
-    subgraph Backend_Worker ["Rust Worker Engine"]
-        C -->|Unpark thread & Pop event| D[Worker Thread]:::step
-        D -->|Resolve Modifiers & Unicode Mappings| E[Format Key Event String]:::step
-    end
-
-    subgraph Event_Router ["IPC Bridge"]
-        E -->|Broadcast Tauri Event| F[Tauri IPC Bridge]:::system
-    end
-
-    subgraph Frontend_UI ["UI Rendering Layer"]
-        F -->|Poll/Receive 60Hz| G[React Bubble Controller]:::step
-        G -->|Animate Scale/Fade| H[Active Key Bubble]:::step
-        H -->|Idle Split >1.2s| I[Seal Bubble & Fade Out]:::step
-    end
-```
+![Keyboard Hook Engine Architecture](/keyboard-flowchart.png)
 
 The system operates in five key steps:
-1. **Hook Callback**: Capture keystrokes system-wide. The Win32 callback takes `<1μs` (zero allocations, zero mutexes, zero slow API calls).
-2. **Ring Buffer**: Keystrokes are pushed to a 1024-entry Single Producer Single Consumer (SPSC) queue.
-3. **Worker Thread**: The queue unparks a background thread that tracks modifier states dynamically to avoid slow API lookups.
-4. **Tauri IPC**: The worker thread formats unicode key symbols and broadcasts them via Tauri's event router.
-5. **React Frontend**: The UI group key presses into "active bubbles", which automatically "seal" and fade out after an idle timeout of `1.2s`.
+1. **Hook Callback**: Captures raw virtual key codes system-wide. The Win32 callback executes in `<1μs` (zero allocations, zero mutex locks).
+2. **Ring Buffer**: Keystrokes are instantly pushed to a thread-safe, 1024-entry lock-free SPSC (Single Producer Single Consumer) ring buffer.
+3. **Rust Worker Core**: The SPSC queue wakes up a background worker thread that resolves modifier combinations (Ctrl, Shift, Alt, Win) and formats Unicode key event symbols.
+4. **Tauri IPC Broadcast**: Key event packets are broadcast instantly as Tauri IPC events to the Webview overlay.
+5. **Real-Time Webview Overlay**: An incremental event processor inside `overlay.html` receives events, groups characters into active typing boxes, handles backspaces/shortcuts, and inserts bubble elements into the DOM with fade and scale animations. WGC records the transparent Webview overlay live as part of the video.
 
 ### Performance Design
 
-The keyboard hook is optimized for minimal overhead:
-- **Hook callback**: < 1 microsecond per keystroke
-- **Ring buffer**: 1024-entry SPSC queue (lock-free)
-- **Worker thread**: Sleeps when idle (zero CPU usage)
-- **Frontend polling**: Debounced to 60 Hz
-- **Total overhead**: < 0.1% CPU during recording
+The keyboard hook is optimized for zero latency and minimal overhead:
+- **Callback Hook**: Executed in `<1μs` to prevent OS-level keyboard lagging.
+- **Worker Thread**: Sleeps (parks) when no keys are pressed, consuming 0% CPU.
+- **Overlay Window**: Renders bubbles directly into the GPU compositor using raw JS DOM manipulation, avoiding React overhead and minimizing memory usage.
+- **Recording Overhead**: <0.1% CPU during screen capture.
 
 ---
 

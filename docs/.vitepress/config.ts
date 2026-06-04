@@ -4,6 +4,7 @@ export default defineConfig({
   title: 'EasySpecy',
   description: 'Free, open-source screen recorder with cinematic auto-zoom and cursor effects',
   base: '/EasySpecy/',
+  appearance: 'dark',
   
   head: [
     ['link', { rel: 'icon', href: '/EasySpecy/logo.png' }],

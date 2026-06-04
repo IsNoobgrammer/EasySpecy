@@ -115,125 +115,30 @@ Record **microphone + system audio** simultaneously:
 
 ## Architecture
 
-EasySpecy uses a layered architecture with clear separation of concerns:
+EasySpecy is designed around a **real-time capture and live overlay architecture**. Rather than capturing raw desktop frames and applying visual elements (like cursor trails, click effects, keyboard bubbles, and webcam overlays) during a slow post-processing phase, EasySpecy composites all visual effects **live** at 60 FPS in a hardware-accelerated transparent overlay window (`effects-overlay` loading `overlay.html`). The screen recorder captures the combined output in real-time, reducing post-processing overhead to almost zero.
 
 ### Subsystem Flowchart
 
-```mermaid
-graph TD
-    %% Styling and layout
-    classDef frontend fill:#1e2030,stroke:#61dafb,stroke-width:2px,color:#fff;
-    classDef tauri fill:#16192b,stroke:#ffc131,stroke-width:2px,color:#fff;
-    classDef backend fill:#11131e,stroke:#00e88a,stroke-width:2px,color:#fff;
-    classDef external fill:#0c0e18,stroke:#f04040,stroke-width:2px,color:#fff;
-
-    %% Subgraph layers
-    subgraph UI_Layer ["UI Layer (React + Vite)"]
-        UI[Settings Panel & Recording Controls]:::frontend
-        KeyOverlay[Keyboard Overlay Window]:::frontend
-        WebcamOverlay[Webcam PIP Preview & Positioner]:::frontend
-    end
-
-    subgraph Bridge_Layer ["Bridge Layer (Tauri v2)"]
-        IPC[Tauri IPC / Command Router & Events]:::tauri
-    end
-
-    subgraph Backend_Layer ["Backend Engine (Rust Core)"]
-        %% Screen capture
-        VideoCapture[Windows Graphics Capture / SCK]:::backend
-        CursorTracker[Cursor Position Logger]:::backend
-        
-        %% Audio capture
-        AudioCapture[CPAL Audio Capture: System & Mic]:::backend
-        RNNoise[RNN Noise Gate Filter]:::backend
-        
-        %% Keyboard overlay backend
-        KeyHook[Low-Level Hook: WH_KEYBOARD_LL]:::backend
-        SPSC[SPSC Lock-Free Ring Buffer]:::backend
-        KeyWorker[Keyboard Worker Thread]:::backend
-        
-        %% Webcam capture backend
-        WebcamCapture[nokhwa Camera Capture]:::backend
-        WebcamSync[Sync-Manager: CAPTURE_ARMED]:::backend
-        WebcamWriter[Asynchronous PNG Writer Thread]:::backend
-        
-        %% Post-processor
-        FrameProcessor[Frame Post-Processor: Easing, Splines, Zoom]:::backend
-        Rayon[Rayon Parallel Thread Pool]:::backend
-        FFmpegPipe[FFmpeg Sub-process Pipeline]:::backend
-    end
-
-    subgraph OS_Layer ["Hardware & OS Layer"]
-        OS_Video[OS Display Surface Buffer]:::external
-        OS_Audio[DirectSound / WASAPI Streams]:::external
-        OS_Webcam[Webcam Hardware Stream]:::external
-        OS_Keys[OS Keyboard Input Stream]:::external
-    end
-
-    %% Connections
-    
-    %% UI to Bridge
-    UI -->|IPC Settings & State| IPC
-    WebcamOverlay -->|Positional Coordinates & Size| IPC
-    IPC -->|Command Dispatch| FrameProcessor
-    IPC -->|Capture Parameters| VideoCapture
-
-    %% Hardware to Backend
-    OS_Video -->|DXGI / SCK Frames| VideoCapture
-    OS_Audio -->|cpal Host Stream| AudioCapture
-    OS_Webcam -->|nokhwa Device Query| WebcamCapture
-    OS_Keys -->|Win32 Hook Events| KeyHook
-
-    %% Keyboard Pipeline
-    KeyHook -->|Raw Keystrokes| SPSC
-    SPSC -->|Lock-Free Pop| KeyWorker
-    KeyWorker -->|Tauri Event Broadcast| IPC
-    IPC -->|Real-Time Key Event| KeyOverlay
-
-    %% Webcam Pipeline
-    WebcamCapture -->|Raw Frames| WebcamSync
-    WebcamSync -->|Webcam armed & synced| WebcamWriter
-    WebcamOverlay -.->|HTML5 getUserMedia Preview| OS_Webcam
-    WebcamWriter -->|Encoded PNG Frames to Temp Dir| FFmpegPipe
-
-    %% Video/Audio Capture & Processing
-    VideoCapture -->|Raw BGRA Frames & Timestamps| CursorTracker
-    CursorTracker -->|Frames with Cursor Log| FrameProcessor
-    AudioCapture -->|Raw PCM Buffers| RNNoise
-    RNNoise -->|Clean PCM Audio| FFmpegPipe
-
-    %% Parallel post-processing
-    FrameProcessor -->|Parallel Spline & Click Transforms| Rayon
-    Rayon -->|Processed RGBA Frames| FrameProcessor
-    FrameProcessor -->|Encoded Frame Stream| FFmpegPipe
-
-    %% Output
-    FFmpegPipe -->|Overlay Webcam & Multiplex| OutFile[(Output MP4 File)]:::external
-```
+![Subsystem Flowchart](/architecture-flowchart.png)
 
 ### Module Breakdown
 
-**Frontend (React):**
-- Dashboard with recording controls
-- Settings panel for all configuration
-- Region selector with live preview
-- Recording overlay with audio monitoring
-- Webcam preview with positioning
+**Tauri Overlay Layer (HTML5/Canvas/CSS):**
+- Renders high-performance Catmull-Rom spline cursor trails, click wave ripples, and neon glowing borders via an event-driven HTML5 `<canvas>` inside `overlay.html`.
+- Displays real-time key cap overlays and bubble queues via optimized DOM rendering.
+- Captures and displays webcam feeds using browser-level HTML5 MediaDevices (`getUserMedia`), applying rounded/circular CSS cropping and filters (brightness, contrast, saturation) with zero CPU overhead.
 
-**Backend (Rust):**
-- `capture/` — Windows Graphics Capture API, frame handling, region cropping
-- `audio/` — WASAPI capture (mic + system), RNN noise reduction, spectral subtraction
-- `postprocess/` — FFmpeg orchestration, auto-zoom compositing, cursor trail rendering
-- `cursors/` — Cursor pack system with 5 themes
-- `webcam/` — Cross-platform webcam capture via nokhwa
-- `keyboard/` — Global keyboard hook with SPSC queue
-- `autozoom/` — Click detection heuristics, zoom filter generation
-- `config/` — TOML configuration (90+ fields)
+**Tauri Backend (Rust Core):**
+- `capture/` — WGC (Windows Graphics Capture) setup, frame capture callback, and real-time H.264/H.265 encoding to MP4 segments via native Media Foundation APIs.
+- `audio/` — Asynchronous WASAPI capture for mic + system loopback audio, real-time noise reduction via the `nnnoiseless` RNN noise gate, and WAV temp file writing.
+- `cursors/` — Win32 API cursor hook replacing system pointer graphics with custom `.cur` packs during recording.
+- `keyboard/` — Low-level keyboard hook callback (`WH_KEYBOARD_LL`) feeding keys to a lock-free Single Producer Single Consumer (SPSC) queue.
+- `postprocess/` — Handles final file merge (multiplexing WAV audio with MP4 video), region cropping, and segment stitching via FFmpeg commands when recording is stopped.
+- `config/` — Configuration management and field updates mapped to `config.toml`.
 
-**Communication:**
-- Tauri IPC bridge (28 commands)
-- Async commands for non-blocking operations
-- Event system for real-time updates
+**Communication & Events:**
+- Tauri IPC bridge routes settings updates and handles start/stop commands.
+- High-frequency Tauri event broadcaster transmits mouse coordinates (at ~60Hz) and key events from background Rust threads directly to the overlay Webview for zero-latency drawing.
 
 ## Current Status
 

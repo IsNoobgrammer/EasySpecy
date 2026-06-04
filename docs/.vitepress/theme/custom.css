@@ -345,11 +345,12 @@
 
 .VPSidebarItem.is-active > .item > .link {
   color: var(--vp-c-brand) !important;
-  background: rgba(0, 232, 138, 0.1) !important;
-  border-left: 3px solid var(--vp-c-brand) !important;
-  border-radius: 4px 8px 8px 4px !important;
-  box-shadow: 0 4px 16px rgba(0, 232, 138, 0.1) !important;
-  font-weight: 600 !important;
+  background: var(--vp-c-brand-muted) !important;
+  border-right: 4px solid var(--vp-c-brand) !important;
+  border-left: none !important;
+  border-radius: 8px 0 0 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 232, 138, 0.05) !important;
+  font-weight: 700 !important;
 }
 
 :root:not(.dark) .VPSidebarItem.is-active > .item > .link {
@@ -361,18 +362,19 @@
   transition: all 0.2s var(--ease-out-expo) !important;
   border-radius: 8px !important;
   padding: 6px 14px !important;
-  border-left: 3px solid transparent !important;
+  border-right: 4px solid transparent !important;
+  border-left: none !important;
 }
 
 .VPSidebarItem .link:hover {
   background: rgba(255, 255, 255, 0.03) !important;
-  border-left-color: rgba(0, 232, 138, 0.3) !important;
+  border-right-color: rgba(0, 232, 138, 0.3) !important;
   color: var(--vp-c-text-1) !important;
 }
 
 :root:not(.dark) .VPSidebarItem .link:hover {
   background: rgba(0, 0, 0, 0.03) !important;
-  border-left-color: rgba(49, 99, 66, 0.3) !important;
+  border-right-color: rgba(49, 99, 66, 0.3) !important;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -827,8 +829,14 @@
   width: 100%;
   min-height: 100vh;
   background-color: var(--vp-c-bg);
+  background-image: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.015) 1.2px, transparent 0);
+  background-size: 32px 32px;
   color: var(--vp-c-text-1);
   overflow-x: hidden;
+}
+
+:root:not(.dark) .custom-landing-page {
+  background-image: radial-gradient(circle at 2px 2px, rgba(0, 0, 0, 0.015) 1.2px, transparent 0);
 }
 
 .wave-bg {

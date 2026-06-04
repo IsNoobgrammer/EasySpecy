@@ -137,7 +137,7 @@ onUnmounted(() => {
         <div class="hero-left">
           <div class="brand-badge">
             <span class="badge-dot"></span>
-            <span class="badge-text">v0.2.0 Release</span>
+            <span class="badge-text">v0.1.3 Release</span>
           </div>
           
           <h1 class="hero-title">
@@ -150,26 +150,19 @@ onUnmounted(() => {
           </p>
           
           <div class="hero-ctas">
-            <a class="cta-button primary" href="https://github.com/IsNoobgrammer/EasySpecy/releases" target="_blank" rel="noopener">
-              <svg class="cta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
+            <a class="cta-button primary" href="/EasySpecy/guide/introduction">
+              <svg class="cta-icon fill-current animate-pulse" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" fill="none" />
+                <circle cx="12" cy="12" r="4" fill="currentColor" />
               </svg>
-              Download App
-            </a>
-            <a class="cta-button secondary" href="/EasySpecy/guide/introduction">
-              <svg class="cta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <circle cx="12" cy="12" r="10" />
-                <circle cx="12" cy="12" r="3" fill="currentColor" />
-              </svg>
-              Read Guide
+              Get Started Free
             </a>
             <a class="cta-button secondary" href="https://github.com/IsNoobgrammer/EasySpecy" target="_blank" rel="noopener">
               <svg class="cta-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+                <polyline points="16 18 22 12 16 6" />
+                <polyline points="8 6 2 12 8 18" />
               </svg>
-              GitHub
+              View GitHub
             </a>
           </div>
 
@@ -212,26 +205,15 @@ onUnmounted(() => {
                     <span class="timer-value">{{ timeString }}</span>
                   </div>
                   <div class="format-chips">
-                    <span class="format-chip">1080p</span>
+                    <span class="format-chip">4K UHD</span>
                     <span class="format-chip">60 FPS</span>
                   </div>
                 </div>
 
                 <!-- Simulated Captured Area -->
                 <div class="capture-preview-screen">
-                  <!-- Blurred IDE content -->
-                  <div class="preview-backdrop-code">
-                    <pre><code><span class="keyword">const</span> EasySpecy = {
-  zoom: <span class="string">"cinematic-bezier"</span>,
-  audio: <span class="string">"dual-channel-1080p"</span>,
-  overlay: <span class="string">"webcam-pip"</span>,
-  performance: <span class="string">"rust-tauri-native"</span>
-};
-
-<span class="keyword">function</span> <span class="function">recordPro</span>() {
-  EasySpecy.<span class="function">startCapture</span>();
-}</code></pre>
-                  </div>
+                  <!-- High Fidelity Code Editor Screenshot -->
+                  <img class="preview-backdrop-img" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.3; pointer-events: none;" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfYzw8MCsYOkLvwLZ4zzlhcA4csJXTgkrTBjuyxw7miLcUFcxq21VEyuufu3yB9FsEI9TwGXXijijuZdLL2IMiNM4FroAwoeIk3N29JcG1FnMrjWg8E_evagaAjz_gncxelfYCkaUTXcmkHt2f8VillqlCQOInnjJokccsG67bQi1lGq2Kv0l0ViNrtOmJJJJRrZiwyw841UcGOSmdfQFLUIT_4PyX6asvR5qBUPmBzpygWcCA1VsZIOLWwTJYCjN1JTwqi719sjnU" alt="Code editor preview" />
 
                   <!-- Waveform Overlay at the bottom -->
                   <div class="waveform-analyzer-container">
@@ -248,11 +230,8 @@ onUnmounted(() => {
 
                   <!-- Webcam Picture-in-Picture circle overlay -->
                   <div class="webcam-pip-circle">
-                    <div class="webcam-inner">
-                      <svg class="avatar-svg" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="50" cy="35" r="15" />
-                        <path d="M25 80c0-15 10-22 25-22s25 7 25 22" />
-                      </svg>
+                    <div class="webcam-inner" :style="webcamStyle">
+                      <img class="webcam-img" style="width: 100%; height: 100%; object-fit: cover;" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB_6HzzJRC_PWRAoAJ-9PqN5KtYSH1Ygjzu0rQiiqy-pwy2kLi-DeUllxw9opxmaVflyP-1sDyeO37OiYJXBISZGr4kegqR-Ea74PCd8QxdTVYG3vOdTiEuq6UC-SrC_nrFP8kN4cntMiZUQ1aW4oi-O2hLM_LYa1isZHzHaaQBtffFvBPyybIgOIdOp8SewKUHGvxO5gytPaTMCPpWezxT3jZ5bYl_yAYpDu8ASbBYq1njtFEvjuTRoX894AoczvDGI5pMRJcPSb8Z" alt="Webcam" />
                       <div class="webcam-tag">LIVE</div>
                     </div>
                   </div>
