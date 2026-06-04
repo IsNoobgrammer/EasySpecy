@@ -80,6 +80,9 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          if ($version -eq "../package.json") {
+            $version = (Get-Content package.json | ConvertFrom-Json).version
+          }
           Write-Host "Extracted version: $version"
           echo "APP_VERSION=$version" >> $env:GITHUB_ENV
 
