@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.1.4] - 2026-06-04
+
+### Added
+- **"Mobile Shareable" video encoder** — New `MobileShareable` preset using libx264 + yuv420p for maximum mobile device compatibility.
+- **GPU encoder toggle** — Settings now has an "Enable GPU Encoders" toggle; NVENC options are hidden when disabled, with automatic fallback to CPU encoders.
+- **Left/right modifier key tracking** — Keyboard capture distinguishes LShift/RShift, LCtrl/RCtrl, LAlt/RAlt, LWin/RWin independently.
+- **Markdown release notes** — Update dialog renders release notes with basic markdown (headers, bold, code, lists).
+- **Vite code-splitting** — Manual chunks for motion, UI libs, and Tauri APIs to improve load performance.
+
+### Changed
+- **Keyboard overlay bake pipeline rewritten** — Full parity with live JS overlay logic: shortcut combos, shift+key mapping, backspace deletion, arrow keys, punctuation merging. Now matches overlay.html behavior exactly.
+- **Recording filename format** — Changed from `recording_YYYY-MM-DD_HH-MM-SS.mp4` to `EasySpecy_DD_Month_YYYY_HH_MM_SS.mp4`.
+- **Stop recording order** — Keyboard capture stopped before destroying overlay to preserve final key events.
+- **Keyboard overlay positioning** — Config values now treated as physical pixels (removed DPI scale factor multiplication).
+- **Sync verifier tolerance** — Frame count check relaxed from 5% to 20% with effective FPS diagnostics for VFR capture.
+- **Canvas context** — Added `{ desynchronized: true }` hint for lower-latency overlay rendering; removed `backdrop-filter` for GPU performance.
+- **Punctuation-append parity** — After punctuation, Rust bake pipeline now extends existing bubble (matches JS overlay behavior instead of creating new bubble).
+- **Render loop cleanup** — Added one extra clear frame after effects end to prevent stale pixel artifacts.
+
+### Removed
+- **Password field detection & masking** — Entire feature removed due to high overhead (Win32 API + MSAA + cursor-point fallback + COM initialization). Will revisit in future with optimized approach.
+
+### Fixed
+- **Keyboard character case** — Use `e.key` directly instead of manual lowercase conversion for proper CapsLock + Shift handling.
+- **VP9 FFmpeg args** — Fixed argument ordering for `-b:v 0` and `-pix_fmt yuv420p`.
+- **vite.config.ts** — Removed unused `@ts-expect-error` directive.
+- **GPU encoder config IPC** — Added `gpu_encoders_enabled` to `update_config_field` match arms (now works via `updateField()` IPC calls, not just full-save).
+- **Worker thread leak** — Re-added `WORKER_THREAD` clear in `stop_keyboard_capture` to prevent stale thread handles.
+- **Mutex poisoning safety** — Changed `WORKER_THREAD.lock().unwrap()` to defensive `if let Ok(mut guard)` pattern in 3 locations to prevent hook thread crash if mutex becomes poisoned.
+
+---
+
 ## [0.1.3] - 2026-06-04
 
 ### Added

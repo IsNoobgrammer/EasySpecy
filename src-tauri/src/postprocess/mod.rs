@@ -49,11 +49,19 @@ pub struct WindowBoundsEvent {
     pub title: String,
 }
 
-/// Keyboard event with key name and timestamp
+/// Keyboard event with key name, timestamp, and modifier state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyboardEvent {
     pub timestamp_ms: u64,
     pub key: String,
+    #[serde(default)]
+    pub ctrl: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub alt: bool,
+    #[serde(default)]
+    pub win: bool,
 }
 
 
@@ -158,14 +166,21 @@ pub fn record_window_bounds(x: i32, y: i32, width: i32, height: i32, title: &str
     }
 }
 
-/// Record a keyboard event timestamp + key
-pub fn record_keyboard_event(key: &str) {
+/// Record a keyboard event with timestamp, key, and modifier state
+pub fn record_keyboard_event(key: &str, ctrl: bool, shift: bool, alt: bool, win: bool) {
     let start = SESSION_START.lock().unwrap();
     if let Some(t) = *start {
         let ms = t.elapsed().as_millis() as u64;
         let mut meta = METADATA.lock().unwrap();
         if let Some(ref mut m) = *meta {
-            m.keyboard_events.push(KeyboardEvent { timestamp_ms: ms, key: key.to_string() });
+            m.keyboard_events.push(KeyboardEvent {
+                timestamp_ms: ms,
+                key: key.to_string(),
+                ctrl,
+                shift,
+                alt,
+                win,
+            });
         }
     }
 }
@@ -300,6 +315,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
         "-thread_type", "frame+slice",
         "-c:a", "copy",
         "-shortest",
+        "-pix_fmt", "yuv420p",
         &effects_path,
     ])
     .stdin(std::process::Stdio::piped())
@@ -425,7 +441,7 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
     // Parse keyboard overlay bubbles
     let bubble_timeout_ms = config.keyboard_overlay_bubble_timeout_ms as u64;
     let max_bubbles = config.keyboard_overlay_max_bubbles as usize;
-    let keyboard_bubbles = parse_keyboard_bubbles(&meta.keyboard_events, bubble_timeout_ms, max_bubbles);
+    let keyboard_bubbles = parse_keyboard_bubbles(&meta.keyboard_events, bubble_timeout_ms, max_bubbles, &config.keyboard_overlay_key_mappings);
 
     for batch_start in (0..total_frames as usize).step_by(batch_size) {
         let batch_end = (batch_start + batch_size).min(total_frames as usize);
@@ -477,17 +493,12 @@ pub fn apply_effects(input: &str, _output: &str, meta: &RecordingMetadata) -> Re
                     let frame_time_ms = frame_idx as f64 * ms_per_frame;
                     let active_bubbles = get_active_bubbles_at_time(&keyboard_bubbles, frame_time_ms as u64, max_bubbles);
                     if !active_bubbles.is_empty() {
-                        let scale_factor = crate::app_handle()
-                            .and_then(|app| app.primary_monitor().ok().flatten())
-                            .map(|m| m.scale_factor())
-                            .unwrap_or(1.0);
                         render_keyboard_overlay(
                             &mut frame_buf,
                             width,
                             height,
                             &active_bubbles,
                             &config,
-                            scale_factor,
                             region.as_ref(),
                         );
                     }
@@ -1351,15 +1362,60 @@ struct BakedBubble {
     end_time_ms: u64,
 }
 
-fn parse_keyboard_bubbles(events: &[KeyboardEvent], bubble_timeout_ms: u64, _max_bubbles: usize) -> Vec<BakedBubble> {
+/// Normalize L/R modifier key names to their generic form (e.g. LCtrl → Ctrl)
+fn normalize_key(key: &str) -> &str {
+    match key {
+        "LCtrl" | "RCtrl" => "Ctrl",
+        "LShift" | "RShift" => "Shift",
+        "LAlt" | "RAlt" => "Alt",
+        _ => key,
+    }
+}
+
+/// Get the shifted version of a key (e.g. '1' → '!', 'a' → 'A')
+fn get_shifted_key(key: &str) -> Option<String> {
+    if key.len() == 1 {
+        let c = key.chars().next().unwrap();
+        if c.is_ascii_alphabetic() {
+            return Some(c.to_ascii_uppercase().to_string());
+        }
+        let shifted = match c {
+            '1' => '!', '2' => '@', '3' => '#', '4' => '$', '5' => '%',
+            '6' => '^', '7' => '&', '8' => '*', '9' => '(', '0' => ')',
+            '-' => '_', '=' => '+', '[' => '{', ']' => '}', '\\' => '|',
+            ';' => ':', '\'' => '"', ',' => '<', '.' => '>', '/' => '?',
+            '`' => '~',
+            _ => return None,
+        };
+        Some(shifted.to_string())
+    } else {
+        None
+    }
+}
+
+fn parse_keyboard_bubbles(
+    events: &[KeyboardEvent],
+    bubble_timeout_ms: u64,
+    _max_bubbles: usize,
+    key_mappings_json: &str,
+) -> Vec<BakedBubble> {
     let mut bubbles: Vec<BakedBubble> = Vec::new();
+    // Active text bubble: (text, start_time_ms, last_update_time_ms)
     let mut active_text: Option<(String, u64, u64)> = None;
 
-    let is_modifier = |k: &str| -> bool {
-        ["Ctrl", "Shift", "Alt", "Win"].contains(&k)
-    };
-    let is_delimiter = |k: &str| -> bool {
-        ["Enter", "Tab", "Esc", "NumEnter"].contains(&k)
+    // Parse key mappings from config JSON
+    let mappings: std::collections::HashMap<String, String> =
+        serde_json::from_str(key_mappings_json).unwrap_or_default();
+
+    let get_mapping = |key: &str| -> String {
+        let norm = normalize_key(key);
+        if let Some(m) = mappings.get(norm) {
+            m.clone()
+        } else if let Some(m) = mappings.get(key) {
+            m.clone()
+        } else {
+            norm.to_string()
+        }
     };
 
     let flush_active = |active: &mut Option<(String, u64, u64)>, bubbles: &mut Vec<BakedBubble>| {
@@ -1372,71 +1428,201 @@ fn parse_keyboard_bubbles(events: &[KeyboardEvent], bubble_timeout_ms: u64, _max
         }
     };
 
-    let mut last_event_time = 0;
+    // Append a character, matching JS appendCharacter logic including punctuation handling
+    let append_char = |ch: &str,
+                       t: u64,
+                       active_text: &mut Option<(String, u64, u64)>,
+                       bubbles: &mut Vec<BakedBubble>| {
+        let punctuation = [";", ":", ",", ".", "?", "!"];
+        if punctuation.contains(&ch) {
+            // Find last text bubble index (immutable borrow ends immediately)
+            let last_idx = bubbles
+                .last()
+                .and_then(|b| if b.text.chars().any(|_| true) || b.text.is_empty() { Some(()) } else { None })
+                .and_then(|_| {
+                    // Check if last bubble is a text bubble (not a delimiter/shortcut)
+                    // We approximate by checking it's not a known special key
+                    let last = bubbles.last().unwrap();
+                    let is_special = ["Enter", "Tab", "Esc", "NumEnter", "Backspace", "Delete",
+                        "Insert", "PageUp", "PageDown", "Home", "End", "CapsLock",
+                        "ScrollLock", "NumLock", "Pause", "PrintScreen"]
+                        .contains(&last.text.as_str())
+                        || last.text.contains(" + ")
+                        || (last.text.starts_with('F') && last.text.len() <= 3
+                            && last.text[1..].chars().all(|c| c.is_ascii_digit()));
+                    if !is_special {
+                        Some(bubbles.len() - 1)
+                    } else {
+                        None
+                    }
+                });
+            if let Some(idx) = last_idx {
+                let prev_start = bubbles[idx].start_time_ms;
+                let prev_text = bubbles[idx].text.clone();
+                bubbles[idx].text.push_str(ch);
+                bubbles[idx].end_time_ms = t + bubble_timeout_ms;
+                // Keep active_text pointing to the same bubble (JS parity: next char extends it)
+                *active_text = Some((prev_text + ch, prev_start, t));
+                return;
+            }
+        }
+
+        if let Some(ref mut act) = active_text {
+            act.0.push_str(ch);
+            act.2 = t;
+        } else {
+            *active_text = Some((ch.to_string(), t, t));
+        }
+    };
+
+    let is_modifier = |k: &str| -> bool { ["Ctrl", "Shift", "Alt", "Win"].contains(&k) };
+
+    let mut last_event_time: u64 = 0;
 
     for ev in events {
         let key = &ev.key;
         let t = ev.timestamp_ms;
+        let ctrl = ev.ctrl;
+        let shift = ev.shift;
+        let alt = ev.alt;
+        let win = ev.win;
 
-        // Skip "Activity" events (they are only for auto-zoom typing detection)
+        // Skip "Activity" events (only for auto-zoom typing detection)
         if key == "Activity" {
             continue;
         }
 
+        // Idle pause timeout (1.2s between consecutive keys)
         if active_text.is_some() && last_event_time > 0 && t - last_event_time > 1200 {
             flush_active(&mut active_text, &mut bubbles);
         }
         last_event_time = t;
 
-        if key == "Space" {
-            flush_active(&mut active_text, &mut bubbles);
+        let norm = normalize_key(key);
+
+        // 1. Space delimiter split
+        if norm == "Space" {
+            active_text = None;
+            append_char(" ", t, &mut active_text, &mut bubbles);
             continue;
         }
 
-        if is_delimiter(key) {
+        // 2. Arrow keys — seal active text and show as own bubble
+        let is_arrow = ["←", "↑", "→", "↓", "ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown"]
+            .contains(&norm);
+        if is_arrow {
             flush_active(&mut active_text, &mut bubbles);
-            bubbles.push(BakedBubble {
-                text: key.to_string(),
-                start_time_ms: t,
-                end_time_ms: t + bubble_timeout_ms,
-            });
+            let mapped = get_mapping(norm);
+            if ctrl || alt || win || shift {
+                let mut parts = Vec::new();
+                if ctrl { parts.push("Ctrl"); }
+                if alt { parts.push("Alt"); }
+                if win { parts.push("Win"); }
+                if shift { parts.push("Shift"); }
+                parts.push(mapped.as_str());
+                // Safety: we need the joined string to live long enough
+                let text = parts.join(" + ");
+                bubbles.push(BakedBubble {
+                    text,
+                    start_time_ms: t,
+                    end_time_ms: t + bubble_timeout_ms,
+                });
+            } else {
+                bubbles.push(BakedBubble {
+                    text: mapped,
+                    start_time_ms: t,
+                    end_time_ms: t + bubble_timeout_ms,
+                });
+            }
             continue;
         }
 
-        if key == "Backspace" {
+        // 3. Check shortcut combos: ctrl/alt/win active, OR shift+special key
+        let is_special_key = ["Enter", "Tab", "Esc", "NumEnter", "Backspace", "Delete",
+            "Insert", "PageUp", "PageDown", "Home", "End", "CapsLock",
+            "ScrollLock", "NumLock", "Pause", "PrintScreen"].contains(&norm)
+            || (norm.starts_with('F') && norm.len() > 1);
+
+        let is_shortcut = ctrl || alt || win || (shift && is_special_key);
+
+        if is_shortcut {
+            let mut parts = Vec::new();
+            if ctrl { parts.push("Ctrl".to_string()); }
+            if alt { parts.push("Alt".to_string()); }
+            if win { parts.push("Win".to_string()); }
+            if shift && norm != "Shift" {
+                parts.push("Shift".to_string());
+            }
+            if !is_modifier(norm) {
+                parts.push(get_mapping(key));
+            }
+            if !parts.is_empty() {
+                flush_active(&mut active_text, &mut bubbles);
+                bubbles.push(BakedBubble {
+                    text: parts.join(" + "),
+                    start_time_ms: t,
+                    end_time_ms: t + bubble_timeout_ms,
+                });
+            }
+            continue;
+        }
+
+        // 4. Backspace — modifies text in place, never shows a bubble
+        if norm == "Backspace" {
             if let Some(ref mut act) = active_text {
                 if !act.0.is_empty() {
                     act.0.pop();
                     act.2 = t;
-                    if act.0.is_empty() {
-                        active_text = None;
+                }
+                if act.0.is_empty() {
+                    // Remove the text bubble from persistent list
+                    let search_text = act.0.clone();
+                    let start = act.1;
+                    // Find and remove the matching bubble
+                    if let Some(idx) = bubbles.iter().position(|b| {
+                        b.start_time_ms == start && b.text == search_text
+                    }) {
+                        bubbles.remove(idx);
                     }
+                    active_text = None;
                 }
             }
             continue;
         }
 
-        if is_modifier(key) || key.contains(" + ") {
+        // 5. Delimiter keys
+        let is_delim = ["Enter", "Tab", "Esc", "NumEnter"].contains(&norm);
+        if is_delim {
             flush_active(&mut active_text, &mut bubbles);
             bubbles.push(BakedBubble {
-                text: key.to_string(),
+                text: get_mapping(key),
                 start_time_ms: t,
                 end_time_ms: t + bubble_timeout_ms,
             });
             continue;
         }
 
-        let char_str = if key.len() == 1 {
-            key.to_lowercase()
-        } else {
-            key.to_string()
-        };
+        // 6. Shift + printable keys (e.g. Shift+1 → !, Shift+a → A)
+        if shift && norm != "Shift" {
+            if let Some(shifted) = get_shifted_key(key) {
+                append_char(&shifted, t, &mut active_text, &mut bubbles);
+                continue;
+            }
+        }
 
-        if let Some(ref mut act) = active_text {
-            act.0.push_str(&char_str);
-            act.2 = t;
-        } else {
-            active_text = Some((char_str, t, t));
+        // 7. Normal characters / symbols (excluding standalone modifier keys)
+        if !is_modifier(norm) {
+            if key.len() == 1 {
+                // e.key equivalent: use key as-is (correct case from CapsLock+Shift)
+                append_char(key, t, &mut active_text, &mut bubbles);
+            } else {
+                flush_active(&mut active_text, &mut bubbles);
+                bubbles.push(BakedBubble {
+                    text: get_mapping(key),
+                    start_time_ms: t,
+                    end_time_ms: t + bubble_timeout_ms,
+                });
+            }
         }
     }
 
@@ -1604,17 +1790,17 @@ fn render_keyboard_overlay(
     h: u32,
     active_bubbles: &[&BakedBubble],
     config: &crate::config::AppConfig,
-    scale_factor: f64,
     region: Option<&crate::region::CaptureRegion>,
 ) {
-    let scale = (config.keyboard_overlay_font_size as f64 * scale_factor / 8.0).round().max(1.0) as u32;
+    let scale = (config.keyboard_overlay_font_size as f64 / 8.0).round().max(1.0) as u32;
     let padding_x = 8 * scale;
     let padding_y = 6 * scale;
     let char_w = 8 * scale + scale;
     let gap = 10 * scale;
 
-    let physical_ox = config.keyboard_overlay_x as f64 * scale_factor;
-    let physical_oy = config.keyboard_overlay_y as f64 * scale_factor;
+    // Config values are in output resolution space (physical pixels), same as the frame buffer
+    let physical_ox = config.keyboard_overlay_x as f64;
+    let physical_oy = config.keyboard_overlay_y as f64;
 
     let (ox, oy) = if let Some(r) = region {
         (physical_ox - r.x as f64, physical_oy - r.y as f64)
@@ -1632,7 +1818,7 @@ fn render_keyboard_overlay(
         }
     }
 
-    let container_w = (config.keyboard_overlay_width as f64 * scale_factor) as u32;
+    let container_w = config.keyboard_overlay_width;
     let mut start_x = if total_width < container_w {
         ox as i32 + (container_w as i32 - total_width as i32) / 2
     } else {

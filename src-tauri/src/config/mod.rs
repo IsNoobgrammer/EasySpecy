@@ -132,13 +132,14 @@ pub enum RecordingMode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum VideoEncoder {
-    H264,        // libx264 — fast, universal compatibility
-    H265,        // libx265/hevc — 50% smaller, slower encode
-    AV1,         // libsvtav1 — best compression, 60-70% smaller than H264
-    AV1_NVENC,   // av1_nvenc — GPU-accelerated AV1 (Nvidia RTX 40xx)
-    H264_NVENC,  // h264_nvenc — GPU-accelerated H264 (any Nvidia GPU)
-    H265_NVENC,  // hevc_nvenc — GPU-accelerated H265 (Nvidia GTX 1650+)
-    VP9,         // libvpx-vp9 — good compression, web-friendly
+    H264,            // libx264 — fast, universal compatibility
+    H265,            // libx265/hevc — 50% smaller, slower encode
+    AV1,             // libsvtav1 — best compression, 60-70% smaller than H264
+    AV1_NVENC,       // av1_nvenc — GPU-accelerated AV1 (Nvidia RTX 40xx)
+    H264_NVENC,      // h264_nvenc — GPU-accelerated H264 (any Nvidia GPU)
+    H265_NVENC,      // hevc_nvenc — GPU-accelerated H265 (Nvidia GTX 1650+)
+    VP9,             // libvpx-vp9 — good compression, web-friendly
+    MobileShareable, // libx264 + yuv420p — maximum compatibility for sharing
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -236,7 +237,7 @@ impl Default for AppConfig {
             keyboard_overlay_corner_radius: 8,
             keyboard_overlay_border_width: 1,
             keyboard_overlay_border_color: "rgba(140, 140, 140, 0.15)".to_string(),
-            keyboard_overlay_background_color: "rgba(20, 20, 20, 0.75)".to_string(),
+            keyboard_overlay_background_color: "rgba(20, 20, 20, 0.85)".to_string(),
             keyboard_overlay_text_color: "#e5e5e0".to_string(),
             keyboard_overlay_theme: "speccy-classic".to_string(),
             keyboard_overlay_key_mappings: r#"{"Ctrl":"⌃","Shift":"⇧","Alt":"⌥","Win":"⊞","Enter":"↵","Backspace":"⌫","Space":"␣","Esc":"⎋"}"#.to_string(),
@@ -345,11 +346,11 @@ impl AppConfig {
                     (VideoEncoder::H265 | VideoEncoder::H265_NVENC, VideoQuality::High) => 12000,
                     (VideoEncoder::H265 | VideoEncoder::H265_NVENC, VideoQuality::Ultra) => 25000,
                     // H264 baseline
-                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Insane) => 800,
-                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Low) => 1500,
-                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Medium) => 5000,
-                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::High) => 15000,
-                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC, VideoQuality::Ultra) => 30000,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC | VideoEncoder::MobileShareable, VideoQuality::Insane) => 800,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC | VideoEncoder::MobileShareable, VideoQuality::Low) => 1500,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC | VideoEncoder::MobileShareable, VideoQuality::Medium) => 5000,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC | VideoEncoder::MobileShareable, VideoQuality::High) => 15000,
+                    (VideoEncoder::H264 | VideoEncoder::H264_NVENC | VideoEncoder::MobileShareable, VideoQuality::Ultra) => 30000,
                     // VP9 similar to H265
                     (VideoEncoder::VP9, VideoQuality::Insane) => 400,
                     (VideoEncoder::VP9, VideoQuality::Low) => 1000,
@@ -386,6 +387,7 @@ impl AppConfig {
             VideoEncoder::H264_NVENC => "h264_nvenc",
             VideoEncoder::H265_NVENC => "hevc_nvenc",
             VideoEncoder::VP9 => "libvpx-vp9",
+            VideoEncoder::MobileShareable => "libx264",
         }
     }
 
@@ -405,11 +407,11 @@ impl AppConfig {
             (VideoEncoder::AV1_NVENC, VideoQuality::High) => 22,
             (VideoEncoder::AV1_NVENC, VideoQuality::Ultra) => 16,
             // H264
-            (VideoEncoder::H264, VideoQuality::Insane) => 35,
-            (VideoEncoder::H264, VideoQuality::Low) => 32,
-            (VideoEncoder::H264, VideoQuality::Medium) => 23,
-            (VideoEncoder::H264, VideoQuality::High) => 18,
-            (VideoEncoder::H264, VideoQuality::Ultra) => 14,
+            (VideoEncoder::H264 | VideoEncoder::MobileShareable, VideoQuality::Insane) => 35,
+            (VideoEncoder::H264 | VideoEncoder::MobileShareable, VideoQuality::Low) => 32,
+            (VideoEncoder::H264 | VideoEncoder::MobileShareable, VideoQuality::Medium) => 23,
+            (VideoEncoder::H264 | VideoEncoder::MobileShareable, VideoQuality::High) => 18,
+            (VideoEncoder::H264 | VideoEncoder::MobileShareable, VideoQuality::Ultra) => 14,
             // H265
             (VideoEncoder::H265, VideoQuality::Insane) => 38,
             (VideoEncoder::H265, VideoQuality::Low) => 34,
@@ -463,7 +465,7 @@ impl AppConfig {
                     "-rc".into(), "constqp".into(),
                 ]
             }
-            VideoEncoder::H264 => vec!["-preset".into(), "fast".into()],
+            VideoEncoder::H264 | VideoEncoder::MobileShareable => vec!["-preset".into(), "fast".into()],
             VideoEncoder::H265 => vec!["-preset".into(), "fast".into()],
             VideoEncoder::VP9 => vec![
                 "-deadline".into(), "good".into(),

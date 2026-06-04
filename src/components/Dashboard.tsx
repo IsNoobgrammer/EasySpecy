@@ -536,6 +536,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
               { label: "H.264 — Fast, universal", value: "H264" },
               { label: "H.264 NVENC — GPU", value: "H264_NVENC" },
               { label: "VP9 — Web-friendly", value: "VP9" },
+              { label: "Mobile Shareable (H.264)", value: "MobileShareable" },
             ]}
             onSelect={(v) => { updateField("video_encoder", v); loadEstimatedSize(); }}
           />

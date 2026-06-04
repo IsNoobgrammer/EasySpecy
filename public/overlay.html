@@ -24,8 +24,7 @@
       z-index: 99999;
       transition: opacity 0.15s ease-out;
       box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.1);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      /* backdrop-filter removed for GPU performance during game overlay */
       white-space: nowrap;
     }
 
@@ -360,7 +359,7 @@
 
     // ── Main Initialization ──
     const canvas = document.getElementById("fx");
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { desynchronized: true, alpha: true });
     const trail = new TrailRenderer();
     const click = new ClickEffectRenderer();
 
@@ -609,7 +608,7 @@
             return;
           }
         }
-
+      
         if (activeTextBubble) {
           activeTextBubble.text += char;
           activeTextBubble.lastUpdatedTime = t;
@@ -655,11 +654,7 @@
         // Space delimiter split
         if (norm === "Space") {
           activeTextBubble = null;
-          if (key === "*") {
-            appendCharacter("*", t);
-          } else {
-            appendCharacter(" ", t);
-          }
+          appendCharacter(" ", t);
           continue;
         }
 
@@ -696,7 +691,11 @@
         // ctrl, alt, or win are active, OR (shift is active AND key is a special/non-printable key)
         const isSpecialKey = ["Enter", "Tab", "Esc", "NumEnter", "Backspace", "Delete", "Insert", "PageUp", "PageDown", "Home", "End", "CapsLock", "ScrollLock", "NumLock", "Pause", "PrintScreen"].includes(norm) || (norm.startsWith("F") && norm.length > 1);
         
-        const isShortcut = ctrl || alt || win || (shift && isSpecialKey);
+        const hasNonModifier = norm !== "Ctrl" && norm !== "Alt" && norm !== "Win" && norm !== "Shift"
+          && norm !== "LCtrl" && norm !== "RCtrl" && norm !== "LShift" && norm !== "RShift"
+          && norm !== "LAlt" && norm !== "RAlt" && norm !== "LWin" && norm !== "RWin";
+
+        const isShortcut = hasNonModifier && (ctrl || alt || win || (shift && isSpecialKey));
 
         if (isShortcut) {
           const parts = [];
@@ -870,11 +869,29 @@
     }
     setupEventListeners();
 
-    // ── Render Loop (runs at display refresh rate, independent of input rate) ──
+    // ── Render Loop — idle-aware: skips canvas redraws when no effects are active ──
+    let wasActive = false;
+    function hasActiveEffects() {
+      if (trail.points && trail.points.length > 0) return true;
+      if (click.clicks && click.clicks.length > 0) return true;
+      if (click.confetti && click.confetti.length > 0) return true;
+      return false;
+    }
+
     function animate() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      trail.update(); trail.draw(ctx);
-      click.update(); click.draw(ctx);
+      const hasFx = hasActiveEffects();
+      if (hasFx || wasActive) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (hasFx) {
+          trail.update(); trail.draw(ctx);
+          click.update(); click.draw(ctx);
+        }
+        wasActive = hasFx;
+      }
+      // Prune timed-out keyboard bubbles even when no new events arrive (DOM-only, cheap)
+      if (kbConfig.enabled && persistentBubbles.length > 0) {
+        updateKeyboardOverlay();
+      }
       requestAnimationFrame(animate);
     }
     animate();

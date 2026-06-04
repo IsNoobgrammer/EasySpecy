@@ -16,6 +16,27 @@ import { relaunch } from "@tauri-apps/plugin-process";
 
 type Page = "dashboard" | "settings";
 
+/** Lightweight markdown renderer for release notes (headers, bold, code, lists) */
+function renderMarkdown(md: string): string {
+  return md
+    // Escape HTML
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    // Headers
+    .replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 4px;color:var(--accent-primary);font-size:11px;text-transform:uppercase;letter-spacing:0.05em">$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3 style="margin:16px 0 6px;color:var(--text-primary);font-size:13px">$1</h3>')
+    .replace(/^# (.+)$/gm, '<h2 style="margin:16px 0 8px;color:var(--text-primary);font-size:15px">$1</h2>')
+    // Horizontal rules
+    .replace(/^---+$/gm, '<hr style="border:none;border-top:1px solid var(--border-default);margin:12px 0" />')
+    // Bold + code
+    .replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text-primary)">$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:3px;font-size:11px">$1</code>')
+    // Bullet lists
+    .replace(/^- (.+)$/gm, '<li style="margin:2px 0;margin-left:16px;list-style:disc">$1</li>')
+    // Line breaks
+    .replace(/\n\n/g, '<br/>')
+    .replace(/\n/g, '<br/>');
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const loadConfig = useStore((s) => s.loadConfig);
@@ -320,15 +341,16 @@ export default function App() {
               <div className="space-y-1">
                 <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>RELEASE NOTES</span>
                 <div 
-                  className="font-mono text-xs p-4 rounded border overflow-y-auto max-h-[220px] scrollbar-thin whitespace-pre-wrap leading-relaxed"
+                  className="text-xs p-4 rounded border overflow-y-auto max-h-[220px] scrollbar-thin leading-relaxed"
                   style={{
                     background: "var(--surface-container-low, #191b26)",
                     borderColor: "var(--border-default)",
-                    color: "var(--text-primary)"
+                    color: "var(--text-secondary)",
+                    fontFamily: "Inter, sans-serif",
+                    lineHeight: "1.6"
                   }}
-                >
-                  {updateAvailable.body || "No release notes provided."}
-                </div>
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(updateAvailable.body || "No release notes provided.") }}
+                />
               </div>
 
               {/* Progress UI */}

@@ -7,7 +7,7 @@ export interface AppConfig {
   resolution_width: number;
   resolution_height: number;
   fps: number;
-  video_encoder: "H264" | "H265" | "AV1" | "AV1_NVENC" | "H264_NVENC" | "H265_NVENC" | "VP9";
+  video_encoder: "H264" | "H265" | "AV1" | "AV1_NVENC" | "H264_NVENC" | "H265_NVENC" | "VP9" | "MobileShareable";
   video_bitrate_kbps: number;
   video_quality: "Low" | "Medium" | "High" | "Ultra" | "Insane" | "Custom";
   audio_enabled: boolean;
@@ -73,6 +73,9 @@ export interface AppConfig {
   keyboard_overlay_max_bubbles: number;
   keyboard_overlay_bubble_timeout_ms: number;
   keyboard_overlay_width: number;
+
+  // GPU Settings
+  gpu_encoders_enabled: boolean;
 }
 
 export interface KeyEvent {
