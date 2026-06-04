@@ -53,6 +53,7 @@ export interface AppConfig {
   minimize_to_tray: boolean;
   copy_path_on_save: boolean;
   recording_mode: "FullScreen" | "Region";
+  auto_check_updates: boolean;
 
   // Keyboard overlay settings
   keyboard_overlay_enabled: boolean;

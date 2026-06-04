@@ -93,6 +93,9 @@ pub struct AppConfig {
 
     // GPU settings
     pub gpu_encoders_enabled: bool,
+
+    // Updater
+    pub auto_check_updates: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -242,6 +245,8 @@ impl Default for AppConfig {
             keyboard_overlay_width: 318,
 
             gpu_encoders_enabled: false,
+
+            auto_check_updates: true,
         }
     }
 }

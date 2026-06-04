@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { Dashboard } from "./components/Dashboard";
 import { Settings } from "./components/Settings";
@@ -11,6 +11,8 @@ import { useThemeStore } from "./lib/theme";
 import { ContextMenuProvider, useAppContextMenu } from "./components/ContextMenu";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 type Page = "dashboard" | "settings";
 
@@ -26,11 +28,110 @@ export default function App() {
   const pollAudioLevels = useStore((s) => s.pollAudioLevels);
   const { theme, toggleTheme } = useThemeStore();
   const [version, setVersion] = useState("0.1.0");
+  const [portableMode, setPortableMode] = useState(false);
+
+  const configLoaded = useStore((s) => s.configLoaded);
+  const [updateAvailable, setUpdateAvailable] = useState<any>(null);
+  const [updateProgress, setUpdateProgress] = useState<{ status: 'idle' | 'downloading' | 'installing' | 'complete' | 'error'; percentage: number; downloaded: number; total?: number }>({
+    status: 'idle',
+    percentage: 0,
+    downloaded: 0
+  });
+
+  const checkForUpdates = async (isManual = false) => {
+    try {
+      const update = await check();
+      if (update) {
+        setUpdateAvailable(update);
+      } else if (isManual) {
+        useStore.getState().addToast("EasySpecy is up to date!", "success");
+      }
+    } catch (err) {
+      console.error("Failed to check for updates:", err);
+      if (isManual) {
+        useStore.getState().addToast(`Check failed: ${err}`, "error");
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (configLoaded && config?.auto_check_updates) {
+      checkForUpdates(false);
+    }
+  }, [configLoaded, config?.auto_check_updates]);
+
+  const handleDownloadAndInstall = async () => {
+    if (!updateAvailable) return;
+    setUpdateProgress({ status: 'downloading', percentage: 0, downloaded: 0 });
+
+    if (portableMode) {
+      // ── Portable mode: download ZIP, replace exe, relaunch ──
+      try {
+        // Derive portable ZIP URL from the version number
+        const ver = updateAvailable.version;
+        const portableUrl = `https://github.com/IsNoobgrammer/EasySpecy/releases/download/v${ver}/EasySpecy-Portable.zip`;
+
+        setUpdateProgress({ status: 'downloading', percentage: 10, downloaded: 0 });
+        await invoke('install_portable_update', { url: portableUrl });
+        // install_portable_update calls process::exit(0) after relaunching,
+        // so we only reach here on error
+      } catch (err) {
+        console.error("Portable update failed:", err);
+        setUpdateProgress({ status: 'error', percentage: 0, downloaded: 0 });
+        useStore.getState().addToast(`Portable update failed: ${err}`, "error");
+      }
+      return;
+    }
+
+    // ── NSIS mode: use Tauri updater (remembers install path automatically) ──
+    try {
+      let totalSize: number | undefined;
+      await updateAvailable.downloadAndInstall((event: any) => {
+        switch (event.event) {
+          case "Started":
+            totalSize = event.data.contentLength;
+            setUpdateProgress({
+              status: 'downloading',
+              percentage: 0,
+              downloaded: 0,
+              total: totalSize
+            });
+            break;
+          case "Progress":
+            const downloaded = event.data.chunkLength;
+            setUpdateProgress((prev) => {
+              const newDownloaded = (prev.downloaded || 0) + downloaded;
+              const percentage = totalSize ? Math.min(Math.round((newDownloaded / totalSize) * 100), 100) : 0;
+              return {
+                ...prev,
+                percentage,
+                downloaded: newDownloaded,
+                total: totalSize
+              };
+            });
+            break;
+          case "Finished":
+            setUpdateProgress({ status: 'installing', percentage: 100, downloaded: totalSize || 0, total: totalSize });
+            break;
+        }
+      });
+      setUpdateProgress({ status: 'complete', percentage: 100, downloaded: totalSize || 0 });
+      useStore.getState().addToast("Update installed! Restarting...", "success");
+      setTimeout(async () => {
+        await relaunch();
+      }, 1500);
+    } catch (err) {
+      console.error("Failed to download and install update:", err);
+      setUpdateProgress({ status: 'error', percentage: 0, downloaded: 0 });
+      useStore.getState().addToast(`Update failed: ${err}`, "error");
+    }
+  };
 
   useEffect(() => {
     loadConfig();
     loadHistory();
     invoke<string>("get_version").then(setVersion).catch(() => {});
+    invoke<boolean>("is_portable_mode").then(setPortableMode).catch(() => {});
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
@@ -171,7 +272,7 @@ export default function App() {
         {/* Page Content */}
         <div className="flex-1 relative overflow-hidden">
           {page === "settings" ? (
-            <Settings onBack={() => setPage("dashboard")} />
+            <Settings onBack={() => setPage("dashboard")} onCheckUpdate={checkForUpdates} />
           ) : (
             <Dashboard onOpenSettings={() => setPage("settings")} />
           )}
@@ -183,6 +284,119 @@ export default function App() {
         <div className="absolute rounded-full" style={{ top: "-10%", right: "-10%", width: "40%", height: "40%", background: "rgba(133,255,180,0.05)", filter: "blur(120px)" }} />
         <div className="absolute rounded-full" style={{ bottom: "-10%", left: "-10%", width: "30%", height: "30%", background: "rgba(192,193,255,0.05)", filter: "blur(100px)" }} />
       </div>
+
+      {/* ═══ UPDATE MODAL ═══ */}
+      {updateAvailable && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="w-[480px] max-h-[85vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl backdrop-blur-lg"
+            style={{
+              background: "var(--bg-surface, #161722)",
+              borderColor: "var(--border-default, rgba(0, 232, 138, 0.2))",
+            }}
+          >
+            {/* Header */}
+            <div className="px-6 py-4 border-b flex justify-between items-center" style={{ borderColor: "var(--border-default)" }}>
+              <div className="flex items-center gap-2">
+                <Icon name="system_update_alt" size={18} style={{ color: "var(--accent-primary)" }} />
+                <span className="font-mono text-xs font-bold uppercase tracking-wider">
+                  Update Available
+                </span>
+              </div>
+              <span className="font-mono text-[10px] px-2 py-0.5 rounded border uppercase" style={{ color: "var(--accent-primary)", borderColor: "var(--border-default)", background: "rgba(0, 232, 138, 0.08)" }}>
+                v{updateAvailable.version}
+              </span>
+              {portableMode && (
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded border uppercase" style={{ color: "#ffd000", borderColor: "rgba(255, 208, 0, 0.3)", background: "rgba(255, 208, 0, 0.08)" }}>
+                  Portable
+                </span>
+              )}
+            </div>
+
+            {/* Content / Release Notes */}
+            <div className="p-6 flex-1 overflow-y-auto space-y-4">
+              <div className="space-y-1">
+                <span className="font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>RELEASE NOTES</span>
+                <div 
+                  className="font-mono text-xs p-4 rounded border overflow-y-auto max-h-[220px] scrollbar-thin whitespace-pre-wrap leading-relaxed"
+                  style={{
+                    background: "var(--surface-container-low, #191b26)",
+                    borderColor: "var(--border-default)",
+                    color: "var(--text-primary)"
+                  }}
+                >
+                  {updateAvailable.body || "No release notes provided."}
+                </div>
+              </div>
+
+              {/* Progress UI */}
+              {updateProgress.status !== 'idle' && (
+                <div className="space-y-2 pt-2">
+                  <div className="flex justify-between font-mono text-[10px]" style={{ color: "var(--text-secondary)" }}>
+                    <span className="uppercase">
+                      {updateProgress.status === 'downloading' && "Downloading files..."}
+                      {updateProgress.status === 'installing' && "Installing files..."}
+                      {updateProgress.status === 'complete' && "Update Complete!"}
+                      {updateProgress.status === 'error' && "Download Failed"}
+                    </span>
+                    <span>{updateProgress.percentage}%</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full overflow-hidden relative border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-300"
+                      style={{
+                        width: `${updateProgress.percentage}%`,
+                        background: updateProgress.status === 'error' ? '#ff4444' : "linear-gradient(to right, var(--accent-primary) 65%, #ffd000 100%)",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="px-6 py-4 border-t flex justify-end gap-3" style={{ background: "rgba(0,0,0,0.15)", borderColor: "var(--border-default)" }}>
+              {updateProgress.status === 'idle' ? (
+                <>
+                  <button
+                    onClick={() => setUpdateAvailable(null)}
+                    className="font-mono text-xs px-4 py-2 rounded cursor-pointer border font-bold uppercase transition-colors"
+                    style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+                  >
+                    Later
+                  </button>
+                  <button
+                    onClick={handleDownloadAndInstall}
+                    className="font-mono text-xs px-4 py-2 rounded cursor-pointer font-extrabold uppercase border-none text-white shadow-lg"
+                    style={{
+                      background: "linear-gradient(135deg, var(--accent-primary-container), var(--accent-primary))",
+                      color: "var(--on-primary)"
+                    }}
+                  >
+                    Update Now
+                  </button>
+                </>
+              ) : (
+                <div className="font-mono text-xs py-2 uppercase font-extrabold" style={{ color: updateProgress.status === 'error' ? '#ff4444' : "var(--accent-primary)" }}>
+                  {updateProgress.status === 'downloading' && "Downloading..."}
+                  {updateProgress.status === 'installing' && "Running Installer..."}
+                  {updateProgress.status === 'complete' && "Relaunching EasySpecy..."}
+                  {updateProgress.status === 'error' && (
+                    <button 
+                      onClick={() => setUpdateProgress({ status: 'idle', percentage: 0, downloaded: 0 })}
+                      className="px-4 py-2 rounded cursor-pointer border border-red-500/20 text-red-400 font-bold"
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
     </ContextMenuProvider>
   );

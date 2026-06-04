@@ -111,6 +111,9 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
         "keyboard_game_capture" => {
             config.keyboard_game_capture = value.as_bool().unwrap_or(false);
         }
+        "auto_check_updates" => {
+            config.auto_check_updates = value.as_bool().unwrap_or(true);
+        }
 
         _ => return Err(format!("Unknown config key: {}", key)),
     }
@@ -741,5 +744,159 @@ pub fn get_webcam_devices() -> Result<Vec<WebcamDeviceInfo>, String> {
 #[tauri::command]
 pub fn get_keyboard_events() -> Vec<crate::keyboard::KeyEvent> {
     crate::keyboard::get_keyboard_events()
+}
+
+/// Detect if the app is running in portable mode (`.portable` marker file next to exe)
+#[tauri::command]
+pub fn is_portable_mode() -> bool {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    match exe_dir {
+        Some(dir) => dir.join(".portable").exists(),
+        None => false,
+    }
+}
+
+/// Install a portable update: download ZIP, extract, replace exe, relaunch.
+/// This handles the full lifecycle for portable (non-NSIS) installations.
+#[tauri::command]
+pub async fn install_portable_update(url: String) -> Result<(), String> {
+    let exe_path = std::env::current_exe().map_err(|e| format!("Cannot find exe: {}", e))?;
+    let exe_dir = exe_path
+        .parent()
+        .ok_or("Cannot determine exe directory")?
+        .to_path_buf();
+
+    tracing::info!("Portable update: downloading from {}", url);
+
+    // 1. Download the ZIP to a temp file
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Download failed: {}", e))?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Read download failed: {}", e))?;
+
+    let temp_dir = std::env::temp_dir().join("easyspecy_update");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Cannot create temp dir: {}", e))?;
+
+    let zip_path = temp_dir.join("update.zip");
+    std::fs::write(&zip_path, &bytes)
+        .map_err(|e| format!("Cannot write zip: {}", e))?;
+
+    tracing::info!("Portable update: downloaded {} bytes", bytes.len());
+
+    // 2. Extract the ZIP
+    let extract_dir = temp_dir.join("extracted");
+    std::fs::create_dir_all(&extract_dir)
+        .map_err(|e| format!("Cannot create extract dir: {}", e))?;
+
+    let zip_file = std::fs::File::open(&zip_path)
+        .map_err(|e| format!("Cannot open zip: {}", e))?;
+    let mut archive = zip::ZipArchive::new(zip_file)
+        .map_err(|e| format!("Cannot read zip: {}", e))?;
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)
+            .map_err(|e| format!("Zip entry error: {}", e))?;
+        let out_path = extract_dir.join(entry.mangled_name());
+        if entry.is_dir() {
+            let _ = std::fs::create_dir_all(&out_path);
+        } else {
+            if let Some(parent) = out_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let mut outfile = std::fs::File::create(&out_path)
+                .map_err(|e| format!("Cannot create file: {}", e))?;
+            std::io::copy(&mut entry, &mut outfile)
+                .map_err(|e| format!("Cannot extract: {}", e))?;
+        }
+    }
+    drop(archive);
+
+    tracing::info!("Portable update: extracted to {}", extract_dir.display());
+
+    // 3. Find the new exe inside the extracted archive
+    //    The ZIP contains "EasySpecy/EasySpecy.exe" (portable layout)
+    let new_exe = find_exe_in_dir(&extract_dir)?;
+    tracing::info!("Portable update: found new exe at {}", new_exe.display());
+
+    // 4. Copy resources (ffmpeg, cursors) from the extracted archive
+    let new_resources = new_exe.parent().unwrap_or(&extract_dir).join("resources");
+    let current_resources = exe_dir.join("resources");
+    if new_resources.exists() {
+        copy_dir_recursive(&new_resources, &current_resources)?;
+        tracing::info!("Portable update: resources updated");
+    }
+
+    // 5. Replace the exe: rename old to .old, copy new in place
+    let backup_path = exe_path.with_extension("exe.old");
+    let _ = std::fs::remove_file(&backup_path); // Remove any previous backup
+    std::fs::rename(&exe_path, &backup_path)
+        .map_err(|e| format!("Cannot backup old exe: {}", e))?;
+
+    std::fs::copy(&new_exe, &exe_path)
+        .map_err(|e| {
+            // Try to restore backup on failure
+            let _ = std::fs::rename(&backup_path, &exe_path);
+            format!("Cannot install new exe: {}", e)
+        })?;
+
+    tracing::info!("Portable update: exe replaced successfully");
+
+    // 6. Clean up temp files
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    // 7. Launch the new exe and exit current process
+    std::process::Command::new(&exe_path)
+        .spawn()
+        .map_err(|e| format!("Cannot launch new exe: {}", e))?;
+
+    tracing::info!("Portable update: launched new version, exiting");
+    std::process::exit(0);
+}
+
+/// Recursively find the main exe inside an extracted directory
+fn find_exe_in_dir(dir: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    // Look for EasySpecy.exe (case-insensitive) recursively
+    fn search_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(found) = search_dir(&path) {
+                        return Some(found);
+                    }
+                } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.eq_ignore_ascii_case("easyspecy.exe") {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+        None
+    }
+    search_dir(dir).ok_or_else(|| "EasySpecy.exe not found in update archive".to_string())
+}
+
+/// Recursively copy a directory tree
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst).map_err(|e| format!("mkdir failed: {}", e))?;
+    for entry in std::fs::read_dir(src).map_err(|e| format!("readdir failed: {}", e))? {
+        let entry = entry.map_err(|e| format!("entry failed: {}", e))?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            std::fs::copy(&src_path, &dst_path)
+                .map_err(|e| format!("copy failed: {}", e))?;
+        }
+    }
+    Ok(())
 }
 

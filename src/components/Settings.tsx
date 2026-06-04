@@ -37,7 +37,7 @@ const CLICK_EFFECTS: { id: ClickEffect; label: string; desc: string }[] = [
   { id: "none", label: "None", desc: "No click effect" },
 ];
 
-export function Settings({ onBack }: { onBack: () => void }) {
+export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onCheckUpdate: (manual: boolean) => Promise<void> }) {
   const {
     config, saveConfig, loadAudioDevices, audioDevices,
     audioLevels, startAudioMonitor, stopAudioMonitor, pollAudioLevels
@@ -47,6 +47,16 @@ export function Settings({ onBack }: { onBack: () => void }) {
   const [saved, setSaved] = useState(false);
   const [showWebcamPreview, setShowWebcamPreview] = useState(false);
   const [showKeyboardPreview, setShowKeyboardPreview] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const handleManualCheck = async () => {
+    setChecking(true);
+    try {
+      await onCheckUpdate(true);
+    } finally {
+      setChecking(false);
+    }
+  };
   
   // Lists
   const [cursorPacks, setCursorPacks] = useState<CursorPackInfo[]>([]);
@@ -637,6 +647,33 @@ export function Settings({ onBack }: { onBack: () => void }) {
             <Row label="Copy Path to Clipboard" desc="Auto-copy absolute target file path after stopping recordings">
               <Toggle checked={local.copy_path_on_save} onChange={(v) => update("copy_path_on_save", v)} />
             </Row>
+          </Card>
+
+          {/* ── Updates Section ── */}
+          <Card title="Software Updates" icon="system_update_alt" index={8}>
+            <Row label="Auto-check for Updates" desc="Look for new versions automatically on application startup">
+              <Toggle checked={local.auto_check_updates} onChange={(v) => update("auto_check_updates", v)} />
+            </Row>
+            <div className="flex justify-between items-center py-2.5 px-4 rounded-lg border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
+              <div className="flex flex-col">
+                <span className="font-mono text-xs font-semibold">Check for Updates Manually</span>
+                <span className="font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>Verify if a newer release is available on GitHub</span>
+              </div>
+              <motion.button
+                onClick={handleManualCheck}
+                disabled={checking}
+                className="font-mono text-[10px] px-3.5 py-1.5 cursor-pointer font-bold uppercase rounded border transition-colors disabled:opacity-50"
+                style={{
+                  borderColor: "var(--accent-primary)",
+                  color: "var(--accent-primary)",
+                  background: "rgba(0, 232, 138, 0.04)"
+                }}
+                whileHover={{ scale: checking ? 1 : 1.03 }}
+                whileTap={{ scale: checking ? 1 : 0.97 }}
+              >
+                {checking ? "Checking..." : "Check for Updates"}
+              </motion.button>
+            </div>
           </Card>
         </div>
       </div>

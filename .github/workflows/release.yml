@@ -134,6 +134,48 @@ jobs:
           $zip = Get-Item "EasySpecy-Portable.zip"
           Write-Host "Portable ZIP: $([math]::Round($zip.Length / 1MB, 1)) MB"
 
+      # ── Sign release artifacts for updater ─────────────────
+      - name: Install Tauri signer
+        shell: pwsh
+        run: |
+          cargo install tauri-signer --locked --force
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: Sign NSIS installer
+        id: sign-nsis
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: |
+          $installer = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Filter "*.exe" | Select-Object -First 1
+          tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $installer.FullName
+          $sigFile = "$($installer.FullName).sig"
+          if (Test-Path $sigFile) {
+            $sig = Get-Content $sigFile -Raw
+            echo "nsis_signature=$sig" >> $env:GITHUB_OUTPUT
+            Write-Host "NSIS signed: $sig.Substring(0, 60)..."
+          } else {
+            Write-Warning "NSIS signature file not found!"
+          }
+
+      - name: Sign portable ZIP
+        id: sign-portable
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
+        run: |
+          tauri signer sign --key $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD EasySpecy-Portable.zip
+          if (Test-Path "EasySpecy-Portable.zip.sig") {
+            $sig = Get-Content "EasySpecy-Portable.zip.sig" -Raw
+            echo "portable_signature=$sig" >> $env:GITHUB_OUTPUT
+            Write-Host "Portable signed: $sig.Substring(0, 60)..."
+          } else {
+            Write-Warning "Portable signature file not found!"
+          }
+
       # ── Extract changelog for this release ───────────────────
       - name: Extract changelog body
         id: changelog
@@ -166,6 +208,60 @@ jobs:
             EasySpecy-Portable.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Generate and commit latest.json ─────────────────────
+      - name: Generate latest.json
+        shell: pwsh
+        run: |
+          $version = "${{ env.APP_VERSION }}"
+          $pubDate = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+          $notes = "EasySpecy v$version"
+          # Read changelog section for this version
+          $changelog = Get-Content CHANGELOG.md -Raw -ErrorAction SilentlyContinue
+          $pattern = "(?ms)## \[$version\].*?(?=\n## \[|\z)"
+          if ($changelog -match $pattern) {
+            $notes = $Matches[0].Trim()
+          }
+          $nsisSig = @"
+          ${{ steps.sign-nsis.outputs.nsis_signature }}
+          "@.Trim()
+          $portableSig = @"
+          ${{ steps.sign-portable.outputs.portable_signature }}
+          "@.Trim()
+          $nsisUrl = "https://github.com/${{ github.repository }}/releases/download/v$version/$((Get-Item '${{ steps.collect-nsis.outputs.installer_path }}').Name)"
+          $latestJson = @{
+            version = $version
+            notes = $notes
+            pub_date = $pubDate
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $nsisSig
+                url = $nsisUrl
+              }
+            }
+            portable = @{
+              url = "https://github.com/${{ github.repository }}/releases/download/v$version/EasySpecy-Portable.zip"
+              signature = $portableSig
+            }
+          } | ConvertTo-Json -Depth 5
+          $latestJson | Out-File -FilePath "latest.json" -Encoding utf8 -NoNewline
+          Write-Host "Generated latest.json for v$version"
+          Get-Content latest.json
+
+      - name: Commit latest.json
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add latest.json
+          git diff --staged --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m "chore: update latest.json for v${{ env.APP_VERSION }}"
+            git push origin HEAD:master
+            Write-Host "latest.json committed"
+          } else {
+            Write-Host "latest.json unchanged"
+          }
 
       # ── Summary ───────────────────────────────────────────────
       - name: Build summary

@@ -1,0 +1,15 @@
+{
+  "version": "0.1.2",
+  "notes": "v0.1.2: Pause/Resume and Right-Click Color Fixes",
+  "pub_date": "2026-06-04T16:04:56Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL1dRNmVpb3d2YnpZQXg0MXBoWTVSVnpFTU5sdU1ndnU4bjZpR2oydjNwbFdMSXFtNFFSenZFOGJFTW5TbG9zZmFFUFNUWjlNakNzYWVka1RGVUxyTlFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNTY5Nzk4CWZpbGU6RWFzeVNwZWN5XzAuMS4yX3g2NC1zZXR1cC5leGUKbXlsbzh0QmxRcUZLUWVLa3pBZDVGaG90eXkwdUwzVTJ6QW9aS0dpQ2draWJhNFdQNWxVc0x4NDdYd2M2bVE5Z3NOWkxBRnhYVnI2VlFtYWhlNnlpQ2c9PQo=",
+      "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.2/EasySpecy_0.1.2_x64-setup.exe"
+    }
+  },
+  "portable": {
+    "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.2/EasySpecy-Portable.zip",
+    "signature": ""
+  }
+}

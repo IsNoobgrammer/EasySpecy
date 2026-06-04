@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.1.3] - 2026-06-04
+
+### Added
+- **Auto-update system** — Built-in updater using Tauri's `@tauri-apps/plugin-updater` with minisign signature verification.
+- **NSIS install path memory** — Installer automatically detects and uses the previous install location via Windows registry.
+- **Portable update support** — Portable mode detects `.portable` marker and downloads new ZIP, replaces the exe, and relaunches.
+- **Update UI** — Settings page shows available updates with download progress, and handles both NSIS and portable update flows.
+- **CI/CD signing** — Release workflow signs NSIS installer and portable ZIP with minisign, auto-generates `latest.json` update manifest.
+
+---
+
 ## [0.1.2] - 2026-06-04
 
 ### Added

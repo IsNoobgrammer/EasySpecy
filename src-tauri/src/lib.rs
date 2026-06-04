@@ -95,7 +95,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
@@ -135,6 +137,8 @@ pub fn run() {
             commands::get_audio_levels,
             commands::get_webcam_devices,
             commands::get_keyboard_events,
+            commands::is_portable_mode,
+            commands::install_portable_update,
         ])
         .setup(|app| {
             // Store AppHandle globally for background thread access (cursor events)
