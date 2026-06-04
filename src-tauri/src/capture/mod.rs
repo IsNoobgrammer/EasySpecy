@@ -671,7 +671,7 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
             meta.cursor_trail.len(), meta.click_events.len(),
             meta.trail_style, meta.click_effect
         );
-        // Save metadata
+        // Save metadata to disk — required for post-processing (effects, autozoom, etc.)
         if let Err(e) = crate::postprocess::save_metadata(&meta, &output_path) {
             tracing::warn!("Failed to save cursor metadata: {}", e);
         }
@@ -698,13 +698,13 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
             }
         };
 
-        // Clean up temporary metadata JSON file
+        // All post-processing done — delete .meta.json, user only needs the .mp4
         let meta_path = output_path.replace(".mp4", ".meta.json");
         if std::path::Path::new(&meta_path).exists() {
             if let Err(e) = std::fs::remove_file(&meta_path) {
-                tracing::warn!("Failed to delete metadata JSON file: {}", e);
+                tracing::warn!("Failed to delete .meta.json after post-processing: {}", e);
             } else {
-                tracing::info!("Deleted temporary metadata JSON file: {}", meta_path);
+                tracing::info!("Cleaned up .meta.json after post-processing: {}", meta_path);
             }
         }
 
