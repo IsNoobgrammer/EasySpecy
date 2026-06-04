@@ -39,6 +39,17 @@ jobs:
           node-version: 20
           cache: npm
 
+      # ── Cache Rust crates (downloaded dependencies) ──────────
+      - name: Cache Rust crates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 
@@ -250,11 +261,16 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Fetch latest master to avoid non-fast-forward errors
+          git fetch origin master
+          git checkout -B master origin/master
+          
           git add latest.json
           git diff --staged --quiet
           if ($LASTEXITCODE -ne 0) {
             git commit -m "chore: update latest.json for v${{ env.APP_VERSION }}"
-            git push origin HEAD:master
+            git push origin master
             Write-Host "latest.json committed"
           } else {
             Write-Host "latest.json unchanged"
