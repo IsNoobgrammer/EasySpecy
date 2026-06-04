@@ -21,6 +21,9 @@
   <a href="https://github.com/IsNoobgrammer/EasySpecy/releases/latest">
     <img src="https://img.shields.io/badge/Portable_ZIP-1d1f2b?style=for-the-badge&logo=archive&logoColor=00E88A&labelColor=1d1f2b" alt="Download Portable ZIP" height="40">
   </a>
+  <a href="https://isnoobgrammer.github.io/EasySpecy/">
+    <img src="https://img.shields.io/badge/Read_Documentation-c0c1ff?style=for-the-badge&logo=gitbook&logoColor=11131e&labelColor=11131e" alt="Read Documentation" height="40">
+  </a>
 </div>
 
 <div align="center" style="margin-top: 15px; margin-bottom: 30px;">
