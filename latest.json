@@ -1,15 +1,15 @@
 {
-  "version": "0.1.2",
-  "notes": "v0.1.2: Pause/Resume and Right-Click Color Fixes",
-  "pub_date": "2026-06-04T16:04:56Z",
+  "portable": {
+    "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.3/EasySpecy-Portable.zip",
+    "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL1VMb2dDT2J5YzRnTSt1amQ1OHhnQWQ4Y2czbnp2b2I4dk9MZVJ0T3p4dGl0MVBpN1pPNHc5VEVTRklPZ3ZkTUkvUWJDZkNKZ3gvbGhaZTJCNnJmd2dVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNTc3NzU5CWZpbGU6RWFzeVNwZWN5LVBvcnRhYmxlLnppcAp2NDZTSWhtTjdFS3BJdlJ5YXZTdVVWemh4QmFpY0VVUXZCNytadUhsTHZsU1RGRFNXVXk5c3pqZ282aWppSHhjemlOMTc1NkhLeXJsODVYc2M3M2tBdz09Cg=="
+  },
+  "notes": "## [0.1.3] - 2026-06-04\r\n\r\n### Added\r\n- **Auto-update system** — Built-in updater using Tauri's `@tauri-apps/plugin-updater` with minisign signature verification.\r\n- **NSIS install path memory** — Installer automatically detects and uses the previous install location via Windows registry.\r\n- **Portable update support** — Portable mode detects `.portable` marker and downloads new ZIP, replaces the exe, and relaunches.\r\n- **Update UI** — Settings page shows available updates with download progress, and handles both NSIS and portable update flows.\r\n- **CI/CD signing** — Release workflow signs NSIS installer and portable ZIP with minisign, auto-generates `latest.json` update manifest.\r\n\r\n---",
+  "version": "0.1.3",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL1dRNmVpb3d2YnpZQXg0MXBoWTVSVnpFTU5sdU1ndnU4bjZpR2oydjNwbFdMSXFtNFFSenZFOGJFTW5TbG9zZmFFUFNUWjlNakNzYWVka1RGVUxyTlFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNTY5Nzk4CWZpbGU6RWFzeVNwZWN5XzAuMS4yX3g2NC1zZXR1cC5leGUKbXlsbzh0QmxRcUZLUWVLa3pBZDVGaG90eXkwdUwzVTJ6QW9aS0dpQ2draWJhNFdQNWxVc0x4NDdYd2M2bVE5Z3NOWkxBRnhYVnI2VlFtYWhlNnlpQ2c9PQo=",
-      "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.2/EasySpecy_0.1.2_x64-setup.exe"
+      "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.3/EasySpecy_0.1.3_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL2JHUU0wMTlmOVQrcWF0TmN5c2MrRi9kVzJrZ05vaUZqS2JaRUVZMk9pdW5XWkgzR0dhblk1L3VSc2RiYWU0UXlxMUJqYVZ6cFNGamo3dUhtM1VmRFFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNTc3NzU4CWZpbGU6RWFzeVNwZWN5XzAuMS4zX3g2NC1zZXR1cC5leGUKOHlueXlOcTBDWXFQSHh5YkxvSDArWDBsMnEwUTJHTVhwVGFhelZ1VUtJWG9aNzRlMk1NY2Rod0dGVHF0YTVGMWxVTjdkUStCWVlMNDJ2MXk0SXNoQ1E9PQo="
     }
   },
-  "portable": {
-    "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.2/EasySpecy-Portable.zip",
-    "signature": ""
-  }
+  "pub_date": "2026-06-04T12:56:07Z"
 }
