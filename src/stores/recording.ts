@@ -135,6 +135,8 @@ interface AppState {
   recordingPhase: RecordingPhase;
   isPaused: boolean;
   recordingStartTime: number | null;
+  pausedMs: number;           // accumulated ms spent paused
+  pauseStartTime: number | null; // wall-clock when current pause began
   lastRecording: RecordingResult | null;
   history: RecordingEntry[];
   audioDevices: string[];
@@ -180,6 +182,8 @@ export const useStore = create<AppState>((set, get) => ({
   recordingPhase: "idle",
   isPaused: false,
   recordingStartTime: null,
+  pausedMs: 0,
+  pauseStartTime: null,
   lastRecording: null,
   history: [],
   audioDevices: [],
@@ -272,7 +276,8 @@ export const useStore = create<AppState>((set, get) => ({
       get().addToast("Initializing capture...", "info");
       await invoke("start_recording", { outputPath: null });
       // Only now is capture truly active
-      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
+            recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
       get().addToast(`Recording region: ${region.width}×${region.height}`, "success");
     } catch (e) {
       await invoke("exit_region_mode").catch(() => {});
@@ -301,7 +306,8 @@ export const useStore = create<AppState>((set, get) => ({
       // and audio is armed — guaranteeing perfect sync
       await invoke("start_recording", { outputPath: null });
       // Only NOW do we start the timer — capture is truly active
-      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
+      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
+            recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
       get().addToast("Recording started", "success");
     } catch (e) { get().addToast(`Start failed: ${e}`, "error"); }
   },
@@ -319,7 +325,9 @@ export const useStore = create<AppState>((set, get) => ({
 
       const result = await invoke<RecordingResult>("stop_recording");
       clearInterval(progressInterval);
-      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, lastRecording: result, encodingProgress: 100, encodingStage: "Done" });
+      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null,
+            pausedMs: 0, pauseStartTime: null, lastRecording: result,
+            encodingProgress: 100, encodingStage: "Done" });
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
       get().addToast(`Saved! ${dur}s, ${sizeMB}MB`, "success", { label: "Open", onClick: () => get().openPath(result.output_path) });
@@ -331,18 +339,28 @@ export const useStore = create<AppState>((set, get) => ({
       } catch {}
       await get().loadHistory();
     } catch (e) {
-      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null });
+      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, pausedMs: 0, pauseStartTime: null });
       get().addToast(`Stop failed: ${e}`, "error");
     }
   },
 
   pauseRecording: async () => {
-    try { await invoke("pause_recording_cmd"); set({ isPaused: true }); get().addToast("Paused", "info"); }
+    try {
+      await invoke("pause_recording_cmd");
+      set({ isPaused: true, pauseStartTime: Date.now() });
+      get().addToast("Paused", "info");
+    }
     catch (e) { get().addToast(`Pause failed: ${e}`, "error"); }
   },
 
   resumeRecording: async () => {
-    try { await invoke("resume_recording_cmd"); set({ isPaused: false }); get().addToast("Resumed", "info"); }
+    try {
+      await invoke("resume_recording_cmd");
+      const { pauseStartTime, pausedMs } = get();
+      const added = pauseStartTime ? Date.now() - pauseStartTime : 0;
+      set({ isPaused: false, pauseStartTime: null, pausedMs: pausedMs + added });
+      get().addToast("Resumed", "info");
+    }
     catch (e) { get().addToast(`Resume failed: ${e}`, "error"); }
   },
 

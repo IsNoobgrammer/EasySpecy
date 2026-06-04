@@ -43,12 +43,13 @@ const CLICK_EFFECTS: { id: ClickEffect; label: string; desc: string }[] = [
 // ─── Mini preview canvas for effect cards ────────────────────────
 
 function MiniPreview({
-  trailStyle, clickEffect, color,
+  trailStyle, clickEffect, color, secondaryColor,
   onHover, onClick,
 }: {
   trailStyle?: TrailStyle;
   clickEffect?: ClickEffect;
   color: string;
+  secondaryColor?: string;
   onHover?: (e: React.MouseEvent<HTMLCanvasElement>) => void;
   onClick?: (e: React.MouseEvent<HTMLCanvasElement>) => void;
 }) {
@@ -121,14 +122,15 @@ function MiniPreview({
     onHover?.(e);
   }, [trailStyle, onHover]);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!clickEffect || clickEffect === "none") return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) * (e.currentTarget.width / rect.width);
     const y = (e.clientY - rect.top) * (e.currentTarget.height / rect.height);
-    clickRef.current.addClick(x, y);
+    const clickColor = (e.button === 2 && secondaryColor) ? secondaryColor : color;
+    clickRef.current.addClick(x, y, clickColor);
     onClick?.(e);
-  }, [clickEffect, onClick]);
+  }, [clickEffect, color, secondaryColor, onClick]);
 
   return (
     <canvas
@@ -142,7 +144,8 @@ function MiniPreview({
         borderRadius: "8px",
       }}
       onMouseMove={handleMouseMove}
-      onClick={handleClick}
+      onMouseDown={handleMouseDown}
+      onContextMenu={(e) => e.preventDefault()}
     />
   );
 }
@@ -395,7 +398,7 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
           {/* Live preview canvas */}
           <div className="px-4 pb-4">
             <div className="relative overflow-hidden" style={{ borderRadius: "8px", background: "var(--bg-elevated)", border: "1px dashed var(--border-default)" }}>
-              <MiniPreview trailStyle={trailStyle} color={trailColor} />
+              <MiniPreview trailStyle={trailStyle} color={trailColor} secondaryColor={secondaryColor} />
               {trailStyle === "none" && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>Trail disabled</span>
@@ -450,7 +453,7 @@ export function Customization({ onBack: _onBack }: { onBack: () => void }) {
           {/* Live preview canvas */}
           <div className="px-4 pb-4">
             <div className="relative overflow-hidden" style={{ borderRadius: "8px", background: "var(--bg-elevated)", border: "1px dashed var(--border-default)" }}>
-              <MiniPreview clickEffect={clickEffect} color={clickColor} />
+              <MiniPreview clickEffect={clickEffect} color={clickColor} secondaryColor={secondaryColor} />
               {clickEffect === "none" && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>Click effect disabled</span>

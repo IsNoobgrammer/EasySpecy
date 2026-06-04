@@ -434,9 +434,10 @@ export class ClickEffectRenderer {
   setColor(c: string) { this.color = c; }
   clear() { this.clicks = []; this.confettiParticles = []; }
 
-  addClick(x: number, y: number) {
-    this.clicks.push({ x, y, age: 0, color: this.color });
-    if (this.style === "confetti") this.spawnConfetti(x, y);
+  addClick(x: number, y: number, color?: string) {
+    const clickColor = color || this.color;
+    this.clicks.push({ x, y, age: 0, color: clickColor });
+    if (this.style === "confetti") this.spawnConfetti(x, y, clickColor);
   }
 
   private simulateInterval: ReturnType<typeof setInterval> | null = null;
@@ -456,8 +457,9 @@ export class ClickEffectRenderer {
     }
   }
 
-  private spawnConfetti(x: number, y: number) {
-    const colors = [this.color, "#ff4455", "#4488ff", "#ffcc22", "#ff44cc", "#44ffcc", "#ff8844"];
+  private spawnConfetti(x: number, y: number, color?: string) {
+    const primaryColor = color || this.color;
+    const colors = [primaryColor, "#ff4455", "#4488ff", "#ffcc22", "#ff44cc", "#44ffcc", "#ff8844"];
     const shapes: ConfettiParticle["shape"][] = ["rect", "circle", "triangle"];
     for (let i = 0; i < 30; i++) {
       const angle = (Math.PI * 2 * i) / 30 + (Math.random() - 0.5) * 0.4;

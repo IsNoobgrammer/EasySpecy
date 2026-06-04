@@ -604,6 +604,7 @@ export function Settings({ onBack }: { onBack: () => void }) {
                         trailStyle={local.trail_style as TrailStyle}
                         clickEffect={local.click_effect as ClickEffect}
                         color={local.cursor_trail_color}
+                        secondaryColor={local.cursor_secondary_color}
                       />
                     </div>
                   </div>
@@ -1061,13 +1062,13 @@ function HotkeyRecorder({ value, onChange }: { value: string; onChange: (v: stri
   );
 }
 
-// ─── Mini preview canvas for effect cards ────────────────────────
 function MiniPreview({
-  trailStyle, clickEffect, color,
+  trailStyle, clickEffect, color, secondaryColor,
 }: {
   trailStyle?: TrailStyle;
   clickEffect?: ClickEffect;
   color: string;
+  secondaryColor?: string;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trailRef = useRef(new TrailRenderer());
@@ -1132,13 +1133,14 @@ function MiniPreview({
     trailRef.current.addPoint(x, y);
   }, [trailStyle]);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!clickEffect || clickEffect === "none") return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left) * (e.currentTarget.width / rect.width);
     const y = (e.clientY - rect.top) * (e.currentTarget.height / rect.height);
-    clickRef.current.addClick(x, y);
-  }, [clickEffect]);
+    const clickColor = (e.button === 2 && secondaryColor) ? secondaryColor : color;
+    clickRef.current.addClick(x, y, clickColor);
+  }, [clickEffect, color, secondaryColor]);
 
   return (
     <canvas
@@ -1147,7 +1149,8 @@ function MiniPreview({
       height={140}
       className="w-full cursor-crosshair block rounded-lg h-[140px]"
       onMouseMove={handleMouseMove}
-      onClick={handleClick}
+      onMouseDown={handleMouseDown}
+      onContextMenu={(e) => e.preventDefault()}
     />
   );
 }

@@ -19,10 +19,11 @@ export function RecordingOverlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trailRef = useRef(new TrailRenderer());
   const clickRef = useRef(new ClickEffectRenderer());
-  const configRef = useRef<{ trail_style: TrailStyle; click_effect: ClickEffect; color: string }>({
+  const configRef = useRef<{ trail_style: TrailStyle; click_effect: ClickEffect; color: string; secondaryColor: string }>({
     trail_style: "glow",
     click_effect: "ripple",
     color: "#00e88a",
+    secondaryColor: "#ff4488",
   });
 
   // Load config on mount
@@ -32,6 +33,7 @@ export function RecordingOverlay() {
         trail_style: cfg.trail_style || "glow",
         click_effect: cfg.click_effect || "ripple",
         color: cfg.cursor_trail_color || "#00e88a",
+        secondaryColor: cfg.cursor_secondary_color || "#ff4488",
       };
       trailRef.current.setStyle(configRef.current.trail_style);
       trailRef.current.setColor(configRef.current.color);
@@ -67,15 +69,19 @@ export function RecordingOverlay() {
 
       // Click events from Rust
       unlistenClick = await listen<[number, number, string]>("cursor-click", (event) => {
-        const [x, y] = event.payload;
-        clickRef.current.addClick(x, y);
+        const [x, y, button] = event.payload;
+        const color = button === "right" ? configRef.current.secondaryColor : configRef.current.color;
+        clickRef.current.addClick(x, y, color);
       });
     };
 
     setup().catch(() => {
       // Fallback: DOM events (for debugging, won't work on click-through windows)
       const onMove = (e: MouseEvent) => trailRef.current.addPoint(e.clientX, e.clientY);
-      const onClick = (e: MouseEvent) => clickRef.current.addClick(e.clientX, e.clientY);
+      const onClick = (e: MouseEvent) => {
+        const color = e.button === 2 ? configRef.current.secondaryColor : configRef.current.color;
+        clickRef.current.addClick(e.clientX, e.clientY, color);
+      };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mousedown", onClick);
     });

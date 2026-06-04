@@ -565,3 +565,31 @@ pub fn verify_audio_pre_merge(
 
     Ok(())
 }
+
+/// Lightweight pre-concat segment check.
+/// Probes a single video segment with ffprobe and returns its duration in ms.
+/// Warns (but does not fail) if the segment is shorter than 100ms — this can
+/// happen if the user paused very quickly after starting/resuming, but it is
+/// still a valid (if tiny) segment for concat.
+pub fn verify_segment_duration(segment_path: &str) -> Result<f64, String> {
+    if !std::path::Path::new(segment_path).exists() {
+        return Err(format!("Segment file missing: {}", segment_path));
+    }
+
+    let ffprobe = find_ffprobe_or_ffmpeg()?;
+    let streams = probe_streams(&ffprobe, segment_path)?;
+
+    let video = streams.iter().find(|s| s.codec_type == "video")
+        .ok_or_else(|| format!("No video stream in segment: {}", segment_path))?;
+
+    let duration_ms = video.duration_ms;
+
+    if duration_ms < 100.0 {
+        tracing::warn!(
+            "Segment is very short ({:.1}ms < 100ms): {} — may cause concat issues",
+            duration_ms, segment_path
+        );
+    }
+
+    Ok(duration_ms)
+}

@@ -222,9 +222,11 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     openPath, updateField, loadHistory, clearHistory, loadEstimatedSize,
     selectorMode, setCaptureRegion, setSelectorMode,
     encodingProgress, encodingStage, estimatedMbPerMin,
+    pausedMs, pauseStartTime,
   } = useStore();
 
   const [elapsed, setElapsed] = useState("00:00:00");
+  const [pauseElapsed, setPauseElapsed] = useState("00:00:00");
 
   useEffect(() => {
     loadHistory();
@@ -233,9 +235,26 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
 
   useEffect(() => {
     if (recordingPhase !== "recording" || !recordingStartTime) return;
-    const interval = setInterval(() => setElapsed(formatDuration(Date.now() - recordingStartTime)), 1000);
+
+    const tick = () => {
+      if (isPaused) {
+        const currentPauseStart = pauseStartTime || Date.now();
+        const activeDuration = currentPauseStart - recordingStartTime - pausedMs;
+        setElapsed(formatDuration(activeDuration));
+
+        const currentPauseDuration = Date.now() - currentPauseStart;
+        setPauseElapsed(formatDuration(currentPauseDuration));
+      } else {
+        const activeDuration = Date.now() - recordingStartTime - pausedMs;
+        setElapsed(formatDuration(activeDuration));
+        setPauseElapsed("00:00:00");
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [recordingPhase, recordingStartTime]);
+  }, [recordingPhase, recordingStartTime, pausedMs, isPaused, pauseStartTime]);
 
   const isRecording = recordingPhase === "recording";
   const isEncoding = recordingPhase === "encoding";
@@ -320,11 +339,30 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
                 animate={isPaused ? {} : { opacity: [1, 0.4, 1], scale: [1, 0.92, 1] }}
                 transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
               />
-              <span className="font-mono text-2xl font-bold tracking-widest" style={{ color: "var(--text-primary)" }}>{elapsed}</span>
+              <span className="font-mono text-2xl font-bold tracking-widest" style={{ color: isPaused ? "var(--text-muted)" : "var(--text-primary)" }}>
+                {elapsed}
+              </span>
               {isPaused && (
-                <motion.span initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="font-mono text-xs font-bold uppercase" style={{ color: "var(--accent-warning)", letterSpacing: "0.1em" }}>
-                  PAUSED
-                </motion.span>
+                <>
+                  <span style={{ width: "1px", height: "20px", background: "var(--border-default)" }} />
+                  <div className="flex items-center gap-2">
+                    <motion.span 
+                      className="w-2 h-2 rounded-full" 
+                      style={{ 
+                        background: "var(--accent-warning)", 
+                        boxShadow: "0 0 6px var(--accent-warning)" 
+                      }}
+                      animate={{ opacity: [1, 0.4, 1] }}
+                      transition={{ duration: 1.0, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    <span className="font-mono text-lg font-bold" style={{ color: "var(--accent-warning)" }}>
+                      {pauseElapsed}
+                    </span>
+                    <span className="font-mono text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5" style={{ color: "var(--accent-warning)", border: "1px solid var(--accent-warning)", borderRadius: "var(--radius-xs)" }}>
+                      PAUSED
+                    </span>
+                  </div>
+                </>
               )}
             </motion.div>
           )}

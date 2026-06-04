@@ -303,10 +303,10 @@
 
     // ── Click Effect Renderer ──
     class ClickEffectRenderer {
-      constructor() { this.clicks = []; this.style = "ripple"; this.color = "#00e88a"; this.confetti = []; }
-      addClick(x, y) { this.clicks.push({ x, y, age: 0, color: this.color }); if (this.style === "confetti") this.spawnConfetti(x, y); }
-      spawnConfetti(x, y) {
-        const colors = [this.color, "#ff4455", "#4488ff", "#ffcc22", "#ff44cc", "#44ffcc", "#ff8844"];
+      constructor() { this.clicks = []; this.style = "ripple"; this.color = "#00e88a"; this.secondaryColor = "#ff4488"; this.confetti = []; }
+      addClick(x, y, color) { this.clicks.push({ x, y, age: 0, color: color || this.color }); if (this.style === "confetti") this.spawnConfetti(x, y, color); }
+      spawnConfetti(x, y, color) {
+        const colors = [color || this.color, "#ff4455", "#4488ff", "#ffcc22", "#ff44cc", "#44ffcc", "#ff8844"];
         const shapes = ["rect", "circle", "triangle"];
         for (let i = 0; i < 30; i++) {
           const a = (Math.PI * 2 * i) / 30 + (Math.random() - 0.5) * 0.4, sp = 2.5 + Math.random() * 5;
@@ -511,6 +511,7 @@
         trail.color = cfg.cursor_trail_color || "#00e88a";
         click.style = cfg.click_effect || "ripple";
         click.color = cfg.cursor_trail_color || "#00e88a";
+        click.secondaryColor = cfg.cursor_secondary_color || "#ff4488";
 
         // Keyboard overlay configuration
         // The overlay HTML window is fullscreen at monitor logical resolution.
@@ -841,8 +842,9 @@
 
         // Click events — arrives on mouse button press
         await listen("cursor-click", (event) => {
-          const [x, y, _button] = event.payload;
-          click.addClick(x / window.devicePixelRatio, y / window.devicePixelRatio);
+          const [x, y, button] = event.payload;
+          const color = button === "right" ? click.secondaryColor : click.color;
+          click.addClick(x / window.devicePixelRatio, y / window.devicePixelRatio, color);
         });
 
         // Keyboard events — arrives on key press from Rust to prevent background throttling
@@ -860,7 +862,10 @@
         console.error("[EasySpecy] Failed to set up event listeners:", e);
         // Fallback: try DOM events (won't work on click-through but useful for debugging)
         document.addEventListener("mousemove", e => trail.addRawPoint(e.clientX, e.clientY));
-        document.addEventListener("mousedown", e => click.addClick(e.clientX, e.clientY));
+        document.addEventListener("mousedown", e => {
+          const color = e.button === 2 ? click.secondaryColor : click.color;
+          click.addClick(e.clientX, e.clientY, color);
+        });
       }
     }
     setupEventListeners();

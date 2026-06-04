@@ -75,8 +75,24 @@ static ENCODING_PROGRESS: AtomicU32 = AtomicU32::new(0);
 /// Encoding stage description
 static ENCODING_STAGE: Mutex<String> = Mutex::new(String::new());
 
+// ═══ Segment-based pause/resume ═══
+/// Finalized segment paths (one per active recording run between pauses)
+static SEGMENT_PATHS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Signal on_frame_arrived to finish the current encoder segment (pause)
+static SHOULD_FINISH_SEGMENT: AtomicBool = AtomicBool::new(false);
+/// Signal on_frame_arrived to start a new encoder segment (resume)
+static SHOULD_RESUME_CAPTURE: AtomicBool = AtomicBool::new(false);
+/// Accumulated time spent in paused state — subtracted from wallclock duration
+/// before passing to sync_verifier so checks remain valid with pauses.
+static TOTAL_PAUSED_DURATION: Mutex<Duration> = Mutex::new(Duration::ZERO);
+/// Wall-clock instant when the current pause began
+static PAUSE_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
+
 struct CaptureHandler {
     encoder: Option<VideoEncoder>,
+    width: u32,
+    height: u32,
+    segment_idx: u32,
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -84,9 +100,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
     fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-        let video_path = VIDEO_TEMP_PATH.lock().unwrap().clone();
         let width = ctx.flags.0 as u32;
         let height = ctx.flags.1 as u32;
+        let video_path = segment_path(0);
 
         tracing::info!("Video encoder init: {}x{} -> {}", width, height, video_path);
 
@@ -99,6 +115,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         Ok(Self {
             encoder: Some(encoder),
+            width,
+            height,
+            segment_idx: 0,
         })
     }
 
@@ -128,16 +147,51 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             tracing::info!("══ CAPTURE ARMED ══ video + audio synced at t=0");
         }
 
-        if RECORDING_PAUSED.load(Ordering::Relaxed) {
-            return Ok(());
-        }
-
+        // ═══ STOP: finish current segment, signal done ═══
         if SHOULD_STOP.load(Ordering::SeqCst) {
             if let Some(encoder) = self.encoder.take() {
                 encoder.finish()?;
+                let seg = segment_path(self.segment_idx);
+                tracing::info!("Final segment {} finalised: {}", self.segment_idx, seg);
+                SEGMENT_PATHS.lock().unwrap().push(seg);
             }
             capture_control.stop();
             return Ok(());
+        }
+
+        // ═══ PAUSE: finish current segment, hold until resume ═══
+        if SHOULD_FINISH_SEGMENT.load(Ordering::SeqCst) {
+            if let Some(encoder) = self.encoder.take() {
+                encoder.finish()?;
+            }
+            let seg = segment_path(self.segment_idx);
+            tracing::info!("Segment {} finalised: {}", self.segment_idx, seg);
+            SEGMENT_PATHS.lock().unwrap().push(seg);
+            self.segment_idx += 1;
+            SHOULD_FINISH_SEGMENT.store(false, Ordering::SeqCst);
+            // Mark as paused AFTER the encoder is flushed — avoids race with stop_recording()
+            RECORDING_PAUSED.store(true, Ordering::SeqCst);
+            return Ok(());
+        }
+
+        // ═══ PAUSED: skip frames unless resume is requested ═══
+        if RECORDING_PAUSED.load(Ordering::Relaxed) {
+            if SHOULD_RESUME_CAPTURE.load(Ordering::SeqCst) {
+                // Start a fresh encoder for the new segment
+                let new_path = segment_path(self.segment_idx);
+                tracing::info!("Starting segment {} at: {}", self.segment_idx, new_path);
+                self.encoder = Some(VideoEncoder::new(
+                    VideoSettingsBuilder::new(self.width, self.height),
+                    AudioSettingsBuilder::default().disabled(true),
+                    ContainerSettingsBuilder::default(),
+                    &new_path,
+                )?);
+                SHOULD_RESUME_CAPTURE.store(false, Ordering::SeqCst);
+                RECORDING_PAUSED.store(false, Ordering::SeqCst);
+                // Fall through — send this frame into the new segment
+            } else {
+                return Ok(());
+            }
         }
 
         let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -187,6 +241,12 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
     CAPTURE_ARMED.store(false, Ordering::SeqCst);
     CAPTURE_READY.store(false, Ordering::SeqCst);
     ENABLE_AUDIO.store(config.enable_audio, Ordering::SeqCst);
+    // Reset segment state
+    SEGMENT_PATHS.lock().unwrap().clear();
+    SHOULD_FINISH_SEGMENT.store(false, Ordering::SeqCst);
+    SHOULD_RESUME_CAPTURE.store(false, Ordering::SeqCst);
+    *TOTAL_PAUSED_DURATION.lock().unwrap() = Duration::ZERO;
+    *PAUSE_INSTANT.lock().unwrap() = None;
 
     // Initialize monitor and settings BEFORE spawning threads
     let monitor = Monitor::primary().map_err(|e| e.to_string())?;
@@ -533,12 +593,32 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
         std::thread::sleep(Duration::from_millis(50));
     }
 
+    // ─── Stitch segments into video_temp.mp4 ───────────────────────────────
     let video_path = VIDEO_TEMP_PATH.lock().unwrap().clone();
     let output_path = OUTPUT_PATH.lock().unwrap().clone();
+    let segments = SEGMENT_PATHS.lock().unwrap().clone();
+    set_encoding_progress(8, "Stitching segments...");
+    // Verify each segment before stitching
+    for seg in &segments {
+        match crate::sync_verifier::verify_segment_duration(seg) {
+            Ok(ms) => tracing::info!("Segment pre-check: {} — {:.1}ms", seg, ms),
+            Err(e) => tracing::warn!("Segment pre-check warn: {}", e),
+        }
+    }
+    if let Err(e) = concat_segments(&segments, &video_path) {
+        tracing::error!("Segment concat failed: {} — falling back to first segment", e);
+        if let Some(first) = segments.first() {
+            let _ = std::fs::copy(first, &video_path);
+        }
+    }
     let frame_count = FRAME_COUNT.load(Ordering::Relaxed);
     let start = START_TIME.lock().unwrap().take();
-    // Use the precise duration from arm-time to stop-time
-    let duration = start.map(|s| (stop_instant - s).as_secs_f64()).unwrap_or(0.0);
+    // Compute active recording duration: wall-clock elapsed MINUS total paused time.
+    // This is what we pass to sync_verifier so it compares against actual content.
+    let paused_total = *TOTAL_PAUSED_DURATION.lock().unwrap();
+    let duration = start
+        .map(|s| ((stop_instant - s).as_secs_f64() - paused_total.as_secs_f64()).max(0.0))
+        .unwrap_or(0.0);
     let has_audio = audio_path.is_some();
 
     tracing::info!(
@@ -1012,20 +1092,117 @@ fn capture_window_bounds_on_click() {
     }
 }
 
+/// Returns the temp file path for video segment N.
+fn segment_path(idx: u32) -> String {
+    std::env::temp_dir()
+        .join("easyspecy")
+        .join(format!("video_seg_{:03}.mp4", idx))
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Concatenate video segments into a single MP4 using FFmpeg's concat demuxer.
+/// Uses `-c copy` — no re-encode, only container header stitching (~instant).
+/// If there is only one segment, renames it directly (zero FFmpeg overhead).
+fn concat_segments(segments: &[String], output: &str) -> Result<(), String> {
+    if segments.is_empty() {
+        return Err("No segments to concatenate".to_string());
+    }
+    if segments.len() == 1 {
+        // Fast path — single segment, just move it
+        std::fs::rename(&segments[0], output)
+            .or_else(|_| std::fs::copy(&segments[0], output).map(|_| ()))
+            .map_err(|e| format!("Single segment rename failed: {}", e))?;
+        tracing::info!("Single segment fast-path: {} -> {}", segments[0], output);
+        return Ok(());
+    }
+
+    // Write the concat list file
+    let list_path = std::env::temp_dir()
+        .join("easyspecy")
+        .join("concat_list.txt");
+    let list_content: String = segments
+        .iter()
+        .map(|p| format!("file '{}'\n", p.replace('\\', "/")))
+        .collect();
+    std::fs::write(&list_path, &list_content)
+        .map_err(|e| format!("Concat list write failed: {}", e))?;
+
+    tracing::info!(
+        "Concatenating {} segments -> {} via FFmpeg concat demuxer",
+        segments.len(), output
+    );
+
+    let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found for concat")?;
+    let mut cmd = std::process::Command::new(&ffmpeg);
+    cmd.args([
+        "-f", "concat",
+        "-safe", "0",
+        "-i", &list_path.to_string_lossy(),
+        "-c", "copy",
+        "-y",
+        output,
+    ])
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+
+    let result = cmd.output().map_err(|e| format!("FFmpeg concat exec failed: {}", e))?;
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!("FFmpeg concat error: {}", stderr));
+    }
+
+    // Clean up segment files and concat list
+    let _ = std::fs::remove_file(&list_path);
+    for seg in segments {
+        let _ = std::fs::remove_file(seg);
+    }
+
+    tracing::info!("Concat complete: {}", output);
+    Ok(())
+}
+
 pub fn pause_recording() {
-    RECORDING_PAUSED.store(true, Ordering::SeqCst);
+    // Record the pause start instant for duration accounting
+    *PAUSE_INSTANT.lock().unwrap() = Some(Instant::now());
+    // Signal on_frame_arrived to finish the current encoder segment.
+    // RECORDING_PAUSED is set by on_frame_arrived AFTER flush — not here —
+    // to avoid a race where stop_recording() thinks we're done before the
+    // encoder has actually written the last frames.
+    SHOULD_FINISH_SEGMENT.store(true, Ordering::SeqCst);
+    // Pause audio immediately (sample collection stops now)
     let lock = AUDIO_CAPTURE.lock().unwrap();
     if let Some(audio) = lock.as_ref() {
         audio.pause();
     }
+    tracing::info!("pause_recording: SHOULD_FINISH_SEGMENT set, audio paused");
 }
 
 pub fn resume_recording() {
-    RECORDING_PAUSED.store(false, Ordering::SeqCst);
+    // Accumulate paused duration for sync_verifier wallclock correction
+    if let Some(pause_start) = PAUSE_INSTANT.lock().unwrap().take() {
+        let paused = pause_start.elapsed();
+        *TOTAL_PAUSED_DURATION.lock().unwrap() += paused;
+        tracing::info!("resume_recording: paused for {:.2}s, total paused: {:.2}s",
+            paused.as_secs_f64(),
+            TOTAL_PAUSED_DURATION.lock().unwrap().as_secs_f64()
+        );
+    }
+    // Signal on_frame_arrived to start a fresh encoder segment.
+    // on_frame_arrived clears RECORDING_PAUSED after the new encoder is ready.
+    SHOULD_RESUME_CAPTURE.store(true, Ordering::SeqCst);
+    // Resume audio immediately
     let lock = AUDIO_CAPTURE.lock().unwrap();
     if let Some(audio) = lock.as_ref() {
         audio.resume();
     }
+    tracing::info!("resume_recording: SHOULD_RESUME_CAPTURE set, audio resumed");
 }
 
 pub fn is_recording() -> bool {
