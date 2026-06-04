@@ -907,6 +907,15 @@ fn merge_audio_video(video: &str, audio: &str, output: &str) -> Result<(), Strin
         "-c:a".into(), "aac".into(),
         "-b:a".into(), "192k".into(),
         "-threads".into(), "0".into(),
+    ]);
+
+    if config.video_encoder == crate::config::VideoEncoder::VP9
+        || config.video_encoder == crate::config::VideoEncoder::MobileShareable
+    {
+        args.extend(["-pix_fmt".into(), "yuv420p".into()]);
+    }
+
+    args.extend([
         "-shortest".into(),
         "-progress".into(), "pipe:1".into(),
         output.into(),
@@ -986,15 +995,23 @@ fn fix_video_timestamps(input: &str, output: &str) -> Result<(), String> {
         "-preset".into(), preset.into(),
         "-crf".into(), crf,
         "-vsync".into(), "cfr".into(),
-        "-an".into(),
-        output.into(),
     ];
+
+    if config.video_encoder == crate::config::VideoEncoder::VP9
+        || config.video_encoder == crate::config::VideoEncoder::MobileShareable
+    {
+        args.extend(["-pix_fmt".into(), "yuv420p".into()]);
+    }
 
     if config.video_encoder == crate::config::VideoEncoder::VP9 {
         // VP9 needs -b:v 0 for CRF mode
-        args.insert(args.len() - 1, "-b:v".into());
-        args.insert(args.len() - 1, "0".into());
+        args.extend(["-b:v".into(), "0".into()]);
     }
+
+    args.extend([
+        "-an".into(),
+        output.into(),
+    ]);
 
     let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 

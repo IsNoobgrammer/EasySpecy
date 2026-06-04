@@ -37,7 +37,7 @@ pub struct KeyEvent {
 /// Keyboard capture state
 struct KeyboardCapture {
     events: Arc<Mutex<VecDeque<KeyEvent>>>,
-    start_time: Instant,
+    start_time: Arc<Mutex<Instant>>,
     running: Arc<AtomicBool>,
     _hook_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -115,7 +115,9 @@ pub fn start_keyboard_capture() {
         *capture = None;
     }
     *HOOK_THREAD_ID.lock().unwrap() = None;
-    *WORKER_THREAD.lock().unwrap() = None;
+    if let Ok(mut guard) = WORKER_THREAD.lock() {
+        *guard = None;
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -125,15 +127,16 @@ pub fn start_keyboard_capture() {
 
     let events = Arc::new(Mutex::new(VecDeque::with_capacity(256)));
     let running = Arc::new(AtomicBool::new(true));
-    let start_time = Instant::now();
+    let start_time = Arc::new(Mutex::new(Instant::now()));
 
     let events_clone = events.clone();
     let running_clone = running.clone();
+    let start_time_clone = start_time.clone();
 
     let hook_thread = std::thread::Builder::new()
         .name("keyboard-hook".into())
         .spawn(move || {
-            run_keyboard_hook(events_clone, running_clone, start_time);
+            run_keyboard_hook(events_clone, running_clone, start_time_clone);
         })
         .expect("Failed to spawn keyboard hook thread");
 
@@ -171,15 +174,19 @@ pub fn stop_keyboard_capture() -> Vec<KeyEvent> {
         }
     }
 
-    // Extract remaining events
+    // Join the hook thread BEFORE extracting events (hook thread joins worker internally)
     let events = if let Some(cap) = capture.take() {
+        if let Some(handle) = cap._hook_thread {
+            let _ = handle.join();
+        }
+        if let Ok(mut guard) = WORKER_THREAD.lock() {
+            *guard = None;
+        }
         let evts = cap.events.lock().unwrap();
         evts.iter().cloned().collect()
     } else {
         Vec::new()
     };
-
-    *WORKER_THREAD.lock().unwrap() = None;
 
     tracing::info!("Keyboard capture stopped ({} events)", events.len());
     events
@@ -192,7 +199,7 @@ pub fn get_keyboard_events() -> Vec<KeyEvent> {
     let capture = capture_mutex.lock().unwrap();
 
     if let Some(ref cap) = *capture {
-        let elapsed = cap.start_time.elapsed().as_millis() as f64;
+        let elapsed = cap.start_time.lock().unwrap().elapsed().as_millis() as f64;
         let mut events = cap.events.lock().unwrap();
 
         // Prune events older than 5 seconds
@@ -217,7 +224,7 @@ pub fn reset_keyboard_start_time() {
     let capture_mutex = KEYBOARD_CAPTURE.get_or_init(|| Mutex::new(None));
     let mut capture = capture_mutex.lock().unwrap();
     if let Some(ref mut cap) = *capture {
-        cap.start_time = Instant::now();
+        *cap.start_time.lock().unwrap() = Instant::now();
         if let Ok(mut events) = cap.events.lock() {
             events.clear();
         }
@@ -235,7 +242,7 @@ pub fn reset_keyboard_start_time() {}
 fn run_keyboard_hook(
     events: Arc<Mutex<VecDeque<KeyEvent>>>,
     running: Arc<AtomicBool>,
-    start_time: Instant,
+    start_time: Arc<Mutex<Instant>>,
 ) {
     use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::*;
@@ -321,19 +328,27 @@ fn run_keyboard_hook(
 fn run_worker(
     events: Arc<Mutex<VecDeque<KeyEvent>>>,
     running: Arc<AtomicBool>,
-    start_time: Instant,
+    start_time: Arc<Mutex<Instant>>,
 ) {
-    use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN};
-    
-    // Initialize modifier states at startup by querying actual Win32 state
-    let mut shift = unsafe { (GetKeyState(VK_SHIFT.0 as i32) as u16 & 0x8000) != 0 };
-    let mut ctrl = unsafe { (GetKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0 };
-    let mut alt = unsafe { (GetKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0 };
-    let mut win = unsafe {
-        (GetKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0 
-        || (GetKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetKeyState, VK_LSHIFT, VK_RSHIFT, VK_LCONTROL, VK_RCONTROL,
+        VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN,
     };
 
+    // Initialize L/R modifier states independently at startup
+    let mut lshift = unsafe { (GetKeyState(VK_LSHIFT.0 as i32) as u16 & 0x8000) != 0 };
+    let mut rshift = unsafe { (GetKeyState(VK_RSHIFT.0 as i32) as u16 & 0x8000) != 0 };
+    let mut lctrl = unsafe { (GetKeyState(VK_LCONTROL.0 as i32) as u16 & 0x8000) != 0 };
+    let mut rctrl = unsafe { (GetKeyState(VK_RCONTROL.0 as i32) as u16 & 0x8000) != 0 };
+    let mut lalt = unsafe { (GetKeyState(VK_LMENU.0 as i32) as u16 & 0x8000) != 0 };
+    let mut ralt = unsafe { (GetKeyState(VK_RMENU.0 as i32) as u16 & 0x8000) != 0 };
+    let mut lwin = unsafe { (GetKeyState(VK_LWIN.0 as i32) as u16 & 0x8000) != 0 };
+    let mut rwin = unsafe { (GetKeyState(VK_RWIN.0 as i32) as u16 & 0x8000) != 0 };
+
+    let shift = lshift || rshift;
+    let ctrl = lctrl || rctrl;
+    let alt = lalt || ralt;
+    let win = lwin || rwin;
     tracing::info!("Keyboard worker thread started (initial modifiers: shift={}, ctrl={}, alt={}, win={})", shift, ctrl, alt, win);
 
     while running.load(Ordering::Relaxed) {
@@ -342,19 +357,30 @@ fn run_worker(
             let vk = raw_event.vk_code;
             let is_down = raw_event.is_down;
 
-            // Update modifier states dynamically
+            // Update L/R modifier states independently using specific VK codes
             match vk {
-                0x10 | 0xA0 | 0xA1 => shift = is_down, // VK_SHIFT, VK_LSHIFT, VK_RSHIFT
-                0x11 | 0xA2 | 0xA3 => ctrl = is_down,  // VK_CONTROL, VK_LCONTROL, VK_RCONTROL
-                0x12 | 0xA4 | 0xA5 => alt = is_down,   // VK_MENU, VK_LALT, VK_RALT
-                0x5B | 0x5C => win = is_down,          // VK_LWIN, VK_RWIN
+                0xA0 => lshift = is_down,  // VK_LSHIFT
+                0xA1 => rshift = is_down,  // VK_RSHIFT
+                0xA2 => lctrl = is_down,   // VK_LCONTROL
+                0xA3 => rctrl = is_down,   // VK_RCONTROL
+                0xA4 => lalt = is_down,    // VK_LMENU
+                0xA5 => ralt = is_down,    // VK_RMENU
+                0x5B => lwin = is_down,    // VK_LWIN
+                0x5C => rwin = is_down,    // VK_RWIN
                 _ => {}
             }
 
+            // Combine L/R into single modifier flags
+            let shift = lshift || rshift;
+            let ctrl = lctrl || rctrl;
+            let alt = lalt || ralt;
+            let win = lwin || rwin;
+
             if is_down {
                 let key = vk_to_name(vk);
-                let timestamp_ms = if raw_event.timestamp >= start_time {
-                    raw_event.timestamp.duration_since(start_time).as_millis() as f64
+                let st = *start_time.lock().unwrap();
+                let timestamp_ms = if raw_event.timestamp >= st {
+                    raw_event.timestamp.duration_since(st).as_millis() as f64
                 } else {
                     0.0
                 };
@@ -391,7 +417,7 @@ fn run_worker(
                 }
 
                 // Record for post-processing/video baking
-                crate::postprocess::record_keyboard_event(&key);
+                crate::postprocess::record_keyboard_event(&key, ctrl, shift, alt, win);
             }
         }
 
@@ -492,7 +518,8 @@ fn vk_to_name(vk: u32) -> String {
 fn run_keyboard_hook(
     _events: Arc<Mutex<VecDeque<KeyEvent>>>,
     _running: Arc<AtomicBool>,
-    _start_time: Instant,
+    _start_time: Arc<Mutex<Instant>>,
 ) {
     tracing::warn!("Keyboard overlay not supported on this platform");
 }
+

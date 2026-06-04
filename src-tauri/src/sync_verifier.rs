@@ -135,17 +135,36 @@ pub fn verify_recording_sync(
     }
 
     // ═══ CHECK 4: Frame count sanity ═══
-    let expected_from_duration =
+    // Windows Graphics Capture delivers frames at variable rate (VFR).
+    // The MinimumUpdateInterval only sets a floor, not a guarantee — under
+    // system/GPU load the OS routinely delivers fewer than target_fps frames.
+    // After FFmpeg re-encodes with -vsync cfr, nb_frames reflects the CFR
+    // conversion which may duplicate or drop frames vs. the raw capture count.
+    // Therefore we use a generous 20 % tolerance and compare against the
+    // *video's own duration* (not wall-clock) so the check stays meaningful
+    // even when container duration drifts slightly from wall-clock.
+    let expected_from_video_duration =
         (report.video_duration_ms / 1000.0 * target_fps as f64) as u32;
-    report.frame_count_expected = internal_frame_count;
-    // Allow ±5% tolerance on frame count
-    let frame_tolerance = (expected_from_duration as f64 * 0.05).max(2.0) as u32;
+    // Use the larger of internal counter and video-duration-based estimate
+    // as the reference — internal can undercount if the encoder buffered
+    // frames that were written after the counter was read.
+    let expected_ref = expected_from_video_duration.max(internal_frame_count);
+    report.frame_count_expected = expected_ref;
+    let frame_tolerance = (expected_ref as f64 * 0.20).max(10.0) as u32;
     if video.nb_frames > 0 {
-        let diff = (video.nb_frames as i64 - expected_from_duration as i64).unsigned_abs() as u32;
+        let diff = (video.nb_frames as i64 - expected_ref as i64).unsigned_abs() as u32;
         if diff > frame_tolerance {
+            let effective_fps = if report.video_duration_ms > 0.0 {
+                video.nb_frames as f64 / (report.video_duration_ms / 1000.0)
+            } else {
+                0.0
+            };
             report.warn(format!(
-                "Frame count mismatch: actual={}, expected~{}, diff={} (tolerance={})",
-                video.nb_frames, expected_from_duration, diff, frame_tolerance
+                "Frame count mismatch: actual={}, expected~{}, diff={} (tolerance={}). \
+                 Effective FPS={:.1} vs target={}. This is typical VFR capture \
+                 behaviour under system load — not an A/V sync issue.",
+                video.nb_frames, expected_ref, diff, frame_tolerance,
+                effective_fps, target_fps
             ));
         }
     }

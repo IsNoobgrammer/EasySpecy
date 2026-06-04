@@ -90,6 +90,7 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
                 Some("H264_NVENC") => crate::config::VideoEncoder::H264_NVENC,
                 Some("H265_NVENC") => crate::config::VideoEncoder::H265_NVENC,
                 Some("VP9") => crate::config::VideoEncoder::VP9,
+                Some("MobileShareable") => crate::config::VideoEncoder::MobileShareable,
                 _ => crate::config::VideoEncoder::AV1,
             };
         }
@@ -114,6 +115,26 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
         "auto_check_updates" => {
             config.auto_check_updates = value.as_bool().unwrap_or(true);
         }
+        "gpu_encoders_enabled" => {
+            config.gpu_encoders_enabled = value.as_bool().unwrap_or(false);
+        }
+        // Keyboard overlay fields
+        "keyboard_overlay_enabled" => config.keyboard_overlay_enabled = value.as_bool().unwrap_or(false),
+        "keyboard_overlay_font_family" => config.keyboard_overlay_font_family = value.as_str().unwrap_or("JetBrains Mono").to_string(),
+        "keyboard_overlay_font_size" => config.keyboard_overlay_font_size = value.as_u64().unwrap_or(14) as u32,
+        "keyboard_overlay_opacity" => config.keyboard_overlay_opacity = value.as_f64().unwrap_or(0.9) as f32,
+        "keyboard_overlay_x" => config.keyboard_overlay_x = value.as_i64().unwrap_or(480) as i32,
+        "keyboard_overlay_y" => config.keyboard_overlay_y = value.as_i64().unwrap_or(800) as i32,
+        "keyboard_overlay_corner_radius" => config.keyboard_overlay_corner_radius = value.as_u64().unwrap_or(8) as u32,
+        "keyboard_overlay_border_width" => config.keyboard_overlay_border_width = value.as_u64().unwrap_or(1) as u32,
+        "keyboard_overlay_border_color" => config.keyboard_overlay_border_color = value.as_str().unwrap_or("rgba(255, 255, 255, 0.15)").to_string(),
+        "keyboard_overlay_background_color" => config.keyboard_overlay_background_color = value.as_str().unwrap_or("rgba(0, 0, 0, 0.65)").to_string(),
+        "keyboard_overlay_text_color" => config.keyboard_overlay_text_color = value.as_str().unwrap_or("#e5e5e0").to_string(),
+        "keyboard_overlay_theme" => config.keyboard_overlay_theme = value.as_str().unwrap_or("speccy-classic").to_string(),
+        "keyboard_overlay_key_mappings" => config.keyboard_overlay_key_mappings = value.as_str().unwrap_or("{}").to_string(),
+        "keyboard_overlay_max_bubbles" => config.keyboard_overlay_max_bubbles = value.as_u64().unwrap_or(4) as u32,
+        "keyboard_overlay_bubble_timeout_ms" => config.keyboard_overlay_bubble_timeout_ms = value.as_u64().unwrap_or(3000) as u32,
+        "keyboard_overlay_width" => config.keyboard_overlay_width = value.as_u64().unwrap_or(360) as u32,
 
         _ => return Err(format!("Unknown config key: {}", key)),
     }
@@ -266,9 +287,9 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
 
     let path = output_path.unwrap_or_else(|| {
         let dir = &config.output_dir;
-        let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+        let filename = chrono::Local::now().format("EasySpecy_%d_%B_%Y_%H_%M_%S.mp4").to_string();
         std::path::Path::new(dir)
-            .join(format!("recording_{}.mp4", timestamp))
+            .join(filename)
             .to_string_lossy()
             .to_string()
     });
@@ -301,6 +322,13 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
 
     // Create effects overlay window — handles cursor trail, keyboard overlay, AND webcam PiP.
     // All three live inside the same fullscreen transparent WebView2 window (overlay.html).
+    //
+    // NOTE: Even when only the keyboard overlay is enabled (no cursor trail, no webcam),
+    // we still create a fullscreen transparent window. This is required because the keyboard
+    // overlay is rendered inside overlay.html, which runs in this window. A future optimization
+    // could use a smaller, positioned window for keyboard-only mode to reduce memory and
+    // compositing overhead, but that requires changes to overlay.html coordinate math and
+    // always-on-top window management. Deferred to a future PR.
     if config.keyboard_overlay_enabled || config.cursor_trail_enabled || config.webcam_enabled {
         let _ = create_effects_overlay(app.clone());
     }
@@ -369,12 +397,11 @@ pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingR
         }
     }
 
-    // Destroy effects overlay window (contains cursor trail, keyboard overlay AND webcam PiP)
-    let _ = destroy_effects_overlay(app.clone());
-    // Note: webcam-overlay window no longer exists as a separate window — it's part of effects overlay
-
-    // Stop keyboard capture
+    // Stop keyboard capture FIRST (while overlay is still alive to display final events)
     crate::keyboard::stop_keyboard_capture();
+
+    // THEN destroy effects overlay window (contains cursor trail, keyboard overlay AND webcam PiP)
+    let _ = destroy_effects_overlay(app.clone());
 
     // ═══ Restore cursors so user sees normal cursor during encoding ═══
     if let Err(e) = crate::cursors::restore_cursors() {
@@ -566,7 +593,7 @@ pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
             if let Ok(true) = overlay_clone.is_visible() {
                 let _ = overlay_clone.set_always_on_top(true);
             }
-            std::thread::sleep(std::time::Duration::from_millis(150));
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
     });
 
@@ -700,7 +727,7 @@ pub fn create_webcam_overlay(app: tauri::AppHandle) -> Result<(), String> {
             if let Ok(true) = overlay_clone.is_visible() {
                 let _ = overlay_clone.set_always_on_top(true);
             }
-            std::thread::sleep(std::time::Duration::from_millis(150));
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
     });
 

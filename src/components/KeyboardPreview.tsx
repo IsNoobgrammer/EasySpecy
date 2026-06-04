@@ -413,8 +413,8 @@ export function KeyboardPreview({
       // Normal characters / symbols (excluding modifier keys themselves)
       if (norm !== "Ctrl" && norm !== "Alt" && norm !== "Win" && norm !== "Shift") {
         if (keyName.length === 1) {
-          const char = /^[A-Z]$/.test(keyName) ? keyName.toLowerCase() : keyName;
-          appendCharacter(char);
+          // e.key already provides correct case (respects CapsLock + Shift)
+          appendCharacter(keyName);
         } else {
           if (active) {
             active.id = `bubble-${active.timestamp}`; // seal
