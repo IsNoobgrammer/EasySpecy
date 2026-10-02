@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **"Capture stopped unexpectedly (0xC00D4A44)" on a fast pause → resume → pause** — The second pause tried to finalise a segment that had received no frames. That error killed the capture and cost the last seconds. Empty segments are now kept for the next resume, a segment that fails to finalise no longer stops the recording, and pause cancels a pending resume. Before, capture could resume by itself while the UI showed "paused".
+
+### Changed
+- **CPU while recording roughly halved** — Measured with trail + webcam + keyboard overlay: mouse moving 184% → 90% of one core, mouse still 112% → 45%.
+  - **Hidden main window stopped animating** — Rust now tells the UI when the window is hidden in the tray. The WebView flags the overlay needs had kept it rendering timers and pulse animations at full speed: 20–26% → ~1%.
+  - **Overlay heartbeat removed** — It forced a full-screen re-composite every frame.
+  - **Overlay loop** — Sleeps when there's nothing to draw, and is capped at the capture FPS.
+  - **Audio monitor pauses while recording** — The recording streams feed the level meter, so system audio is no longer captured twice.
+  - **Webcam CSS filter** — Skipped when it's a no-op.
+- **Repo language** — `.gitattributes` marks the docs site as documentation, so GitHub reports the Rust engine as the main language.
+
 ## [1.0.0] - 2026-10-02
 
 **Highlights:** A recording is ready to share about **1 second after you press stop** (it took ~2 minutes for a 1-minute video in 0.1.5). Capture now works on GPUs without HEVC (#2). Passwords are masked in the keyboard overlay. Window recording is new, and region recording works properly. The app uses ~6× less CPU while idle.

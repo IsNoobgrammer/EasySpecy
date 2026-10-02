@@ -61,6 +61,22 @@ fn compute_levels(samples: &[f32]) -> (f32, f32) {
     (peak, rms)
 }
 
+/// Feed the shared meter from a recording stream, so the level indicator stays live while
+/// recording without a second (monitor) stream capturing the same device. try_lock: the audio
+/// callback is real-time and must never wait on the UI reading levels.
+fn publish_levels(is_mic: bool, samples: &[f32]) {
+    let (peak, rms) = compute_levels(samples);
+    if let Ok(mut l) = get_levels().try_lock() {
+        if is_mic { l.mic_peak = peak; l.mic_rms = rms; l.mic_db = rms_to_db(rms); }
+        else { l.sys_peak = peak; l.sys_rms = rms; l.sys_db = rms_to_db(rms); }
+    }
+}
+
+/// Zero the meter (a stream that stops delivering would otherwise freeze its last level).
+pub fn reset_levels() {
+    if let Ok(mut l) = get_levels().lock() { *l = AudioLevels::default(); }
+}
+
 /// Convert RMS to dB (full-scale). Returns -60.0 for silence.
 fn rms_to_db(rms: f32) -> f32 {
     if rms < 0.001 { -60.0 } else { 20.0 * (rms as f64).log10() as f32 }
@@ -278,6 +294,7 @@ impl AudioCapture {
                         {
                             samples.lock().unwrap().extend_from_slice(data);
                         }
+                        if !paused.load(Ordering::Relaxed) { publish_levels(true, data); }
                     },
                     |err| tracing::error!("Mic stream error: {}", err),
                     None,
@@ -290,9 +307,11 @@ impl AudioCapture {
                             && !paused.load(Ordering::Relaxed)
                         {
                             let mut buf = samples.lock().unwrap();
+                            let start = buf.len();
                             for &s in data {
                                 buf.push(s as f32 / i16::MAX as f32);
                             }
+                            publish_levels(true, &buf[start..]);
                         }
                     },
                     |err| tracing::error!("Mic stream error: {}", err),
@@ -340,6 +359,7 @@ impl AudioCapture {
                             let mut buf = samples.lock().unwrap();
                             aligned_append(&mut buf, data, &armed_instant, &paused_dur, sys_rate, sys_channels);
                         }
+                        if !paused.load(Ordering::Relaxed) { publish_levels(false, data); }
                     },
                     |err| tracing::error!("System audio error: {}", err),
                     None,
@@ -354,6 +374,7 @@ impl AudioCapture {
                             let f32_data: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                             let mut buf = samples.lock().unwrap();
                             aligned_append(&mut buf, &f32_data, &armed_instant, &paused_dur, sys_rate, sys_channels);
+                            publish_levels(false, &f32_data);
                         }
                     },
                     |err| tracing::error!("System audio error: {}", err),

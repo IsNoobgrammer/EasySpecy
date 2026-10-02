@@ -97,6 +97,7 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.set_focus();
+                emit_main_visible(true);
                 if let Ok(true) = window.is_minimized() {
                     let _ = window.unminimize();
                 }
@@ -157,6 +158,16 @@ pub fn run() {
 }
 
 #[cfg(target_os = "windows")]
+/// Tell the UI whether the main window is shown. Chromium can't tell on its own: the
+/// background-rendering flags the overlay needs also keep a hidden window "visible" to JS,
+/// so its animations and polling ran full-speed in the tray during every recording.
+pub fn emit_main_visible(visible: bool) {
+    if let Some(app) = app_handle() {
+        use tauri::Emitter;
+        let _ = app.emit("main-window-visible", visible);
+    }
+}
+
 pub fn is_elevated() -> bool {
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};

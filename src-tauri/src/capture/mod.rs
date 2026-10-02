@@ -126,15 +126,22 @@ struct CaptureHandler {
 impl CaptureHandler {
     /// Finalise the current encoder. Only segments that actually got frames are queued for
     /// concat — an empty one (stop while paused, double pause) would break the stitch.
+    /// Never fatal: a segment that can't be finalised is logged and skipped so capture goes on.
     fn finish_segment(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(encoder) = self.encoder.take() {
-            encoder.finish()?;
             let seg = segment_path(self.segment_idx);
-            tracing::info!("Segment {} finalised: {} ({} frames)", self.segment_idx, seg, self.seg_frames);
-            if self.seg_frames > 0 {
-                SEGMENT_PATHS.lock().unwrap().push(seg);
-            } else {
+            if self.seg_frames == 0 {
+                // MF refuses to finalise a sink that got no samples (0xC00D4A44) — just drop it
+                drop(encoder);
                 let _ = std::fs::remove_file(&seg);
+            } else {
+                match encoder.finish() {
+                    Ok(()) => {
+                        tracing::info!("Segment {} finalised: {} ({} frames)", self.segment_idx, seg, self.seg_frames);
+                        SEGMENT_PATHS.lock().unwrap().push(seg);
+                    }
+                    Err(e) => tracing::error!("Segment {} could not be finalised ({} frames lost): {}", self.segment_idx, self.seg_frames, e),
+                }
             }
         }
         self.seg_frames = 0;
@@ -214,6 +221,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         // ═══ PAUSE: finish current segment, warm up the next one, hold until resume ═══
         if SHOULD_FINISH_SEGMENT.load(Ordering::SeqCst) {
             SHOULD_FINISH_SEGMENT.store(false, Ordering::SeqCst);
+            if self.encoder.is_some() && self.seg_frames == 0 {
+                // Paused again before any frame reached the warm encoder (fast pause→resume→pause):
+                // keep it for the next resume instead of finalising an empty segment.
+                RECORDING_PAUSED.store(true, Ordering::SeqCst);
+                return Ok(());
+            }
             self.finish_segment()?;
             // Create the next encoder NOW, not on resume. windows-capture's frame pool has a
             // single buffer and the encoder holds that surface uncopied; a cold encoder created
@@ -238,6 +251,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         }
 
         let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+        if self.encoder.is_none() {
+            // Only reachable if the warm-up at pause failed; better a cold encoder than a panic
+            self.encoder = Some(new_live_encoder(self.width, self.height, &segment_path(self.segment_idx), CAPTURED_HEVC.load(Ordering::SeqCst))?);
+        }
         self.seg_frames += 1;
         self.encoder.as_mut().unwrap().send_frame(frame)?;
 
@@ -890,6 +907,8 @@ pub fn pause_recording() {
     // to avoid a race where stop_recording() thinks we're done before the
     // encoder has actually written the last frames.
     SHOULD_FINISH_SEGMENT.store(true, Ordering::SeqCst);
+    // A resume that no frame has processed yet must not fire after this pause
+    SHOULD_RESUME_CAPTURE.store(false, Ordering::SeqCst);
     // Pause audio immediately (sample collection stops now)
     let lock = AUDIO_CAPTURE.lock().unwrap();
     if let Some(audio) = lock.as_ref() {

@@ -178,6 +178,7 @@ export default function App() {
     
     // Capture died mid-recording (GPU reset, display change…): stop now so the segments
     // and audio already on disk are saved instead of lost.
+    const unlistenVisible = listen<boolean>("main-window-visible", (e) => useStore.setState({ mainVisible: e.payload }));
     const unlistenCaptureError = listen<string>("capture-error", (event) => {
       const st = useStore.getState();
       st.addToast(`Capture stopped unexpectedly — saving what was recorded (${event.payload})`, "error");
@@ -185,6 +186,7 @@ export default function App() {
     });
     return () => {
       unlistenCaptureError.then((fn) => fn());
+      unlistenVisible.then((fn) => fn());
       unlistenTrayStart.then((fn) => fn());
       unlistenTrayStop.then((fn) => fn());
       unlistenTrayPause.then((fn) => fn());
@@ -203,7 +205,7 @@ export default function App() {
   const audioEnabled = config?.audio_enabled ?? false;
   useEffect(() => {
     if (!audioEnabled) return;
-    const interval = setInterval(() => { if (!document.hidden) pollAudioLevels(); }, 50);
+    const interval = setInterval(() => { if (useStore.getState().mainVisible) pollAudioLevels(); }, 50);
     return () => clearInterval(interval);
   }, [pollAudioLevels, audioEnabled]);
 

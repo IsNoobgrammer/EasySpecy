@@ -1,0 +1,5 @@
+# GitHub language stats (Linguist). The engine is Rust; the React UI is TypeScript.
+docs/** linguist-documentation
+# Settings-only preview widgets — kept out of the stats so the language bar reflects the app core
+src/components/KeyboardPreview.tsx linguist-detectable=false
+src/components/WebcamPreview.tsx linguist-detectable=false

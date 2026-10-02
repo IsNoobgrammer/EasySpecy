@@ -70,6 +70,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
+                    crate::emit_main_visible(true);
                     if let Ok(true) = window.is_minimized() {
                         let _ = window.unminimize();
                     }
@@ -91,6 +92,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.show();
                     let _ = window.set_focus();
+                    crate::emit_main_visible(true);
                     if let Ok(true) = window.is_minimized() {
                         let _ = window.unminimize();
                     }

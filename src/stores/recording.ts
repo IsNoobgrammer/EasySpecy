@@ -152,6 +152,7 @@ interface AppState {
   toastId: number;
   hotkeysRegistered: boolean;
   selectorMode: SelectorMode;
+  mainVisible: boolean;        // from Rust: hidden in the tray while recording (JS can't tell)
   regionShot: string | null;   // desktop screenshot the region selector draws on
   windows: WindowInfo[];       // candidates for Window mode
   encodingProgress: number;
@@ -221,6 +222,7 @@ export const useStore = create<AppState>((set, get) => ({
   toastId: 0,
   hotkeysRegistered: false,
   selectorMode: "none",
+  mainVisible: true,
   regionShot: null,
   windows: [],
   encodingProgress: 0,

@@ -224,6 +224,10 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     config: s.config, recordingPhase: s.recordingPhase, isPaused: s.isPaused, recordingStartTime: s.recordingStartTime, lastRecording: s.lastRecording, history: s.history, startRecording: s.startRecording, stopRecording: s.stopRecording, pauseRecording: s.pauseRecording, resumeRecording: s.resumeRecording, openPath: s.openPath, updateField: s.updateField, loadHistory: s.loadHistory, clearHistory: s.clearHistory, loadEstimatedSize: s.loadEstimatedSize, selectorMode: s.selectorMode, setCaptureRegion: s.setCaptureRegion, setSelectorMode: s.setSelectorMode, regionShot: s.regionShot, windows: s.windows, recordWindow: s.recordWindow, encodingProgress: s.encodingProgress, encodingStage: s.encodingStage, estimatedMbPerMin: s.estimatedMbPerMin, pausedMs: s.pausedMs, pauseStartTime: s.pauseStartTime,
   })));
 
+  // The WebView flags that keep the overlay rendering in the background also stop Chromium
+  // from throttling this window while it's hidden in the tray — so stop decorative animation
+  // ourselves (it cost ~17% of a core during every recording).
+  const visible = useDocumentVisible();
   const [elapsed, setElapsed] = useState("00:00:00");
   const [pauseElapsed, setPauseElapsed] = useState("00:00:00");
 
@@ -236,6 +240,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     if (recordingPhase !== "recording" || !recordingStartTime) return;
 
     const tick = () => {
+      if (!useStore.getState().mainVisible) return; // hidden in the tray while recording
       if (isPaused) {
         const currentPauseStart = pauseStartTime || Date.now();
         const activeDuration = currentPauseStart - recordingStartTime - pausedMs;
@@ -253,7 +258,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [recordingPhase, recordingStartTime, pausedMs, isPaused, pauseStartTime]);
+  }, [recordingPhase, recordingStartTime, pausedMs, isPaused, pauseStartTime, visible]); // `visible`: re-tick the moment it's shown
 
   const isRecording = recordingPhase === "recording";
   const isEncoding = recordingPhase === "encoding";
@@ -290,7 +295,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
         <div className="flex items-center gap-3">
           {isRecording ? (
             <div className="flex items-center gap-2 px-3 py-1.5" style={{ border: "var(--border-thin) solid var(--accent-record)", background: "oklch(0.64 0.20 25 / 0.08)", borderRadius: "var(--radius-sm)" }}>
-              <span className="w-2 h-2 rounded-full animate-pulse-dot" style={{ background: "var(--accent-record)", boxShadow: "0 0 8px oklch(0.64 0.20 25 / 0.6)" }} />
+              <span className={`w-2 h-2 rounded-full ${visible ? "animate-pulse-dot" : ""}`} style={{ background: "var(--accent-record)", boxShadow: "0 0 8px oklch(0.64 0.20 25 / 0.6)" }} />
               <span className="font-mono uppercase" style={{ color: "var(--accent-record)", fontSize: "0.6rem", letterSpacing: "0.08em", fontWeight: 700 }}>RECORDING</span>
             </div>
           ) : (
@@ -333,7 +338,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
                   background: isPaused ? "var(--accent-warning)" : "var(--accent-record)", 
                   boxShadow: isPaused ? "none" : "0 0 10px var(--accent-record-glow)"
                 }}
-                animate={isPaused ? {} : { opacity: [1, 0.4, 1], scale: [1, 0.92, 1] }}
+                animate={isPaused || !visible ? {} : { opacity: [1, 0.4, 1], scale: [1, 0.92, 1] }}
                 transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
               />
               <span className="font-mono text-2xl font-bold tracking-widest" style={{ color: isPaused ? "var(--text-muted)" : "var(--text-primary)" }}>
@@ -349,7 +354,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
                         background: "var(--accent-warning)", 
                         boxShadow: "0 0 6px var(--accent-warning)" 
                       }}
-                      animate={{ opacity: [1, 0.4, 1] }}
+                      animate={visible ? { opacity: [1, 0.4, 1] } : {}}
                       transition={{ duration: 1.0, repeat: Infinity, ease: "easeInOut" }}
                     />
                     <span className="font-mono text-lg font-bold" style={{ color: "var(--accent-warning)" }}>
@@ -421,7 +426,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
         >
           {/* Recording pulse: static glow ring, only opacity animates (box-shadow keyframes
               repainted every frame for the whole recording) */}
-          {isRecording && !isPaused && (
+          {isRecording && !isPaused && visible && (
             <motion.span
               aria-hidden
               className="absolute inset-[-3px] rounded-full pointer-events-none"
@@ -663,4 +668,8 @@ function SavedCard({ rec }: { rec: { output_path: string; duration_secs: number;
       </div>
     </motion.div>
   );
+}
+
+function useDocumentVisible() {
+  return useStore((s) => s.mainVisible);
 }

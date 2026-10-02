@@ -469,7 +469,10 @@
       // Sharpen via saturate + slight contrast boost (no kernel in CSS, but saturate helps perceived sharpness)
       const saturate   = Math.round(100 + (cfg.webcam_sharpen || 0) * 50);
       video.style.borderRadius = radius;
-      video.style.filter       = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturate}%)`;
+      // A CSS filter costs an extra GPU pass on every camera frame — only pay it when it changes something
+      if (brightness !== 100 || contrast !== 100 || saturate !== 100) {
+        video.style.filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturate}%)`;
+      }
 
       console.log(`[Webcam PiP] pos=(${posX},${posY}) size=${size} radius=${radius} brightness=${brightness}% contrast=${contrast}% saturate=${saturate}%`);
 
@@ -528,6 +531,7 @@
         // Effects toggle off → draw nothing (was ignored: trail/clicks drew whenever the overlay existed)
         const fxOn = cfg.cursor_trail_enabled !== false;
         trail.style = fxOn ? (cfg.trail_style || "glow") : "none";
+        frameMs = 1000 / Math.max(1, Math.min(cfg.fps || 30, 60));
         trail.color = cfg.cursor_trail_color || "#00e88a";
         click.style = fxOn ? (cfg.click_effect || "ripple") : "none";
         click.color = cfg.cursor_trail_color || "#00e88a";
@@ -858,6 +862,7 @@
         await listen("cursor-move", (event) => {
           const [x, y] = event.payload;
           trail.addRawPoint(x / window.devicePixelRatio, y / window.devicePixelRatio);
+          wake();
         });
 
         // Click events — arrives on mouse button press
@@ -865,6 +870,7 @@
           const [x, y, button] = event.payload;
           const color = button === "right" ? click.secondaryColor : click.color;
           click.addClick(x / window.devicePixelRatio, y / window.devicePixelRatio, color);
+          wake();
         });
 
         // Keyboard events — arrives on key press from Rust to prevent background throttling
@@ -875,6 +881,7 @@
           }
           processEventsIncremental([keyEvent]);
           updateKeyboardOverlay();
+          wake();
         });
 
         console.log("[EasySpecy] Event listeners registered — receiving cursor data from Rust");
@@ -899,19 +906,24 @@
       return false;
     }
 
-    // ── Capture heartbeat ──
-    // Windows Graphics Capture only delivers a frame when the screen changes. On a static
-    // screen, pause/resume/stop land late and that time silently vanishes from the video
-    // (audio keeps it → A/V drift). Flipping one invisible pixel every frame keeps frames
-    // flowing at the capture FPS so segment boundaries are accurate to one frame.
-    const heartbeat = document.createElement("div");
-    heartbeat.style.cssText = "position:fixed;left:0;top:0;width:2px;height:2px;pointer-events:none;z-index:2147483647";
-    document.body.appendChild(heartbeat);
-    let beat = false;
+    // (A "capture heartbeat" that flipped a pixel every frame lived here. It forced Chromium to
+    // re-composite this full-screen transparent window continuously — the largest single CPU/GPU
+    // cost while recording — and didn't fix what it was for, so it's gone.)
+    // Never draw faster than the capture samples the screen: at 60 Hz half of every frame we
+    // painted (and DWM composited, full-screen) was thrown away by a 30 fps recording.
+    let frameMs = 1000 / 30, lastFrame = 0;
 
-    function animate() {
-      beat = !beat;
-      heartbeat.style.background = beat ? "rgba(0,0,0,0.03)" : "transparent";
+    // The loop sleeps when there's nothing to animate and events wake it: a permanently
+    // requested rAF kept this full-screen renderer busy (~30% of a core) with nothing on screen.
+    let looping = false;
+    function wake() { if (!looping) { looping = true; requestAnimationFrame(animate); } }
+
+    function animate(now = 0) {
+      const idle = !hasActiveEffects() && !wasActive && !(kbConfig.enabled && persistentBubbles.length > 0);
+      if (idle) { looping = false; return; }
+      requestAnimationFrame(animate);
+      if (now - lastFrame < frameMs - 1) return;
+      lastFrame = now;
       const hasFx = hasActiveEffects();
       if (hasFx || wasActive) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -925,9 +937,8 @@
       if (kbConfig.enabled && persistentBubbles.length > 0) {
         updateKeyboardOverlay();
       }
-      requestAnimationFrame(animate);
     }
-    animate();
+    wake();
   </script>
 </body>
 </html>

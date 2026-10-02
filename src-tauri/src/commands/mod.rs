@@ -294,6 +294,11 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
             .to_string()
     });
 
+    // The recording streams feed the level meter themselves — a monitor stream on the same
+    // devices during recording just captured everything twice.
+    crate::audio::stop_audio_monitor();
+    crate::audio::reset_levels();
+
     // Initialize capture pipeline (spawns threads, creates streams)
     let started = capture::start_recording(RecordingConfig {
         output_path: path.clone(),
@@ -304,6 +309,7 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
     });
     if let Err(e) = started {
         let _ = crate::cursors::restore_cursors();
+        let _ = start_audio_monitor_cmd();
         return Err(e);
     }
 
@@ -351,6 +357,7 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
         let _ = destroy_effects_overlay(app.clone());
         let _ = crate::cursors::restore_cursors();
         tauri::async_runtime::spawn_blocking(capture::abort_recording).await.ok();
+        let _ = start_audio_monitor_cmd();
         return Err(e);
     }
 
@@ -358,6 +365,7 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
     if config.minimize_to_tray {
         if let Some(main_window) = app.get_webview_window("main") {
             let _ = main_window.hide();
+            crate::emit_main_visible(false);
         }
     }
 
@@ -393,6 +401,7 @@ pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingR
         if let Some(main_window) = app.get_webview_window("main") {
             let _ = main_window.show();
             let _ = main_window.set_focus();
+            crate::emit_main_visible(true);
         }
     }
 
@@ -435,6 +444,9 @@ pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingR
     };
     let mut history = RecordingHistory::load();
     history.add(entry);
+    // Back to idle: level meter returns to the lightweight monitor
+    crate::audio::reset_levels();
+    let _ = start_audio_monitor_cmd();
     crate::tray::update_tray_state(false, false);
     Ok(result)
 }
