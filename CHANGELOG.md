@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Compare quality showed the same picture for every bitrate.** Each tile really was encoded at its own bitrate (Low ≈ 150 kb/s → Ultra ≈ 500 kb/s on the crop), but the frame shown was taken 1.5 s in. By then smooth scrolling had let even Low converge to near-lossless (PSNR 42 vs 53 dB). Tiles now show the moment right after the screen changes (0.33 s), where the difference is real and visible (29 vs 46 dB): blocky, smeared text on Low, clean on High and Ultra.
+
+### Changed
+- **Faster local builds:** `npm run build:fast` uses a new `fast` Cargo profile (incremental, 256 codegen units for the app crate, dependencies still fully optimized). A Rust rebuild after an edit takes ~22 s instead of ~85 s, and the output goes to `src-tauri/target/fast/`. Release CI is unchanged.
+
 ## [1.2.0] - 2026-10-03
 
 ### Fixed

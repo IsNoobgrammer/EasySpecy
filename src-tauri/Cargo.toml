@@ -58,3 +58,16 @@ screencapturekit = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = "0.8"
+
+# Local test builds: `npm run build:fast` (~seconds per rebuild instead of ~80 s).
+# Incremental + many codegen units for our crate; dependencies stay fully optimised, so the
+# app behaves like release. CI release builds use [profile.release] untouched.
+[profile.fast]
+inherits = "release"
+incremental = true
+codegen-units = 256
+opt-level = 2
+
+[profile.fast.package."*"]
+opt-level = 3
+codegen-units = 16

@@ -31,6 +31,11 @@ pub fn progress(done: f64, towards: f64, label: &str, secs: f64) {
 const CROP_W: u32 = 640;
 const CLIP_SECS: f64 = 2.0;
 const CROP_H: u32 = 360;
+/// Which moment of the clip each tile shows: just after the screen changes, while the encoder
+/// is still catching up. That is where bitrate is visible (Low ≈ 29 dB, Ultra ≈ 46 dB PSNR).
+/// Tiles used to be taken at 1.5 s, after smooth scrolling had let every bitrate converge to
+/// near-lossless (42 vs 53 dB), so all qualities looked the same.
+const SAMPLE_AT: &str = "0.33";
 
 pub fn render(config: &AppConfig, custom_kbps: Option<u32>, screenshot_png: Vec<u8>) -> Result<Vec<QualitySample>, String> {
     let t0 = std::time::Instant::now();
@@ -135,10 +140,10 @@ fn clip_args(shot: &std::path::Path, fps: u32, enc: &[&str], out: &std::path::Pa
     a
 }
 
-/// A late frame (encoder settled) of the already-cropped clip, as a PNG data URL.
+/// The SAMPLE_AT frame of the already-cropped clip, as a PNG data URL.
 fn frame(ffmpeg: &str, clip: &std::path::Path, dir: &std::path::Path, i: usize) -> Result<String, String> {
     let png = dir.join(format!("f{i}.png"));
-    run(ffmpeg, &["-y", "-hide_banner", "-loglevel", "error", "-ss", "1.5", "-i", &clip.to_string_lossy(), "-frames:v", "1", &png.to_string_lossy()]
+    run(ffmpeg, &["-y", "-hide_banner", "-loglevel", "error", "-ss", SAMPLE_AT, "-i", &clip.to_string_lossy(), "-frames:v", "1", &png.to_string_lossy()]
         .iter().map(|s| s.to_string()).collect::<Vec<_>>());
     let bytes = std::fs::read(&png).map_err(|e| format!("preview frame missing: {e}"))?;
     use base64::Engine;

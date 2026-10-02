@@ -69,7 +69,7 @@ export function QualityPreview({ onClose }: { onClose: () => void }) {
         <div className="px-5 py-3" style={{ borderBottom: "var(--border-thin) solid var(--border-default)" }}>
           <div className="font-mono text-xs font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>How each quality looks on your screen</div>
           <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            Each tile is a real 1:1 crop of your screen while scrolling (the hardest case), encoded exactly like a recording. Click a tile to zoom.
+            Each tile is a real 1:1 crop of your screen, encoded exactly like a recording and shown right after the screen changes, when lower quality blurs most. Click a tile to zoom.
           </div>
         </div>
 
