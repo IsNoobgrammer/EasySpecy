@@ -1,7 +1,7 @@
 [package]
 name = "easyspecy"
 version = "1.2.0"
-description = "Free, cross-platform screen recorder with auto-zoom and cursor effects"
+description = "Free screen recorder for Windows with cursor effects, webcam and keyboard overlays"
 authors = ["Shaurya"]
 edition = "2021"
 license = "MIT"

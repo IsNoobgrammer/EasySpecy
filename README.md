@@ -10,7 +10,7 @@
   <p><strong>Record like a pro. Pay like it's 2005.</strong></p>
   
   <p style="max-width: 600px; color: #9a9eb5; line-height: 1.6;">
-    A free, open-source, high-performance screen recorder for developers, creators, and power users. Captures high-framerate desktop feeds with cinematic auto-zoom, customizable cursor trails, keyboard overlays, and live webcam PIP.
+    A free, open-source, high-performance screen recorder for Windows, built for developers, creators and power users. Records your screen with GPU encoding, customizable cursor trails and click effects, a keyboard overlay and a live webcam picture-in-picture, and saves a shareable file in about 2 seconds.
   </p>
 </div>
 
@@ -65,35 +65,51 @@ EasySpecy is built on a split-architecture model that divides tasks between a we
 
 ### Subsystem Flowchart
 
-<div align="center">
-  <img src="docs/resources/architecture-flowchart.png" alt="EasySpecy System Architecture Flowchart" width="100%" style="border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.06); box-shadow: 0 20px 40px rgba(0,0,0,0.35);">
-</div>
+```mermaid
+flowchart TB
+  subgraph UI["UI — React (Tauri WebView)"]
+    Dash["Dashboard, Settings,<br/>Quality preview"]
+    Overlay["Overlay window:<br/>cursor trail, clicks,<br/>keyboard, webcam PiP"]
+  end
+  subgraph Core["Rust core (Tauri v2)"]
+    Cap["Windows Graphics Capture<br/>(windows-capture)"]
+    Enc["Media Foundation<br/>H.264 / H.265 GPU encoder"]
+    Audio["cpal: mic + system loopback<br/>RNNoise · drift fit"]
+    Keys["Keyboard hook<br/>(WH_KEYBOARD_LL, password masking)"]
+    Mouse["Cursor & click tracker"]
+    Final["FFmpeg final pass<br/>join segments · mux audio ·<br/>copy, or re-encode for crop / Smaller file"]
+    Verify["Sync verifier"]
+  end
+  Dash -- "commands / config" --> Core
+  Mouse -- "events" --> Overlay
+  Keys -- "events" --> Overlay
+  Overlay -- "drawn on screen" --> Cap
+  Cap -- "frames" --> Enc
+  Enc -- "segments (.mp4)" --> Final
+  Audio -- "WAV" --> Final
+  Final --> MP4(["Final .mp4"])
+  MP4 --> Verify
+```
 
 ### Core Architecture Highlights
 
-1. **Zero-Copy Display Frame Capture**:
-   - Rather than scanning memory buffers periodically, the Rust core queries frame updates directly from GPU display surfaces using native system APIs (e.g. `Windows Graphics Capture` on Windows, `ScreenCaptureKit` on macOS).
-   - This provides hardware-assisted, sub-millisecond capturing performance, ensuring screen captures remain locked at `60 FPS` even under heavy gaming or CPU rendering loads.
+1. **GPU capture with live hardware encoding**:
+   - Frames come straight from the compositor through `Windows Graphics Capture` (via the `windows-capture` crate) and go into a Media Foundation hardware encoder (Intel QSV, NVIDIA or AMD, whichever the GPU offers) as H.264 or H.265 while you record.
+   - Because the video is already encoded when you press Stop, saving is a stream copy into the final `.mp4`: about 2 s for a 1-minute recording (see [Benchmarks](#benchmarks)).
 
-2. **Parallel Frame Post-Processor & Cursor Trails**:
-   - The captured display frames undergo a processing pipeline that overlays vector-interpolated cursor trails, click wave ripples, and auto-zoom calculations.
-   - These compute-heavy operations are chunked and executed in parallel across a CPU thread pool using `Rayon`. It prevents CPU thread bottlenecks and maintains consistent framerates.
+2. **Live overlays, recorded as part of the screen**:
+   - Cursor trails, click ripples, the keyboard overlay and the webcam picture-in-picture are drawn in one transparent, click-through WebView window over the recorded monitor. They're captured exactly as you see them, so there's no extra render pass afterwards.
+   - The keyboard overlay uses a low-level Windows keyboard hook. Keys typed into password fields (detected through UI Automation) are shown as `•`.
 
-3. **Webcam PIP Overlay**:
-   - The facecam feed runs in a dedicated, transparent picture-in-picture viewport.
-   - It captures the camera feed natively on the client using the browser's hardware-accelerated Media Devices API. It is overlayed directly as a hardware-composited window, allowing the screen capturer to record it as part of the desktop scene with zero extra rendering lag.
+3. **Audio pipeline with RNN noise reduction**:
+   - Microphone and system audio (WASAPI loopback) are captured with `cpal` and started on the same instant as the first video frame. They're fitted to the exact recording length at stop, so long recordings don't drift.
+   - The microphone can be cleaned with `nnnoiseless`, a Rust port of the `RNNoise` neural network. It removes steady background noise like fans and hum while keeping voice at full level.
 
-4. **Keyboard Overlay Engine**:
-   - Real-time keystrokes are captured using native system-wide listener hooks binded via Tauri.
-   - The captured input events are pushed through the IPC bridge, prompting immediate render states inside the overlay component.
+4. **One FFmpeg pass at the end**:
+   - The bundled FFmpeg runs once after you stop. It joins pause/resume segments, muxes the audio, and only re-encodes when needed: a region crop, the **Smaller file** option, or AV1/VP9.
 
-5. **High-Performance Audio Pipeline & RNN Filter**:
-   - Audio inputs are handled using the `cpal` systems audio interface. The engine captures microphone inputs and loopbacks system audio, converting them to clean single-format PCM audio buffers.
-   - The microphone stream is piped directly through `nnnoiseless` (a Rust implementation of Mozilla's `RNNoise` Recurrent Neural Network). The neural network isolates vocal signals and strips out keyboard typing, clicks, and background ambient sounds.
-
-6. **FFmpeg Sub-Process Streaming**:
-   - Processed frames (RGBA) and clean audio bytes (PCM) are written directly into an active, low-overhead FFmpeg subprocess pipe.
-   - The frames are encoded on the fly (leveraging hardware encoders like H.264 NVENC/AMF/QSV when available) and written to the output file wrapper (`.mp4`), ensuring the video is ready immediately on stop with **zero post-processing delay**.
+5. **Sync verification**:
+   - Every recording is checked after saving: video vs. wall-clock length, audio vs. video drift, and start offset. Problems are logged for debugging.
 
 ---
 
@@ -143,17 +159,14 @@ Use **Compare quality** in the app to see each one on your own screen before cho
 
 ---
 
-## Platform Support Matrix
+## System Requirements
 
-| Feature | Windows | macOS | Linux |
-|---------|:-------:|:-----:|:-----:|
-| **Display Capture (60 FPS)** | Yes (WGC) | Yes (SCK) | Experimental (PipeWire) |
-| **Cinematic Auto-Zoom** | Yes (Direct) | No | No |
-| **Vector Cursor Trails** | Yes (Direct) | No | No |
-| **Keyboard Overlay** | Yes (Tauri Win Hook) | No | No |
-| **Webcam Overlay** | Yes (Direct) | Yes (Direct) | Yes (Direct) |
-| **RNN Audio Noise Gate** | Yes (RNNoise) | Yes (RNNoise) | Yes (RNNoise) |
-| **Hardware Encoding** | Yes (NVENC/AMF) | Yes (VideoToolbox) | Experimental (VAAPI) |
+| | |
+|---|---|
+| **OS** | Windows 10 (version 1903 or later) or Windows 11, 64-bit |
+| **macOS / Linux** | Not supported. Capture, encoding, the keyboard hook and cursor packs all use Windows-only APIs |
+| **GPU** | Any GPU with a hardware video encoder (Intel, NVIDIA or AMD). H.265 needs a GPU and Windows install that provide an HEVC encoder; EasySpecy falls back to H.264 if not |
+| **FFmpeg** | Bundled with the installer, nothing to install |
 
 ---
 
@@ -164,7 +177,7 @@ Use **Compare quality** in the app to see each one on your own screen before cho
 Ensure you have the following installed on your machine:
 - **Rust Toolchain** (via [rustup](https://rustup.rs/))
 - **Node.js v20+** (with `npm`)
-- **FFmpeg** (installed and added to your system `PATH`)
+- **FFmpeg**: put `ffmpeg.exe` in `src-tauri/resources/` so it gets bundled (the release workflow downloads the [gyan.dev essentials build](https://www.gyan.dev/ffmpeg/builds/)). For `npm run tauri dev`, an `ffmpeg` on your `PATH` also works
 - **MSVC Build Tools** (for compiling native Windows bindings)
 
 ### Build Steps
@@ -196,7 +209,6 @@ Ensure you have the following installed on your machine:
 ## Additional Resources
 
 - [Full Documentation Site](https://isnoobgrammer.github.io/EasySpecy/) — Detailed configurations and advanced guides.
-- [Auto-Zoom Guide](https://isnoobgrammer.github.io/EasySpecy/guide/auto-zoom) — Learn how to tweak easing curves.
 - [Contributing Guidelines](https://isnoobgrammer.github.io/EasySpecy/guide/contributing) — Help us make EasySpecy better!
 
 ---

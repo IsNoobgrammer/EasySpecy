@@ -40,21 +40,21 @@
 
   <!-- GRID LAYOUT -->
 
-  <!-- CARD 1: Cinematic Auto-Zoom (Top Left, Col-span-2) -->
+  <!-- CARD 1: Instant GPU Saving (Top Left, Col-span-2) -->
   <g transform="translate(32, 32)">
     <rect width="576" height="220" class="card-border"/>
     <!-- Icon -->
     <g transform="translate(24, 24)">
       <rect width="44" height="44" class="icon-bg"/>
-      <path d="M17 17l4 4M24 18a6 6 0 100-12 6 6 0 000 12z" stroke="#00e88a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" transform="translate(6, 6)"/>
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="#00e88a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" transform="translate(10, 10)"/>
     </g>
     <!-- Content -->
     <text x="84" y="44" class="header-tag">MODULE 01</text>
-    <text x="84" y="64" class="title-text">Cinematic Auto-Zoom</text>
+    <text x="84" y="64" class="title-text">Instant GPU Saving</text>
     
     <foreignObject x="24" y="92" width="528" height="100">
       <div xmlns="http://www.w3.org/1999/xhtml" style="color:#9a9eb5; font-family:'Inter', sans-serif; font-size:13px; line-height:1.6;">
-        Camera tracking automatically follows cursor movements and clicks. Applies physically simulated spring easing curves for smooth, professional pans and zooms without post-production overhead.
+        Your GPU encodes the video while you record, so pressing Stop gives a shareable file in about 2 seconds, with no long re-encode. Need it small for chat or email? Turn on Smaller file for a ~5× smaller video.
       </div>
     </foreignObject>
   </g>
