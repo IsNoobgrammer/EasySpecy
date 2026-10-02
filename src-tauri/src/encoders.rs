@@ -37,10 +37,11 @@ pub struct EncoderScan {
 
 const CANDIDATES: &[(&str, &str, &str, bool, &[&str])] = &[
     // id,           ffmpeg name,   label,                       gpu,   extra args
-    ("H264",       "libx264",     "H.264 (CPU)",               false, &["-preset", "fast"]),
-    ("H265",       "libx265",     "H.265 (CPU)",               false, &["-preset", "fast"]),
-    ("AV1",        "libsvtav1",   "AV1 (CPU)",                 false, &["-preset", "8"]),
-    ("VP9",        "libvpx-vp9",  "VP9 (CPU)",                 false, &["-deadline", "realtime", "-cpu-used", "8"]),
+    // veryfast = what "Smaller file" and crops actually use
+    ("H264",       "libx264",     "H.264 (CPU)",               false, &["-preset", "veryfast"]),
+    ("H265",       "libx265",     "H.265 (CPU)",               false, &["-preset", "veryfast"]),
+    ("AV1",        "libsvtav1",   "AV1 (CPU)",                 false, &["-preset", "10"]),
+    ("VP9",        "libvpx-vp9",  "VP9 (CPU)",                 false, &["-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1"]),
     ("H264_NVENC", "h264_nvenc",  "H.264 NVENC (NVIDIA GPU)",  true,  &["-preset", "p4"]),
     ("H265_NVENC", "hevc_nvenc",  "H.265 NVENC (NVIDIA GPU)",  true,  &["-preset", "p4"]),
     ("AV1_NVENC",  "av1_nvenc",   "AV1 NVENC (RTX 40+ GPU)",   true,  &["-preset", "p4"]),
@@ -99,6 +100,7 @@ fn bench(ffmpeg: &str, encoder: &str, extra: &[&str]) -> (bool, f64, f64) {
     }
     let t = Instant::now();
     let Ok(mut child) = cmd.spawn() else { return (false, 0.0, 0.0) };
+    crate::capture::full_speed(&child);
     // ponytail: a hung encoder would hang the scan — kill after 30 s
     let status = loop {
         match child.try_wait() {

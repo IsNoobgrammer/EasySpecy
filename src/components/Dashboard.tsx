@@ -5,7 +5,8 @@ import { useStore, type RecordingEntry } from "../stores/recording";
 import { RegionSelector, WindowPicker } from "./RegionSelector";
 import { AudioPanel } from "./AudioPanel";
 import { PreviewModal } from "./PreviewModal";
-import { encoderOptions, isGpuEncoder } from "../lib/encoders";
+import { MAIN_ENCODERS } from "../lib/encoders";
+import { QualityPreview } from "./QualityPreview";
 import { Footer } from "./StatusBar";
 import { useRecordingContextMenu } from "./ContextMenu";
 
@@ -222,9 +223,9 @@ function HistoryPanel({ entries, onOpen, onClear }: {
 export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings: () => void }) {
   // Shallow-select what this page uses — a bare useStore() re-rendered it on every meter poll
   const {
-    config, recordingPhase, isPaused, recordingStartTime, lastRecording, history, startRecording, stopRecording, pauseRecording, resumeRecording, openPath, updateField, loadHistory, clearHistory, loadEstimatedSize, selectorMode, setCaptureRegion, setSelectorMode, regionShot, windows, recordWindow, encodingProgress, encodingStage, estimatedMbPerMin, pausedMs, pauseStartTime, startPreview, encoderScan, loadEncoderScan, saveConfig,
+    config, recordingPhase, isPaused, recordingStartTime, lastRecording, history, startRecording, stopRecording, pauseRecording, resumeRecording, openPath, updateField, loadHistory, clearHistory, loadEstimatedSize, selectorMode, setCaptureRegion, setSelectorMode, regionShot, windows, recordWindow, encodingProgress, encodingStage, estimatedMbPerMin, pausedMs, pauseStartTime, startPreview, loadEncoderScan,
   } = useStore(useShallow((s) => ({
-    config: s.config, recordingPhase: s.recordingPhase, isPaused: s.isPaused, recordingStartTime: s.recordingStartTime, lastRecording: s.lastRecording, history: s.history, startRecording: s.startRecording, stopRecording: s.stopRecording, pauseRecording: s.pauseRecording, resumeRecording: s.resumeRecording, openPath: s.openPath, updateField: s.updateField, loadHistory: s.loadHistory, clearHistory: s.clearHistory, loadEstimatedSize: s.loadEstimatedSize, selectorMode: s.selectorMode, setCaptureRegion: s.setCaptureRegion, setSelectorMode: s.setSelectorMode, regionShot: s.regionShot, windows: s.windows, recordWindow: s.recordWindow, encodingProgress: s.encodingProgress, encodingStage: s.encodingStage, estimatedMbPerMin: s.estimatedMbPerMin, pausedMs: s.pausedMs, pauseStartTime: s.pauseStartTime, startPreview: s.startPreview, encoderScan: s.encoderScan, loadEncoderScan: s.loadEncoderScan, saveConfig: s.saveConfig,
+    config: s.config, recordingPhase: s.recordingPhase, isPaused: s.isPaused, recordingStartTime: s.recordingStartTime, lastRecording: s.lastRecording, history: s.history, startRecording: s.startRecording, stopRecording: s.stopRecording, pauseRecording: s.pauseRecording, resumeRecording: s.resumeRecording, openPath: s.openPath, updateField: s.updateField, loadHistory: s.loadHistory, clearHistory: s.clearHistory, loadEstimatedSize: s.loadEstimatedSize, selectorMode: s.selectorMode, setCaptureRegion: s.setCaptureRegion, setSelectorMode: s.setSelectorMode, regionShot: s.regionShot, windows: s.windows, recordWindow: s.recordWindow, encodingProgress: s.encodingProgress, encodingStage: s.encodingStage, estimatedMbPerMin: s.estimatedMbPerMin, pausedMs: s.pausedMs, pauseStartTime: s.pauseStartTime, startPreview: s.startPreview, loadEncoderScan: s.loadEncoderScan,
   })));
 
   // The WebView flags that keep the overlay rendering in the background also stop Chromium
@@ -271,8 +272,10 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
 
   const fpsValue = config ? `${config.fps}` : "30";
   const modeValue = config?.recording_mode === "Window" ? "WINDOW" : config?.recording_mode === "Region" ? "REGION" : "FULL";
-  const encoderValue = config?.video_encoder || "H265";
+  const ENC_NAME: Record<string, string> = { H264: "H.264", H265: "H.265", AV1: "AV1 (adv.)", VP9: "VP9 (adv.)", MobileShareable: "Mobile (adv.)", H264_NVENC: "H.264 GPU", H265_NVENC: "H.265 GPU", AV1_NVENC: "AV1 GPU" };
+  const encoderValue = ENC_NAME[config?.video_encoder || "H264"] ?? config?.video_encoder;
   const qualityValue = config?.video_quality || "Medium";
+  const [showQuality, setShowQuality] = useState(false);
 
   return (
     <div
@@ -509,25 +512,38 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
           />
           <PresetCard
             label="Encoder" value={encoderValue} index={3} disabled={isRecording}
-            options={encoderOptions(encoderScan)}
-            onSelect={async (v) => {
-              // NVENC only applies with the GPU flag on; set both in one save
-              if (config) await saveConfig({ ...config, video_encoder: v as typeof config.video_encoder, gpu_encoders_enabled: config.gpu_encoders_enabled || isGpuEncoder(v) });
-              loadEstimatedSize();
-            }}
+            options={MAIN_ENCODERS /* AV1 / VP9 / GPU encoders: Settings → Video */}
+            onSelect={(v) => { updateField("video_encoder", v); loadEstimatedSize(); }}
           />
           <PresetCard
             label="Quality" value={qualityValue} index={2} disabled={isRecording}
             options={[
-              { label: "INSANE (~1 MB/min, AV1)", value: "Insane" },
-              { label: "LOW (~3 MB/min)", value: "Low" },
-              { label: "MEDIUM (~5 MB/min)", value: "Medium" },
-              { label: "HIGH (~12 MB/min)", value: "High" },
-              { label: "ULTRA (~25 MB/min)", value: "Ultra" },
+              { label: "LOW", value: "Low" },
+              { label: "MEDIUM", value: "Medium" },
+              { label: "HIGH (default)", value: "High" },
+              { label: "ULTRA", value: "Ultra" },
+              { label: "👁 SEE THE DIFFERENCE…", value: "__compare" },
             ]}
-            onSelect={(v) => { updateField("video_quality", v); loadEstimatedSize(); }}
+            onSelect={(v) => { if (v === "__compare") { setShowQuality(true); return; } updateField("video_quality", v); loadEstimatedSize(); }}
           />
         </motion.div>
+
+        {/* Smaller file: quality-based re-encode after stopping instead of the live stream */}
+        {config && (
+          <label className="w-full max-w-xl flex items-center gap-3 px-4 py-2.5 cursor-pointer"
+            style={{ border: `var(--border-thin) solid ${config.compact_output ? "var(--accent-primary)" : "var(--border-default)"}`, borderRadius: "var(--radius-md)", background: "var(--bg-surface)", opacity: isIdle ? 1 : 0.5 }}>
+            <input type="checkbox" className="accent-[var(--accent-primary)] w-4 h-4" checked={config.compact_output} disabled={!isIdle}
+              onChange={(e) => { updateField("compact_output", e.target.checked); loadEstimatedSize(); }} />
+            <span className="flex-1">
+              <span className="font-mono text-[11px] font-bold uppercase" style={{ color: "var(--text-primary)", letterSpacing: "0.05em" }}>Smaller file</span>
+              <span className="block text-[11px]" style={{ color: "var(--text-muted)" }}>Smaller video, takes longer to save</span>
+            </span>
+            <button type="button" onClick={(e) => { e.preventDefault(); setShowQuality(true); }} className="font-mono text-[10px] underline cursor-pointer shrink-0" style={{ color: "var(--text-secondary)" }}>
+              Compare quality
+            </button>
+          </label>
+        )}
+        {showQuality && <QualityPreview onClose={() => { setShowQuality(false); loadEstimatedSize(); }} />}
 
         {/* What audio gets recorded — visible before you hit record */}
         <AudioPanel disabled={!isIdle} />

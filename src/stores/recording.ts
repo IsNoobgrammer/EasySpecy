@@ -76,6 +76,7 @@ export interface AppConfig {
 
   // GPU Settings
   gpu_encoders_enabled: boolean;
+  compact_output: boolean; // "Smaller file": re-encode after stopping
 }
 
 export interface KeyEvent {
@@ -103,6 +104,8 @@ export interface EncoderResult { id: string; ffmpeg: string; label: string; gpu:
 export interface EncoderScan { live_h264: boolean; live_hevc: boolean; encoders: EncoderResult[]; recommended: string; scanned_at: string; }
 
 export const PREVIEW_SECONDS = 10;
+
+export interface QualitySample { id: string; kbps: number; mb_per_min: number; image: string; }
 
 export interface RecordingEntry {
   id: string;

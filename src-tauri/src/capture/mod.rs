@@ -534,6 +534,7 @@ pub(crate) fn run_ffmpeg_with_progress(
     }
 
     let mut child = cmd.spawn().map_err(|e| format!("FFmpeg spawn error: {}", e))?;
+    full_speed(&child);
 
     // Drain stderr on a background thread to prevent pipe buffer deadlock
     let stderr = child.stderr.take();
@@ -790,6 +791,15 @@ pub fn encode_final_with(
 ) -> Result<(), String> {
     use crate::config::VideoEncoder as Enc;
     let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
+    // "Smaller file" always re-encodes with x264 veryfast: on screen content it matches x265's
+    // size (2.7 vs 2.6 MB on a 31 s 1080p clip) at 2.6× the speed, and plays everywhere.
+    let compact_cfg;
+    let config = if config.compact_output && !matches!(config.effective_video_encoder(), Enc::AV1 | Enc::AV1_NVENC | Enc::VP9) {
+        compact_cfg = crate::config::AppConfig { video_encoder: Enc::H264, ..config.clone() };
+        &compact_cfg
+    } else {
+        config
+    };
     let target = config.effective_video_encoder();
 
     let hevc = captured_hevc;
@@ -798,7 +808,8 @@ pub fn encode_final_with(
         Enc::H265 | Enc::H265_NVENC => hevc,
         _ => false,
     };
-    let copy = allow_copy && codec_matches;
+    // "Smaller file" trades a few seconds of re-encode for a ~10× smaller quality-based file
+    let copy = allow_copy && codec_matches && !config.compact_output;
 
     tracing::info!("Final pass: {} segment(s) + audio={:?} -> {} (copy={}, crop={:?}, {:.0}ms)",
         segments.len(), audio, output, copy, crop, duration_ms);
@@ -919,6 +930,32 @@ fn locate_ffmpeg() -> Option<String> {
     }
 
     None
+}
+
+/// Opt a spawned FFmpeg out of Windows 11 power throttling (EcoQoS). A windowless child of a
+/// GUI app gets classed as background work and scheduled on efficiency cores: the final pass
+/// ran 9.6 s in the app vs 5.0 s for the identical command from a terminal.
+pub fn full_speed(child: &std::process::Child) {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::System::Threading::{
+            ProcessPowerThrottling, SetProcessInformation, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
+        };
+        let state = PROCESS_POWER_THROTTLING_STATE {
+            Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            StateMask: 0, // 0 = throttling off for the controlled policy
+        };
+        let _ = SetProcessInformation(
+            HANDLE(child.as_raw_handle()),
+            ProcessPowerThrottling,
+            &state as *const _ as *const _,
+            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        );
+    }
 }
 
 /// Public wrapper for find_ffmpeg — used by commands module for GPU detection

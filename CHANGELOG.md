@@ -12,7 +12,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Preview 10s** — Records 10 s exactly like a real recording (webcam, trail, keys, audio) to one temporary `preview.mp4` and plays it in the app. Each preview replaces the last one. Previews never enter history and are deleted on exit (and on the next launch after a crash).
 - **Encoder scan** (Settings → Video) — Benchmarks every encoder on a 1080p clip. It reports live-capture H.264/HEVC support and, per FFmpeg encoder, works or not, speed (fps) and peak RAM. The encoder pickers then list only working encoders, mark which ones save instantly (stream copy) versus re-encode, and suggest a default.
 
+### Added
+- **"Smaller file" option** (dashboard + Settings) — Re-encodes after stopping with x264 veryfast at the chosen quality, giving 4–5× smaller files (30 s 1080p: ~14.6 → 3.0–3.9 MB) in exchange for a few seconds of save time. It always uses x264: on screen content it matches x265's size at 2.6× the speed, and plays everywhere.
+- **Compare quality** — Renders Low / Medium / High / Ultra and Smaller file from a scrolling crop of the user's own screen. It uses the same Media Foundation hardware encoder as live capture, at equal bits-per-pixel, with ≈ MB/min for each. There's a custom-bitrate slider, a click-to-zoom, and "Use this" to apply. Real progress milestones drive a smooth progress bar.
+
 ### Changed
+- **Dashboard encoder choice is just H.264 / H.265** — AV1, VP9, NVENC and Mobile moved to Settings → Video (advanced). Live capture already uses the GPU's hardware encoder through Media Foundation, so FFmpeg GPU encoders only matter for re-encodes.
+- **Quality preview speed: 20 s → ~8 s** — It encodes only the shown crop. All hardware bitrates share one FFmpeg process, because hardware sessions take ~1.2 s each to start and the driver starts them one by one. The CPU sample runs after them rather than starving them.
+- **Spawned FFmpeg opts out of Windows 11 power throttling (EcoQoS)**, so windowless encodes aren't parked on efficiency cores.
 - **Faster re-encodes** — Measured per minute of 1080p30 screen video:
   - AV1 preset 6 → 10: 38.7 s → 23.0 s, same size.
   - VP9 good/4 → realtime/8: 80.6 s → 12.9 s, ~30% larger.

@@ -1,6 +1,7 @@
 import { Icon } from "./Icon";
 import { useShallow } from "zustand/react/shallow";
 import { encoderOptions, isGpuEncoder, isInstant } from "../lib/encoders";
+import { QualityPreview } from "./QualityPreview";
 import { useState, useEffect, useId, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
@@ -50,6 +51,7 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
   const [saved, setSaved] = useState(false);
   const [showWebcamPreview, setShowWebcamPreview] = useState(false);
   const [showKeyboardPreview, setShowKeyboardPreview] = useState(false);
+  const [showQuality, setShowQuality] = useState(false);
   const [checking, setChecking] = useState(false);
 
   const handleManualCheck = async () => {
@@ -187,7 +189,7 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
             </Row>
             
             <div className="pt-2 border-t space-y-4" style={{ borderColor: "var(--border-default)" }}>
-              <Row label="Video Encoder" desc="Instant save = the live capture already produces this codec, so stopping just copies the video">
+              <Row label="Video Encoder (advanced)" desc="All encoders that work on this PC. Instant save = live capture already makes this codec, so stopping just copies the video. The dashboard only offers H.264 / H.265.">
                 <Select
                   value={local.video_encoder}
                   onChange={(v) => {
@@ -212,6 +214,16 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
                   ]}
                 />
               </Row>
+              <Row label="Smaller File" desc="Smaller video, takes longer to save">
+                <Toggle checked={local.compact_output} onChange={(v) => update("compact_output", v)} />
+              </Row>
+              <Row label="See the Difference" desc="Preview every quality level on your own screen before choosing">
+                <button type="button" onClick={() => setShowQuality(true)} className="px-3 py-1.5 font-mono text-[10px] font-bold uppercase cursor-pointer"
+                  style={{ border: "var(--border-thin) solid var(--border-default)", borderRadius: "var(--radius-sm)", color: "var(--text-primary)" }}>
+                  Compare quality
+                </button>
+              </Row>
+              {showQuality && <QualityPreview onClose={() => setShowQuality(false)} />}
               {local.video_quality === "Custom" && (
                 <Row label="Custom Bitrate" desc="Specify output target video bitrate">
                   <Slider

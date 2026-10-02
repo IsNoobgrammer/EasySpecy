@@ -6,6 +6,7 @@ pub mod cursors;
 mod history;
 mod keyboard;
 mod encoders;
+mod quality_preview;
 mod region;
 pub mod sync_verifier;
 mod tray;
@@ -136,6 +137,7 @@ pub fn run() {
             commands::focus_window,
             commands::scan_encoders,
             commands::get_encoder_scan,
+            commands::quality_preview,
             commands::exit_region_mode,
             commands::open_path,
             commands::get_cursor_packs,

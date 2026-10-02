@@ -118,6 +118,7 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
         "gpu_encoders_enabled" => {
             config.gpu_encoders_enabled = value.as_bool().unwrap_or(false);
         }
+        "compact_output" => config.compact_output = value.as_bool().unwrap_or(false),
         // Keyboard overlay fields
         "keyboard_overlay_enabled" => config.keyboard_overlay_enabled = value.as_bool().unwrap_or(false),
         "keyboard_overlay_font_family" => config.keyboard_overlay_font_family = value.as_str().unwrap_or("JetBrains Mono").to_string(),
@@ -710,6 +711,27 @@ pub fn destroy_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn scan_encoders() -> Result<crate::encoders::EncoderScan, String> {
     tauri::async_runtime::spawn_blocking(crate::encoders::scan).await.map_err(|e| e.to_string())?
+}
+
+/// Render what each quality preset looks like on the user's own screen (~5 s).
+#[tauri::command]
+pub async fn quality_preview(app: tauri::AppHandle, custom_kbps: Option<u32>) -> Result<Vec<crate::quality_preview::QualitySample>, String> {
+    let t0 = std::time::Instant::now();
+    let config = AppConfig::load();
+    crate::quality_preview::progress(0.0, 0.1, "Capturing your screen…", 0.4);
+    // Sample the user's real screen, not this window: hide it just for the screenshot
+    let main = app.get_webview_window("main");
+    if let Some(w) = &main { let _ = w.hide(); }
+    let shot = tauri::async_runtime::spawn_blocking(|| {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        crate::region::capture_screen_png_bytes()
+    }).await.map_err(|e| e.to_string())?;
+    if let Some(w) = &main { let _ = w.show(); let _ = w.set_focus(); }
+    let shot = shot?;
+    tracing::info!("Quality preview: screenshot ready after {:.1}s", t0.elapsed().as_secs_f64());
+    tauri::async_runtime::spawn_blocking(move || crate::quality_preview::render(&config, custom_kbps, shot))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Last scan result, if one exists.

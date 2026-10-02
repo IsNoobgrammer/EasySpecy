@@ -35,3 +35,9 @@ export function encoderOptions(scan: EncoderScan | null): { label: string; value
 
 /** NVENC choices only take effect with the GPU flag on (config falls back otherwise). */
 export const isGpuEncoder = (id: string) => id.endsWith("_NVENC");
+
+/** Main-screen encoder choices — everything else lives in Settings → Video (advanced). */
+export const MAIN_ENCODERS = [
+  { label: "H.264 — plays everywhere", value: "H264" },
+  { label: "H.265 — ~25% smaller, newer players", value: "H265" },
+];

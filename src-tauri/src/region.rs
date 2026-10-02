@@ -131,8 +131,14 @@ pub fn focus_window(_hwnd: isize) {}
 
 /// Screenshot of the primary monitor (physical px) as a PNG data URL — the backdrop the
 /// region selector draws on, so the user sees their real desktop instead of the app.
-#[cfg(target_os = "windows")]
 pub fn capture_screen_png() -> Result<String, String> {
+    use base64::Engine;
+    Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(capture_screen_png_bytes()?)))
+}
+
+/// Primary-monitor screenshot as PNG bytes (physical px).
+#[cfg(target_os = "windows")]
+pub fn capture_screen_png_bytes() -> Result<Vec<u8>, String> {
     use windows::Win32::Graphics::Gdi::*;
     use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
     let (w, h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
@@ -166,11 +172,10 @@ pub fn capture_screen_png() -> Result<String, String> {
     image::codecs::png::PngEncoder::new_with_quality(&mut png, image::codecs::png::CompressionType::Fast, image::codecs::png::FilterType::NoFilter)
         .write_image(&px, w as u32, h as u32, image::ExtendedColorType::Rgba8)
         .map_err(|e| e.to_string())?;
-    use base64::Engine;
-    Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
+    Ok(png)
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn capture_screen_png() -> Result<String, String> {
+pub fn capture_screen_png_bytes() -> Result<Vec<u8>, String> {
     Err("Not supported on this platform".into())
 }

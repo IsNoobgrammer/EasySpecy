@@ -93,6 +93,9 @@ pub struct AppConfig {
 
     // GPU settings
     pub gpu_encoders_enabled: bool,
+    /// "Smaller file": re-encode after stopping (x264/x265, quality-based) instead of keeping
+    /// the live constant-bitrate stream. ~10× smaller for screen content, costs a few seconds.
+    pub compact_output: bool,
 
     // Updater
     pub auto_check_updates: bool,
@@ -246,6 +249,7 @@ impl Default for AppConfig {
             keyboard_overlay_width: 318,
 
             gpu_encoders_enabled: false,
+            compact_output: false,
 
             auto_check_updates: true,
         }
