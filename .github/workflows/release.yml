@@ -262,10 +262,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Fetch latest master to avoid non-fast-forward errors
+          # Fetch latest master to avoid non-fast-forward errors. latest.json was just generated
+          # in the working tree, which makes a plain checkout abort ("local changes would be
+          # overwritten") and leaves us detached — so the v1.0.0 push failed. Set it aside first.
+          Copy-Item latest.json "$env:RUNNER_TEMP/latest.json"
           git fetch origin master
-          git checkout -B master origin/master
-          
+          git checkout -f -B master origin/master
+          if ($LASTEXITCODE -ne 0) { throw "checkout of master failed" }
+          Copy-Item "$env:RUNNER_TEMP/latest.json" latest.json -Force
+
           git add latest.json
           git diff --staged --quiet
           if ($LASTEXITCODE -ne 0) {
