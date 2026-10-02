@@ -3,6 +3,9 @@ import { useShallow } from "zustand/react/shallow";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
 import { RegionSelector, WindowPicker } from "./RegionSelector";
+import { AudioPanel } from "./AudioPanel";
+import { PreviewModal } from "./PreviewModal";
+import { encoderOptions, isGpuEncoder } from "../lib/encoders";
 import { Footer } from "./StatusBar";
 import { useRecordingContextMenu } from "./ContextMenu";
 
@@ -219,9 +222,9 @@ function HistoryPanel({ entries, onOpen, onClear }: {
 export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings: () => void }) {
   // Shallow-select what this page uses — a bare useStore() re-rendered it on every meter poll
   const {
-    config, recordingPhase, isPaused, recordingStartTime, lastRecording, history, startRecording, stopRecording, pauseRecording, resumeRecording, openPath, updateField, loadHistory, clearHistory, loadEstimatedSize, selectorMode, setCaptureRegion, setSelectorMode, regionShot, windows, recordWindow, encodingProgress, encodingStage, estimatedMbPerMin, pausedMs, pauseStartTime,
+    config, recordingPhase, isPaused, recordingStartTime, lastRecording, history, startRecording, stopRecording, pauseRecording, resumeRecording, openPath, updateField, loadHistory, clearHistory, loadEstimatedSize, selectorMode, setCaptureRegion, setSelectorMode, regionShot, windows, recordWindow, encodingProgress, encodingStage, estimatedMbPerMin, pausedMs, pauseStartTime, startPreview, encoderScan, loadEncoderScan, saveConfig,
   } = useStore(useShallow((s) => ({
-    config: s.config, recordingPhase: s.recordingPhase, isPaused: s.isPaused, recordingStartTime: s.recordingStartTime, lastRecording: s.lastRecording, history: s.history, startRecording: s.startRecording, stopRecording: s.stopRecording, pauseRecording: s.pauseRecording, resumeRecording: s.resumeRecording, openPath: s.openPath, updateField: s.updateField, loadHistory: s.loadHistory, clearHistory: s.clearHistory, loadEstimatedSize: s.loadEstimatedSize, selectorMode: s.selectorMode, setCaptureRegion: s.setCaptureRegion, setSelectorMode: s.setSelectorMode, regionShot: s.regionShot, windows: s.windows, recordWindow: s.recordWindow, encodingProgress: s.encodingProgress, encodingStage: s.encodingStage, estimatedMbPerMin: s.estimatedMbPerMin, pausedMs: s.pausedMs, pauseStartTime: s.pauseStartTime,
+    config: s.config, recordingPhase: s.recordingPhase, isPaused: s.isPaused, recordingStartTime: s.recordingStartTime, lastRecording: s.lastRecording, history: s.history, startRecording: s.startRecording, stopRecording: s.stopRecording, pauseRecording: s.pauseRecording, resumeRecording: s.resumeRecording, openPath: s.openPath, updateField: s.updateField, loadHistory: s.loadHistory, clearHistory: s.clearHistory, loadEstimatedSize: s.loadEstimatedSize, selectorMode: s.selectorMode, setCaptureRegion: s.setCaptureRegion, setSelectorMode: s.setSelectorMode, regionShot: s.regionShot, windows: s.windows, recordWindow: s.recordWindow, encodingProgress: s.encodingProgress, encodingStage: s.encodingStage, estimatedMbPerMin: s.estimatedMbPerMin, pausedMs: s.pausedMs, pauseStartTime: s.pauseStartTime, startPreview: s.startPreview, encoderScan: s.encoderScan, loadEncoderScan: s.loadEncoderScan, saveConfig: s.saveConfig,
   })));
 
   // The WebView flags that keep the overlay rendering in the background also stop Chromium
@@ -234,6 +237,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
   useEffect(() => {
     loadHistory();
     loadEstimatedSize();
+    loadEncoderScan();
   }, []);
 
   useEffect(() => {
@@ -265,11 +269,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
   const isIdle = recordingPhase === "idle";
   const isStarting = recordingPhase === "starting";
 
-  const resValue = config ? `${config.resolution_width}×${config.resolution_height}` : "1920×1080";
   const fpsValue = config ? `${config.fps}` : "30";
-  const audioValue = config?.audio_enabled
-    ? config.audio_source === "Both" ? "M+S" : config.audio_source === "System" ? "SYS" : "MIC"
-    : "OFF";
   const modeValue = config?.recording_mode === "Window" ? "WINDOW" : config?.recording_mode === "Region" ? "REGION" : "FULL";
   const encoderValue = config?.video_encoder || "H265";
   const qualityValue = config?.video_quality || "Medium";
@@ -305,7 +305,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
             </div>
           )}
           <span className="font-mono" style={{ color: "var(--text-muted)", fontSize: "0.55rem" }}>
-            {config?.resolution_width}×{config?.resolution_height} · {config?.fps}fps
+            {config?.recording_mode === "FullScreen" ? "Full screen" : config?.recording_mode} · {config?.fps}fps
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -463,6 +463,19 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
           )}
         </AnimatePresence>
 
+        {/* Preview: 10 s throwaway recording, played back in the app */}
+        {isIdle && (
+          <button
+            type="button"
+            onClick={startPreview}
+            className="px-4 py-1.5 font-mono text-[10px] font-bold uppercase cursor-pointer -mt-2 hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2"
+            style={{ border: "var(--border-thin) solid var(--border-default)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", letterSpacing: "0.05em" }}
+            title="Records 10 seconds to a temporary file and plays it back, so you can check webcam, cursor and audio"
+          >
+            ▶ Preview 10s
+          </button>
+        )}
+
         {/* Last Recording — stays until the next recording, with the actions people want next */}
         <AnimatePresence>
           {lastRecording && isIdle && <SavedCard rec={lastRecording} />}
@@ -470,20 +483,20 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
 
         {/* ═══ INLINE PRESET CARDS ═══ */}
         <motion.div
-          className="grid grid-cols-3 gap-3 w-full max-w-xl overflow-visible"
+          className="grid grid-cols-2 sm:grid-cols-4 gap-3 w-full max-w-xl overflow-visible"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: isRecording ? 0.5 : 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
           style={{ pointerEvents: isRecording ? "none" : "auto" }}
         >
           <PresetCard
-            label="Resolution" value={resValue} index={0} disabled={isRecording}
+            label="Mode" value={modeValue} index={0} disabled={isRecording}
             options={[
-              { label: "480P (854×480)", value: "854×480" },
-              { label: "720P (1280×720)", value: "1280×720" },
-              { label: "1080P (1920×1080)", value: "1920×1080" },
+              { label: "FULLSCREEN", value: "FullScreen" },
+              { label: "REGION SELECT", value: "Region" },
+              { label: "WINDOW", value: "Window" },
             ]}
-            onSelect={(v) => { updateField("resolution", v.replace("×", "x")); loadEstimatedSize(); }}
+            onSelect={(v) => updateField("recording_mode", v)}
           />
           <PresetCard
             label="Frame Rate" value={fpsValue} index={1} disabled={isRecording}
@@ -495,39 +508,16 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
             onSelect={(v) => { updateField("fps", Number(v)); loadEstimatedSize(); }}
           />
           <PresetCard
-            label="Audio" value={audioValue} index={2} disabled={isRecording}
-            options={[
-              { label: "MICROPHONE", value: "Mic" },
-              { label: "SYSTEM AUDIO", value: "System" },
-              { label: "BOTH (MIC+SYS)", value: "Both" },
-              { label: "OFF", value: "Off" },
-            ]}
-            onSelect={(v) => {
-              if (v === "Off") {
-                updateField("audio_enabled", false);
-              } else {
-                updateField("audio_enabled", true);
-                updateField("audio_source", v);
-              }
+            label="Encoder" value={encoderValue} index={3} disabled={isRecording}
+            options={encoderOptions(encoderScan)}
+            onSelect={async (v) => {
+              // NVENC only applies with the GPU flag on; set both in one save
+              if (config) await saveConfig({ ...config, video_encoder: v as typeof config.video_encoder, gpu_encoders_enabled: config.gpu_encoders_enabled || isGpuEncoder(v) });
               loadEstimatedSize();
             }}
           />
           <PresetCard
-            label="Encoder" value={encoderValue} index={3} disabled={isRecording}
-            options={[
-              { label: "AV1 — Best compression", value: "AV1" },
-              { label: "AV1 NVENC — GPU (RTX 40+)", value: "AV1_NVENC" },
-              { label: "H.265 — Great compression", value: "H265" },
-              { label: "H.265 NVENC — GPU", value: "H265_NVENC" },
-              { label: "H.264 — Fast, universal", value: "H264" },
-              { label: "H.264 NVENC — GPU", value: "H264_NVENC" },
-              { label: "VP9 — Web-friendly", value: "VP9" },
-              { label: "Mobile Shareable (H.264)", value: "MobileShareable" },
-            ]}
-            onSelect={(v) => { updateField("video_encoder", v); loadEstimatedSize(); }}
-          />
-          <PresetCard
-            label="Quality" value={qualityValue} index={4} disabled={isRecording}
+            label="Quality" value={qualityValue} index={2} disabled={isRecording}
             options={[
               { label: "INSANE (~1 MB/min, AV1)", value: "Insane" },
               { label: "LOW (~3 MB/min)", value: "Low" },
@@ -537,16 +527,10 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
             ]}
             onSelect={(v) => { updateField("video_quality", v); loadEstimatedSize(); }}
           />
-          <PresetCard
-            label="Mode" value={modeValue} index={5} disabled={isRecording}
-            options={[
-              { label: "FULLSCREEN", value: "FullScreen" },
-              { label: "REGION SELECT", value: "Region" },
-              { label: "WINDOW", value: "Window" },
-            ]}
-            onSelect={(v) => updateField("recording_mode", v)}
-          />
         </motion.div>
+
+        {/* What audio gets recorded — visible before you hit record */}
+        <AudioPanel disabled={!isIdle} />
 
         {/* Estimated file size */}
         {isIdle && estimatedMbPerMin > 0 && (
@@ -584,6 +568,8 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
       {/* ═══ FOOTER ═══ */}
       <Footer isRecording={isRecording} />
 
+      <PreviewModal />
+
       {/* ═══ REGION SELECTOR OVERLAY ═══ */}
       <AnimatePresence>
         {selectorMode === "region" && (
@@ -617,7 +603,7 @@ function Badge({ text }: { text: string }) {
   );
 }
 
-function SavedCard({ rec }: { rec: { output_path: string; duration_secs: number; file_size_bytes: number; has_audio: boolean } }) {
+function SavedCard({ rec }: { rec: { output_path: string; duration_secs: number; file_size_bytes: number; has_audio: boolean; audio_silent: boolean } }) {
   const { openPath, revealInExplorer, copyToClipboard, discardLastRecording } = useStore(useShallow((s) => ({
     openPath: s.openPath, revealInExplorer: s.revealInExplorer, copyToClipboard: s.copyToClipboard, discardLastRecording: s.discardLastRecording,
   })));
@@ -641,7 +627,7 @@ function SavedCard({ rec }: { rec: { output_path: string; duration_secs: number;
         <span className="font-mono text-lg font-bold" style={{ color: "var(--accent-success)" }} aria-hidden>✓</span>
         <div className="flex-1 min-w-0">
           <div className="font-mono text-xs font-bold" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
-            Saved · {rec.duration_secs.toFixed(1)}s · {formatBytes(rec.file_size_bytes)}{rec.has_audio ? "" : " · no audio"}
+            Saved · {rec.duration_secs.toFixed(1)}s · {formatBytes(rec.file_size_bytes)}{!rec.has_audio ? " · no audio" : rec.audio_silent ? " · audio was silent" : ""}
           </div>
           <div className="text-[10px] truncate mt-1 font-mono" style={{ color: "var(--text-muted)" }} title={normalizePath(rec.output_path)}>{name}</div>
         </div>

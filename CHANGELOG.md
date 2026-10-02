@@ -7,6 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Audio panel on the dashboard** — Separate Microphone / System audio toggles with live level bars. Each source says plainly when it isn't being recorded, and a silent source gets a hint ("No sound from your mic — is it muted?", "Nothing playing — only sound your PC plays gets recorded"). The Saved card says when the audio came out silent, and starting with audio off gives a notice.
+- **Preview 10s** — Records 10 s exactly like a real recording (webcam, trail, keys, audio) to one temporary `preview.mp4` and plays it in the app. Each preview replaces the last one. Previews never enter history and are deleted on exit (and on the next launch after a crash).
+- **Encoder scan** (Settings → Video) — Benchmarks every encoder on a 1080p clip. It reports live-capture H.264/HEVC support and, per FFmpeg encoder, works or not, speed (fps) and peak RAM. The encoder pickers then list only working encoders, mark which ones save instantly (stream copy) versus re-encode, and suggest a default.
+
+### Changed
+- **Dashboard** — 4 presets (Mode, Frame rate, Encoder, Quality) instead of 6. The no-op Resolution card is gone, and Audio moved into the new panel. The header shows the capture mode instead of the unused config resolution.
+- **Settings → Video** — Resolution shows the real native capture size. The GPU toggle and hard-coded encoder list are replaced by the scan-driven picker (choosing NVENC turns GPU encoding on automatically).
+- **Lower memory while recording** — The hidden main window's WebView is set to `MemoryUsageTargetLevel = Low` (renderer 105 → 57 MB). Audio buffers are only reserved for sources that are recorded.
+- **Capture uses BGRA** (the DWM-native format) instead of RGBA.
+
 ### Fixed
 - **"Capture stopped unexpectedly (0xC00D4A44)" on a fast pause → resume → pause** — The second pause tried to finalise a segment that had received no frames. That error killed the capture and cost the last seconds. Empty segments are now kept for the next resume, a segment that fails to finalise no longer stops the recording, and pause cancels a pending resume. Before, capture could resume by itself while the UI showed "paused".
 
@@ -17,6 +28,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **Overlay loop** — Sleeps when there's nothing to draw, and is capped at the capture FPS.
   - **Audio monitor pauses while recording** — The recording streams feed the level meter, so system audio is no longer captured twice.
   - **Webcam CSS filter** — Skipped when it's a no-op.
+  - **Current state** — All features on: 184% → 65% of a core with the mouse moving, 112% → ~49% still. Of the Rust core's ~20–25%, ~5% is our own threads; the rest is Windows' Media Foundation encode pipeline.
 - **Repo language** — `.gitattributes` marks the docs site as documentation, so GitHub reports the Rust engine as the main language.
 
 ## [1.0.0] - 2026-10-02

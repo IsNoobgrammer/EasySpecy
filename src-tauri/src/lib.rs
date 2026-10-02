@@ -5,6 +5,7 @@ mod config;
 pub mod cursors;
 mod history;
 mod keyboard;
+mod encoders;
 mod region;
 pub mod sync_verifier;
 mod tray;
@@ -133,6 +134,8 @@ pub fn run() {
             commands::get_windows,
             commands::enter_region_mode,
             commands::focus_window,
+            commands::scan_encoders,
+            commands::get_encoder_scan,
             commands::exit_region_mode,
             commands::open_path,
             commands::get_cursor_packs,
@@ -148,13 +151,20 @@ pub fn run() {
             commands::install_portable_update,
         ])
         .setup(|app| {
+            commands::remove_preview(); // leftover from a crash / force-kill
             // Store AppHandle globally for background thread access (cursor events)
             let _ = APP_HANDLE.set(app.handle().clone());
             tray::setup_tray(app.handle())?;
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running EasySpecy");
+        .build(tauri::generate_context!())
+        .expect("error while running EasySpecy")
+        .run(|_app, event| {
+            // Previews are temporary: never outlive the app
+            if let tauri::RunEvent::Exit = event {
+                commands::remove_preview();
+            }
+        });
 }
 
 #[cfg(target_os = "windows")]
@@ -163,10 +173,35 @@ pub fn run() {
 /// so its animations and polling ran full-speed in the tray during every recording.
 pub fn emit_main_visible(visible: bool) {
     if let Some(app) = app_handle() {
-        use tauri::Emitter;
+        use tauri::{Emitter, Manager};
         let _ = app.emit("main-window-visible", visible);
+        if let Some(main) = app.get_webview_window("main") {
+            set_memory_target_low(&main, !visible);
+        }
     }
 }
+
+/// While the main window sits hidden in the tray, ask WebView2 to trim it (purge caches,
+/// release memory); restore normal when shown. The overlay keeps the WebView engine alive
+/// during recording, but the hidden dashboard has no reason to hold its working set.
+#[cfg(target_os = "windows")]
+fn set_memory_target_low(win: &tauri::WebviewWindow, low: bool) {
+    let _ = win.with_webview(move |wv| unsafe {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL,
+        };
+        use windows_core_wv2::Interface;
+        if let Ok(core) = wv.controller().CoreWebView2() {
+            if let Ok(c19) = core.cast::<ICoreWebView2_19>() {
+                let level = if low { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW } else { COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL };
+                let _ = c19.SetMemoryUsageTargetLevel(level);
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn set_memory_target_low(_win: &tauri::WebviewWindow, _low: bool) {}
 
 pub fn is_elevated() -> bool {
     use windows::Win32::Foundation::{CloseHandle, HANDLE};

@@ -241,9 +241,13 @@ unsafe impl Send for AudioCapture {}
 impl AudioCapture {
     pub fn new(output_path: String, source: AudioSource) -> Result<Self, String> {
         tracing::info!("Audio init: source={:?}", source);
+        // 60 s head-room only for sources actually recorded (each is ~23 MB of commit)
+        let cap = |on: bool| if on { 48000 * 2 * 60 } else { 0 };
+        let mic_on = source == AudioSource::Mic || source == AudioSource::Both;
+        let sys_on = source == AudioSource::System || source == AudioSource::Both;
         Ok(Self {
-            mic_samples: Arc::new(Mutex::new(Vec::with_capacity(48000 * 2 * 60))),
-            sys_samples: Arc::new(Mutex::new(Vec::with_capacity(48000 * 2 * 60))),
+            mic_samples: Arc::new(Mutex::new(Vec::with_capacity(cap(mic_on)))),
+            sys_samples: Arc::new(Mutex::new(Vec::with_capacity(cap(sys_on)))),
             mic_rate: 0,
             mic_channels: 0,
             sys_rate: 0,

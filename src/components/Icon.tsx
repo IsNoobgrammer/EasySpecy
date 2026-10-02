@@ -3,7 +3,7 @@ import {
   Keyboard, FolderOpen, Search, X, Info, CheckCircle, AlertCircle,
   Monitor, Globe, Code, Terminal, MessageCircle, Music, FileText,
   ScreenShare, Crosshair, RotateCcw, Play, Trash2, PauseCircle,
-  StopCircle, Radio, Layout, Palette,
+  StopCircle, Radio, Layout, Palette, Volume2, Gauge,
 } from "lucide-react";
 
 const iconMap: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
@@ -14,6 +14,8 @@ const iconMap: Record<string, React.ComponentType<{ size?: number; className?: s
   save: Save,
   videocam: Video,
   mic: Mic,
+  volume_up: Volume2,
+  speed: Gauge,
   zoom_in: ZoomIn,
   auto_fix_high: Sparkles,
   keyboard: Keyboard,

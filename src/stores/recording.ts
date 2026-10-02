@@ -94,7 +94,15 @@ export interface RecordingResult {
   frame_count: number;
   file_size_bytes: number;
   has_audio: boolean;
+  audio_silent: boolean; // audio on, but nothing was captured (silent track written)
+  width: number;
+  height: number;
 }
+
+export interface EncoderResult { id: string; ffmpeg: string; label: string; gpu: boolean; supported: boolean; fps: number; peak_mb: number; }
+export interface EncoderScan { live_h264: boolean; live_hevc: boolean; encoders: EncoderResult[]; recommended: string; scanned_at: string; }
+
+export const PREVIEW_SECONDS = 10;
 
 export interface RecordingEntry {
   id: string;
@@ -146,6 +154,10 @@ interface AppState {
   pausedMs: number;           // accumulated ms spent paused
   pauseStartTime: number | null; // wall-clock when current pause began
   lastRecording: RecordingResult | null;
+  previewing: boolean;          // current session is a 10 s preview
+  previewPath: string | null;   // finished preview to play in the modal
+  encoderScan: EncoderScan | null;
+  scanning: boolean;
   history: RecordingEntry[];
   audioDevices: string[];
   toasts: Toast[];
@@ -165,6 +177,10 @@ interface AppState {
   updateField: (key: string, value: string | number | boolean) => Promise<void>;
   startRecording: () => Promise<void>;
   recordWindow: (w: WindowInfo) => Promise<void>;
+  startPreview: () => Promise<void>;
+  closePreview: () => void;
+  loadEncoderScan: () => Promise<void>;
+  runEncoderScan: () => Promise<void>;
   stopRecording: () => Promise<void>;
   pauseRecording: () => Promise<void>;
   resumeRecording: () => Promise<void>;
@@ -193,16 +209,17 @@ interface AppState {
 const hotkeyId = (k: string) => k.toLowerCase().replace(/\s/g, "");
 
 /** Start capture and wait until the first frame is armed, then start the UI timer. */
-async function beginCapture(successMsg: string) {
-  const { addToast } = useStore.getState();
-  useStore.setState({ recordingPhase: "starting", lastRecording: null });
+async function beginCapture(successMsg: string, preview = false) {
+  const { addToast, config } = useStore.getState();
+  useStore.setState({ recordingPhase: "starting", lastRecording: null, previewing: preview, previewPath: null });
+  if (config && !config.audio_enabled && !preview) addToast("Recording without audio — turn on Mic or System on the dashboard", "info");
   try {
-    await invoke("start_recording", { outputPath: null }); // blocks until frame 0 + audio armed
+    await invoke("start_recording", { outputPath: null, preview }); // blocks until frame 0 + audio armed
     useStore.setState({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
       recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
     addToast(successMsg, "success");
   } catch (e) {
-    useStore.setState({ recordingPhase: "idle" });
+    useStore.setState({ recordingPhase: "idle", previewing: false });
     addToast(`Start failed: ${e}`, "error");
   }
 }
@@ -216,6 +233,10 @@ export const useStore = create<AppState>((set, get) => ({
   pausedMs: 0,
   pauseStartTime: null,
   lastRecording: null,
+  previewing: false,
+  previewPath: null,
+  encoderScan: null,
+  scanning: false,
   history: [],
   audioDevices: [],
   toasts: [],
@@ -334,6 +355,33 @@ export const useStore = create<AppState>((set, get) => ({
     await beginCapture(`Recording "${w.title.slice(0, 40)}"`);
   },
 
+  startPreview: async () => {
+    if (get().recordingPhase !== "idle") return;
+    // Always full screen, exactly like a real recording would look (webcam, trail, keys, audio)
+    await invoke("clear_capture_region").catch(() => {});
+    await beginCapture(`Preview: recording ${PREVIEW_SECONDS} s…`, true);
+    if (get().recordingPhase === "recording") {
+      setTimeout(() => { if (get().previewing && get().recordingPhase === "recording") get().stopRecording(); }, PREVIEW_SECONDS * 1000);
+    }
+  },
+
+  closePreview: () => set({ previewPath: null }),
+
+  loadEncoderScan: async () => {
+    try { set({ encoderScan: await invoke<EncoderScan | null>("get_encoder_scan") }); } catch {}
+  },
+
+  runEncoderScan: async () => {
+    if (get().scanning) return;
+    set({ scanning: true });
+    try {
+      const scan = await invoke<EncoderScan>("scan_encoders");
+      set({ encoderScan: scan });
+      get().addToast(`Encoder scan done — ${scan.encoders.filter((e) => e.supported).length} encoders work on this PC`, "success");
+    } catch (e) { get().addToast(`Encoder scan failed: ${e}`, "error"); }
+    finally { set({ scanning: false }); }
+  },
+
   startRecording: async () => {
     const { config, recordingPhase } = get();
     if (recordingPhase !== "idle") return; // hotkey/tray/button can't stack a second start
@@ -369,6 +417,12 @@ export const useStore = create<AppState>((set, get) => ({
     }, 200);
     try {
       const result = await invoke<RecordingResult>("stop_recording");
+      if (get().previewing) {
+        // Preview: play it in the app; no toast/history/clipboard
+        set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, pausedMs: 0, pauseStartTime: null,
+              previewing: false, previewPath: result.output_path, encodingProgress: 100, encodingStage: "Done" });
+        return;
+      }
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null,
             pausedMs: 0, pauseStartTime: null, lastRecording: result,
             encodingProgress: 100, encodingStage: "Done" });
@@ -383,7 +437,7 @@ export const useStore = create<AppState>((set, get) => ({
       } catch {}
       await get().loadHistory();
     } catch (e) {
-      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, pausedMs: 0, pauseStartTime: null });
+      set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, pausedMs: 0, pauseStartTime: null, previewing: false });
       get().addToast(`Stop failed: ${e}`, "error");
     } finally {
       clearInterval(progressInterval); // was skipped on error → polled forever

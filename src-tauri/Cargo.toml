@@ -20,7 +20,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-process = "2"
 tauri-plugin-global-shortcut = "2"
@@ -48,7 +48,10 @@ nnnoiseless = "0.5.2"
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"
 windows-core = "0.62"
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_UI_Shell", "Win32_Security"] }
+# Same versions Tauri's WebView2 bindings use (already in the lockfile) — for SetMemoryUsageTargetLevel
+webview2-com = "0.38"
+windows-core-wv2 = { package = "windows-core", version = "0.61" }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_UI_Accessibility", "Win32_System_Com", "Win32_UI_Shell", "Win32_Security"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 screencapturekit = "0.2"

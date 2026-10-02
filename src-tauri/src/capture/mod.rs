@@ -36,6 +36,9 @@ pub struct RecordingResult {
     pub frame_count: u32,
     pub file_size_bytes: u64,
     pub has_audio: bool,
+    /// Audio was on but nothing was captured (a silent track was written) — e.g. System-only
+    /// with nothing playing. The UI says so instead of the user finding out on playback.
+    pub audio_silent: bool,
     /// Actual output size (crop applied) — history used to show the config resolution
     pub width: i32,
     pub height: i32,
@@ -354,7 +357,7 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
         SecondaryWindowSettings::Default,
         min_interval,
         DirtyRegionSettings::Default,
-        ColorFormat::Rgba8,
+        ColorFormat::Bgra8, // DWM-native and what the MF encoder declares — Rgba8 forced a per-frame conversion
         (width, height),
     );
 
@@ -692,6 +695,7 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
             SILENT_AUDIO.to_string()
         }
     });
+    let audio_silent = audio_file.as_deref() == Some(SILENT_AUDIO);
     encode_final(&segments, duration * 1000.0, audio_file.as_deref(), &output_path, crop.as_deref(), crop.is_none())?;
     for seg in &segments {
         let _ = std::fs::remove_file(seg);
@@ -738,6 +742,7 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
     let (cap_w, cap_h) = *CAPTURE_SIZE.lock().unwrap();
 
     Ok(RecordingResult {
+        audio_silent: audio_silent,
         output_path,
         width: region.as_ref().map_or(cap_w, |r| r.width),
         height: region.as_ref().map_or(cap_h, |r| r.height),
@@ -746,6 +751,26 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
         file_size_bytes: file_size,
         has_audio,
     })
+}
+
+/// Which live (Media Foundation) codecs this machine can create — for the encoder scan.
+pub fn probe_live_encoders() -> (bool, bool) {
+    let dir = std::env::temp_dir().join("easyspecy_probe");
+    let _ = std::fs::create_dir_all(&dir);
+    let try_codec = |sub, name: &str| {
+        let path = dir.join(format!("{}.mp4", name));
+        let ok = VideoEncoder::new(
+            VideoSettingsBuilder::new(1920, 1080).sub_type(sub).bitrate(4_000_000).frame_rate(30),
+            AudioSettingsBuilder::default().disabled(true),
+            ContainerSettingsBuilder::default(),
+            &path,
+        ).is_ok(); // dropped right away — Drop tears the transcoder down
+        ok
+    };
+    let h264 = try_codec(VideoSettingsSubType::H264, "h264");
+    let hevc = try_codec(VideoSettingsSubType::HEVC, "hevc");
+    let _ = std::fs::remove_dir_all(&dir);
+    (h264, hevc)
 }
 
 /// Sentinel audio "path" for a generated silent track (lavfi source).

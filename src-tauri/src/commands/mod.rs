@@ -272,9 +272,30 @@ pub fn restore_cursors() -> Result<(), String> {
 
 /// Start recording — waits until capture is actually armed (first frame received)
 /// before returning success. This ensures the frontend timer is perfectly synced.
+/// True while the current session is a preview (temp file, not added to history).
+static PREVIEW_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn preview_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("easyspecy_preview")
+}
+
+/// Previews are throwaway: removed on startup and exit, replaced by each new preview.
+pub fn remove_preview() {
+    let _ = std::fs::remove_dir_all(preview_dir());
+}
+
 #[tauri::command]
-pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>) -> Result<(), String> {
+pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>, preview: Option<bool>) -> Result<(), String> {
     let config = AppConfig::load();
+    let preview = preview.unwrap_or(false);
+    PREVIEW_ACTIVE.store(preview, std::sync::atomic::Ordering::SeqCst);
+    let output_path = if preview {
+        remove_preview(); // one preview at a time — the new one replaces the old
+        let _ = std::fs::create_dir_all(preview_dir());
+        Some(preview_dir().join("preview.mp4").to_string_lossy().into_owned())
+    } else {
+        output_path
+    };
 
     // ═══ Apply cursor pack BEFORE capture starts ═══
     if config.cursor_pack != "default" && !config.cursor_pack.is_empty() {
@@ -431,6 +452,12 @@ pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingR
         }
     };
 
+    if PREVIEW_ACTIVE.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        crate::audio::reset_levels();
+        let _ = start_audio_monitor_cmd();
+        crate::tray::update_tray_state(false, false);
+        return Ok(result); // previews never enter history
+    }
     let config = AppConfig::load();
     let entry = RecordingEntry {
         id: uuid::Uuid::new_v4().to_string(),
@@ -677,6 +704,18 @@ pub fn destroy_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
         tracing::info!("Effects overlay window destroyed");
     }
     Ok(())
+}
+
+/// Run the encoder benchmark (several seconds) and cache the result.
+#[tauri::command]
+pub async fn scan_encoders() -> Result<crate::encoders::EncoderScan, String> {
+    tauri::async_runtime::spawn_blocking(crate::encoders::scan).await.map_err(|e| e.to_string())?
+}
+
+/// Last scan result, if one exists.
+#[tauri::command]
+pub fn get_encoder_scan() -> Option<crate::encoders::EncoderScan> {
+    crate::encoders::cached()
 }
 
 #[tauri::command]

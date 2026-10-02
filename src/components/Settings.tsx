@@ -1,5 +1,6 @@
 import { Icon } from "./Icon";
 import { useShallow } from "zustand/react/shallow";
+import { encoderOptions, isGpuEncoder, isInstant } from "../lib/encoders";
 import { useState, useEffect, useId, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
@@ -39,9 +40,11 @@ const CLICK_EFFECTS: { id: ClickEffect; label: string; desc: string }[] = [
 ];
 
 export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onCheckUpdate: (manual: boolean) => Promise<void> }) {
-  const { config, saveConfig, loadAudioDevices, audioDevices } = useStore(useShallow((s) => ({
+  const { config, saveConfig, loadAudioDevices, audioDevices, encoderScan, loadEncoderScan } = useStore(useShallow((s) => ({
     config: s.config, saveConfig: s.saveConfig, loadAudioDevices: s.loadAudioDevices, audioDevices: s.audioDevices,
+    encoderScan: s.encoderScan, loadEncoderScan: s.loadEncoderScan,
   })));
+  useEffect(() => { loadEncoderScan(); }, []);
   const { theme, toggleTheme } = useThemeStore();
   const [local, setLocal] = useState<AppConfig | null>(null);
   const [saved, setSaved] = useState(false);
@@ -159,20 +162,10 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
 
           {/* ── Video Section ── */}
           <Card title="Video" icon="videocam" index={0}>
-            <Row label="Resolution" desc="Output video dimensions">
-              <Select
-                value={`${local.resolution_width}x${local.resolution_height}`}
-                onChange={(v) => {
-                  const [w, h] = v.split("x").map(Number);
-                  update("resolution_width", w);
-                  update("resolution_height", h);
-                }}
-                options={[
-                  { label: "480p — 854×480", value: "854x480" },
-                  { label: "720p — 1280×720", value: "1280x720" },
-                  { label: "1080p — 1920×1080", value: "1920x1080" },
-                ]}
-              />
+            <Row label="Resolution" desc="Recordings are captured at your screen's native resolution (output scaling is planned for 1.1)">
+              <span className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>
+                {Math.round(window.screen.width * devicePixelRatio)}×{Math.round(window.screen.height * devicePixelRatio)}
+              </span>
             </Row>
             <Row label="Frame Rate" desc="Frames per second of the output video">
               <Segmented
@@ -194,35 +187,17 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
             </Row>
             
             <div className="pt-2 border-t space-y-4" style={{ borderColor: "var(--border-default)" }}>
-              <Row label="Enable GPU Encoders" desc="Allow GPU-accelerated video encoders (Nvidia NVENC)">
-                <Toggle
-                  checked={local.gpu_encoders_enabled}
-                  onChange={(v) => {
-                    update("gpu_encoders_enabled", v);
-                    if (!v && ["AV1_NVENC", "H264_NVENC", "H265_NVENC"].includes(local.video_encoder)) {
-                      if (local.video_encoder === "AV1_NVENC") update("video_encoder", "AV1");
-                      else if (local.video_encoder === "H264_NVENC") update("video_encoder", "H264");
-                      else update("video_encoder", "H265");
-                    }
-                  }}
-                />
-              </Row>
-              <Row label="Video Encoder" desc="Select video codec format (libx264 is default)">
+              <Row label="Video Encoder" desc="Instant save = the live capture already produces this codec, so stopping just copies the video">
                 <Select
                   value={local.video_encoder}
-                  onChange={(v) => update("video_encoder", v as any)}
-                  options={[
-                    { label: "AV1 (SVT-AV1)", value: "AV1" },
-                    ...(local.gpu_encoders_enabled ? [{ label: "AV1 NVENC (RTX 40xx)", value: "AV1_NVENC" }] : []),
-                    { label: "H.264 CPU", value: "H264" },
-                    ...(local.gpu_encoders_enabled ? [{ label: "H.264 NVENC GPU", value: "H264_NVENC" }] : []),
-                    { label: "H.265 CPU", value: "H265" },
-                    ...(local.gpu_encoders_enabled ? [{ label: "H.265 NVENC GPU", value: "H265_NVENC" }] : []),
-                    { label: "VP9 CPU", value: "VP9" },
-                    { label: "Mobile Shareable (H.264 + YUV420p)", value: "MobileShareable" },
-                  ]}
+                  onChange={(v) => {
+                    update("video_encoder", v as any);
+                    if (isGpuEncoder(v)) update("gpu_encoders_enabled", true);
+                  }}
+                  options={encoderOptions(encoderScan)}
                 />
               </Row>
+              <EncoderScanPanel />
               <Row label="Encoding Quality" desc="Quality preset level for encoding complexity">
                 <Select
                   value={local.video_quality}
@@ -1133,6 +1108,52 @@ function LevelRow({ label, kind, accent }: { label: string; kind: "mic" | "sys";
           style={{ transform: `scaleX(${frac})`, background: `linear-gradient(to right, ${accent} 65%, #ffd000 85%, #ff4444 100%)` }}
         />
       </div>
+    </div>
+  );
+}
+
+/** Benchmarks every encoder on this PC and shows what works and how fast. */
+function EncoderScanPanel() {
+  const { encoderScan: scan, scanning, runEncoderScan } = useStore(useShallow((s) => ({
+    encoderScan: s.encoderScan, scanning: s.scanning, runEncoderScan: s.runEncoderScan,
+  })));
+  const cell = "px-2 py-1 font-mono text-[10px]";
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
+          {scan
+            ? <>Live capture: H.264 {scan.live_h264 ? "✓" : "✗"} · HEVC {scan.live_hevc ? "✓" : "✗"} <span style={{ color: "var(--text-muted)" }}>· scanned {scan.scanned_at}</span></>
+            : "Not scanned yet — find out which encoders this PC supports and how fast they are."}
+        </div>
+        <button
+          type="button" onClick={runEncoderScan} disabled={scanning} aria-busy={scanning}
+          className="shrink-0 px-3 py-1.5 font-mono text-[10px] font-bold uppercase cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+          style={{ border: "var(--border-thin) solid var(--border-default)", borderRadius: "var(--radius-sm)", color: "var(--text-primary)" }}
+        >
+          {scanning ? "Scanning… (~20 s)" : scan ? "Rescan encoders" : "Scan encoders"}
+        </button>
+      </div>
+      {scan && (
+        <table className="w-full" style={{ borderCollapse: "collapse" }}>
+          <thead>
+            <tr style={{ color: "var(--text-muted)" }}>
+              <th className={`${cell} text-left`}>Encoder</th><th className={`${cell} text-right`}>Speed (1080p)</th>
+              <th className={`${cell} text-right`}>Peak RAM</th><th className={`${cell} text-left`}>Save</th>
+            </tr>
+          </thead>
+          <tbody>
+            {scan.encoders.map((e) => (
+              <tr key={e.id} style={{ borderTop: "var(--border-thin) solid var(--border-default)", color: e.supported ? "var(--text-primary)" : "var(--text-muted)" }}>
+                <td className={cell}>{e.label}{scan.recommended === e.id ? " ★" : ""}</td>
+                <td className={`${cell} text-right`}>{e.supported ? `${Math.round(e.fps)} fps${e.fps >= 30 ? "" : " (slower than real time)"}` : "not available"}</td>
+                <td className={`${cell} text-right`}>{e.supported ? `${Math.round(e.peak_mb)} MB` : "—"}</td>
+                <td className={cell}>{e.supported ? (isInstant(e.id, scan) ? "instant" : "re-encode") : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
