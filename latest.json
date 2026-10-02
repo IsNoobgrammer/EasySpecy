@@ -1,15 +1,15 @@
 {
-  "notes": "## [0.1.5] - 2026-06-05\r\n\r\n### Added\r\n- **Single-instance enforcement** — Prevents multiple EasySpecy windows; re-launching restores and focuses the existing window.\r\n- **Tray menu state management** — Menu items now enable/disable based on recording state (Start/Stop/Pause/Resume).\r\n- **Tray pause/resume controls** — Added \"Pause Recording\" and \"Resume Recording\" options to system tray menu.\r\n- **Tray \"Open\" command** — Renamed \"Show Window\" to \"Open\" for clarity; opens and focuses main app window.\r\n\r\n### Fixed\r\n- **\"Reveal in Explorer\" context menu** — Now correctly opens file explorer with recording highlighted instead of playing the video.\r\n- **Toast notifications blocked on Settings page** — Increased z-index from 50 to 10000 to prevent Settings header from blocking notifications.\r\n- **Tray menu static state** — Menu items now dynamically update enabled/disabled state during recording lifecycle.\r\n\r\n### Changed\r\n- **Tray module architecture** — Rewritten with state-aware menu item management using `MenuItem::set_enabled()`.\r\n\r\n---",
-  "platforms": {
-    "windows-x86_64": {
-      "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.5/EasySpecy_0.1.5_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL1RLTXpvM3p4aE91UC9JMis0eGFMMUxIYS9WeFMycGFEVEZSd0ZWYXdSQkRxa2ZmQ0pHcXpjcFBkeGlUWHl3aEZSdlhHa3dsQWVoU0grQllTZTFhZWdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNjAyOTc0CWZpbGU6RWFzeVNwZWN5XzAuMS40X3g2NC1zZXR1cC5leGUKb0I5RG10YkVpQ3VpVWNGR3owMTNNODBiT1dRQ2J0ZUdsRHE1aE5PREhzYUZXY2QrZUk3amNRU3FKamRGWGJIQnNWM0c2dG9tTXJSbkg1TFFBWXNBQ3c9PQo="
-    }
-  },
   "portable": {
-    "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL1U5UGV5N2dlTUFudXZWMWhRcklrYTNSbmtVOTRFZWtlbjRhUGpEcEpXaGxEeXdseWhUQVBrdUFqSUw2N3NIbjVaSUhESDlldUpQWU1OK2xxNEhmQUFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNjAyOTc1CWZpbGU6RWFzeVNwZWN5LVBvcnRhYmxlLnppcApxWE9oem9DZWJXNmd0TFdvRkx1RHlqMmh1dkRxZHcxN0dvL0Z1RzBIekZGM0pxV3ZId21FeHJQeng2S2JZeWk3WW9SR3JKZHBwMlphdzFnZDFGL2ZCQT09Cg==",
+    "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL2UxYWVuTHdQcUU3MkFESThmMGNsb2dBK0h1S08zRE5qSEhXQldHSUltTVFpUWlpSGE1TzMyZ0hGMVB1QnVLRjVxMHF1WjhRcy9ENy9ZNzVDV0Y1SUFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNjExMzU5CWZpbGU6RWFzeVNwZWN5LVBvcnRhYmxlLnppcAp3RTUvSmNRaGJWYnZadjJwd0pEa0FVcWRjSXJ4dnQ3dStyR0tUUFpnMUZGMUJWVUxHK2ZObzVSQlBpOUh5ZFEvMXZOT3dVdEZEeENmS2k0aFpGN1dCUT09Cg==",
     "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.5/EasySpecy-Portable.zip"
   },
-  "pub_date": "2026-06-04T19:56:20Z",
+  "pub_date": "2026-06-04T22:16:07Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSNTB6am5TakJCL1gxWHdPbVpRb1FJUFpBck1nbVdsWXlXVXdLN3dIWG5yUm1jQkhkcjdTNVQ5REdrSnpxaGRxTHlsWW05MGw5eDhjaEY2UFVBMEVrc0w1U3hNamE5ckFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwNjExMzU5CWZpbGU6RWFzeVNwZWN5XzAuMS41X3g2NC1zZXR1cC5leGUKSEUwQ0pMZllsQUFPZ2RhWEJsN05Na3R5b2k0RkQ5allHYWQwdERhRmhBKzNKK3d2NFUzQnppZVZic0F0UGZEam9qUjFRTXpTdFBaalZKb2NlVnR5RFE9PQo=",
+      "url": "https://github.com/IsNoobgrammer/EasySpecy/releases/download/v0.1.5/EasySpecy_0.1.5_x64-setup.exe"
+    }
+  },
+  "notes": "## [0.1.5] - 2026-06-05\r\n\r\n### Added\r\n- **Single-instance enforcement** — Prevents multiple EasySpecy windows; re-launching restores and focuses the existing window.\r\n- **Tray menu state management** — Menu items now enable/disable based on recording state (Start/Stop/Pause/Resume).\r\n- **Tray pause/resume controls** — Added \"Pause Recording\" and \"Resume Recording\" options to system tray menu.\r\n- **Tray \"Open\" command** — Renamed \"Show Window\" to \"Open\" for clarity; opens and focuses main app window.\r\n\r\n### Fixed\r\n- **\"Reveal in Explorer\" context menu** — Now correctly opens file explorer with recording highlighted instead of playing the video.\r\n- **Toast notifications blocked on Settings page** — Increased z-index from 50 to 10000 to prevent Settings header from blocking notifications.\r\n- **Tray menu static state** — Menu items now dynamically update enabled/disabled state during recording lifecycle.\r\n\r\n### Changed\r\n- **Tray module architecture** — Rewritten with state-aware menu item management using `MenuItem::set_enabled()`.\r\n\r\n---",
   "version": "0.1.5"
 }
