@@ -7,12 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-02
+
 ### Added
 - **Audio panel on the dashboard** — Separate Microphone / System audio toggles with live level bars. Each source says plainly when it isn't being recorded, and a silent source gets a hint ("No sound from your mic — is it muted?", "Nothing playing — only sound your PC plays gets recorded"). The Saved card says when the audio came out silent, and starting with audio off gives a notice.
 - **Preview 10s** — Records 10 s exactly like a real recording (webcam, trail, keys, audio) to one temporary `preview.mp4` and plays it in the app. Each preview replaces the last one. Previews never enter history and are deleted on exit (and on the next launch after a crash).
 - **Encoder scan** (Settings → Video) — Benchmarks every encoder on a 1080p clip. It reports live-capture H.264/HEVC support and, per FFmpeg encoder, works or not, speed (fps) and peak RAM. The encoder pickers then list only working encoders, mark which ones save instantly (stream copy) versus re-encode, and suggest a default.
-
-### Added
 - **"Smaller file" option** (dashboard + Settings) — Re-encodes after stopping with x264 veryfast at the chosen quality, giving 4–5× smaller files (30 s 1080p: ~14.6 → 3.0–3.9 MB) in exchange for a few seconds of save time. It always uses x264: on screen content it matches x265's size at 2.6× the speed, and plays everywhere.
 - **Compare quality** — Renders Low / Medium / High / Ultra and Smaller file from a scrolling crop of the user's own screen. It uses the same Media Foundation hardware encoder as live capture, at equal bits-per-pixel, with ≈ MB/min for each. There's a custom-bitrate slider, a click-to-zoom, and "Use this" to apply. Real progress milestones drive a smooth progress bar.
 
@@ -29,14 +29,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Settings → Video** — Resolution shows the real native capture size. The GPU toggle and hard-coded encoder list are replaced by the scan-driven picker (choosing NVENC turns GPU encoding on automatically).
 - **Lower memory while recording** — The hidden main window's WebView is set to `MemoryUsageTargetLevel = Low` (renderer 105 → 57 MB). Audio buffers are only reserved for sources that are recorded.
 - **Capture uses BGRA** (the DWM-native format) instead of RGBA.
-
-### Fixed
-- **Live bitrate was sized from the Resolution setting** — Output isn't scaled, so a 1280×720 setting starved 1080p captures to 44% of their bitrate. Bitrate now follows the real captured size.
-- **Live encoder over-sized files** — It's constant-bitrate, and used a table meant for CRF encoding: "High" 1080p30 was 15 Mbps ≈ 112 MB/min. A screen-content table (bits per pixel per frame; 60 fps ≈ 1.5×, not 2×) gives ~5 Mbps ≈ 35 MB/min (verified on a real recording: 4,933 kb/s). The dashboard size estimate uses the same numbers.
-- **Pause/resume concat could fail** — The concat list was written before its folder was guaranteed to exist.
-- **"Capture stopped unexpectedly (0xC00D4A44)" on a fast pause → resume → pause** — The second pause tried to finalise a segment that had received no frames. That error killed the capture and cost the last seconds. Empty segments are now kept for the next resume, a segment that fails to finalise no longer stops the recording, and pause cancels a pending resume. Before, capture could resume by itself while the UI showed "paused".
-
-### Changed
 - **CPU while recording roughly halved** — Measured with trail + webcam + keyboard overlay: mouse moving 184% → 90% of one core, mouse still 112% → 45%.
   - **Hidden main window stopped animating** — Rust now tells the UI when the window is hidden in the tray. The WebView flags the overlay needs had kept it rendering timers and pulse animations at full speed: 20–26% → ~1%.
   - **Overlay heartbeat removed** — It forced a full-screen re-composite every frame.
@@ -45,6 +37,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - **Webcam CSS filter** — Skipped when it's a no-op.
   - **Current state** — All features on: 184% → 65% of a core with the mouse moving, 112% → ~49% still. Of the Rust core's ~20–25%, ~5% is our own threads; the rest is Windows' Media Foundation encode pipeline.
 - **Repo language** — `.gitattributes` marks the docs site as documentation, so GitHub reports the Rust engine as the main language.
+
+### Fixed
+- **Live bitrate was sized from the Resolution setting** — Output isn't scaled, so a 1280×720 setting starved 1080p captures to 44% of their bitrate. Bitrate now follows the real captured size.
+- **Live encoder over-sized files** — It's constant-bitrate, and used a table meant for CRF encoding: "High" 1080p30 was 15 Mbps ≈ 112 MB/min. A screen-content table (bits per pixel per frame; 60 fps ≈ 1.5×, not 2×) gives ~5 Mbps ≈ 35 MB/min (verified on a real recording: 4,933 kb/s). The dashboard size estimate uses the same numbers.
+- **Pause/resume concat could fail** — The concat list was written before its folder was guaranteed to exist.
+- **"Capture stopped unexpectedly (0xC00D4A44)" on a fast pause → resume → pause** — The second pause tried to finalise a segment that had received no frames. That error killed the capture and cost the last seconds. Empty segments are now kept for the next resume, a segment that fails to finalise no longer stops the recording, and pause cancels a pending resume. Before, capture could resume by itself while the UI showed "paused".
+
+### Benchmarks
+
+**Time to save** is from pressing Stop to the file being ready to share. All runs are **1080p at 30 fps** (the default) with **High** quality, mic + system audio, on an i5-12450H laptop using Intel QSV for live encoding. The test video is real screen content (an editor and a terminal), half still and half scrolling. Scrolling is the hardest case for file size.
+
+**Main choices on the dashboard**
+
+| Output | Time to save (1 min) | Time to save (2 min) | Size per minute |
+|---|---|---|---|
+| **H.264** (default, plays everywhere) | ~2 s | ~4 s | ~37 MB |
+| **H.265** (~25% smaller, newer players) | ~2 s | ~3 s | ~28 MB |
+| **H.264 + Smaller file** | ~11 s | ~24 s | **~6.5 MB** |
+| **H.265 + Smaller file** | ~12 s | ~22 s | **~6.5 MB** |
+| H.264 with a pause/resume | ~2 s | ~4 s | ~37 MB |
+
+H.264 and H.265 save almost instantly because the video is already encoded on the GPU while you record. Saving just copies it into the final file. **Smaller file** re-encodes after you stop: the file is about 5× smaller, but saving takes longer, roughly 11 s per minute of video. It always outputs H.264, which comes out the same size as H.265 for screen content but encodes much faster and plays everywhere.
+
+**Quality presets** (live encoder, video only, per minute at 1080p30)
+
+| Quality | H.264 | H.265 |
+|---|---|---|
+| Low | ~13 MB | ~10 MB |
+| Medium | ~22 MB | ~17 MB |
+| **High** (default) | ~36 MB | ~27 MB |
+| Ultra | ~53 MB | ~40 MB |
+
+Use **Compare quality** in the app to see each one on your own screen before choosing.
+
+**Advanced encoders** (Settings → Video encoder; these always re-encode)
+
+| Output | Time to save (1 min) | Time to save (2 min) | Size per minute |
+|---|---|---|---|
+| AV1 (CPU, SVT-AV1) | ~32 s | ~56 s | ~5 MB |
+| VP9 (CPU) | ~22 s | ~28 s | ~17 MB |
+| Region / window crop 1280×720, H.264 | ~8 s | ~15 s | ~4.7 MB |
+| Region / window crop 1280×720, H.265 | ~17 s | ~39 s | ~4.5 MB |
+
+- **NVENC H.264/H.265:** saves just as fast as H.264/H.265 above, because live capture already produced the video.
+- **AV1 NVENC:** needs an RTX 40-series GPU.
+- **Smaller file and crop sizes depend on content.** A mostly still screen comes out smaller.
+
+**While recording**, with cursor trail + webcam + keyboard overlay all on, the app uses about **65% of one CPU core** with the mouse moving and **~49%** when it's still. Most of that is Windows' own Media Foundation encoder.
+
+<sub>Reproduce: `cargo run --release --example bench_post -- <intermediates> <out>` in `src-tauri` (see `examples/bench_post.rs`). It runs the app's real save pass over pre-encoded clips, so no re-recording is needed.</sub>
 
 ## [1.0.0] - 2026-10-02
 

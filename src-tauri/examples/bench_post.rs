@@ -21,6 +21,7 @@ struct Case {
     secs: u32,
     crop: Option<&'static str>,
     paused: bool,
+    small: bool,
 }
 
 fn main() {
@@ -29,18 +30,19 @@ fn main() {
     std::fs::create_dir_all(out).unwrap();
 
     use VideoEncoder::*;
+    // 30 fps (the default) everywhere, so rows compare like for like
+    let fps = 30;
     let mut cases = Vec::new();
     for &secs in &[60, 120] {
-        for &fps in &[24, 30, 60] {
-            for (name, enc) in [("H.264", H264), ("H.265", H265), ("Mobile", MobileShareable)] {
-                cases.push(Case { name, encoder: enc, fps, secs, crop: None, paused: false });
-            }
+        for (name, enc, small) in [("H.264", H264, false), ("H.265", H265, false), ("H.264 smaller file", H264, true), ("H.265 smaller file", H265, true)] {
+            cases.push(Case { name, encoder: enc, fps, secs, crop: None, paused: false, small });
         }
-        cases.push(Case { name: "AV1", encoder: AV1, fps: 30, secs, crop: None, paused: false });
-        cases.push(Case { name: "VP9", encoder: VP9, fps: 30, secs, crop: None, paused: false });
-        cases.push(Case { name: "H.264 region 1280x720", encoder: H264, fps: 30, secs, crop: Some("crop=1280:720:300:200"), paused: false });
-        cases.push(Case { name: "H.265 region 1280x720", encoder: H265, fps: 30, secs, crop: Some("crop=1280:720:300:200"), paused: false });
-        cases.push(Case { name: "H.264 + 1 pause", encoder: H264, fps: 30, secs, crop: None, paused: true });
+        cases.push(Case { name: "H.264 + 1 pause", encoder: H264, fps, secs, crop: None, paused: true, small: false });
+        cases.push(Case { name: "H.264 region 1280x720", encoder: H264, fps, secs, crop: Some("crop=1280:720:300:200"), paused: false, small: false });
+        cases.push(Case { name: "H.265 region 1280x720", encoder: H265, fps, secs, crop: Some("crop=1280:720:300:200"), paused: false, small: false });
+        for (name, enc) in [("AV1", AV1), ("VP9", VP9), ("AV1 NVENC", AV1_NVENC)] {
+            cases.push(Case { name, encoder: enc, fps, secs, crop: None, paused: false, small: false });
+        }
     }
 
     println!("| Video | Encoder / path | FPS | Save time | Final size | MB/min |");
@@ -58,12 +60,12 @@ fn main() {
         let output = format!("{out}/{}_{}fps_{}s.mp4", c.name.replace([' ', '.', '+'], ""), c.fps, c.secs);
         let _ = std::fs::remove_file(&output);
 
-        let config = AppConfig { video_encoder: c.encoder.clone(), video_quality: VideoQuality::High, fps: c.fps, ..AppConfig::default() };
+        let config = AppConfig { video_encoder: c.encoder.clone(), video_quality: VideoQuality::High, fps: c.fps, compact_output: c.small, gpu_encoders_enabled: true, ..AppConfig::default() };
         let t = Instant::now();
         let r = encode_final_with(&config, hevc, &segments, c.secs as f64 * 1000.0, Some(&audio), &output, c.crop, c.crop.is_none());
         let secs = t.elapsed().as_secs_f64();
         let mb = std::fs::metadata(&output).map(|m| m.len() as f64 / 1_048_576.0).unwrap_or(0.0);
-        let path = match (&r, c.crop.is_none() && (hevc || matches!(c.encoder, H264 | MobileShareable))) {
+        let path = match (&r, !c.small && c.crop.is_none() && (hevc || matches!(c.encoder, H264 | MobileShareable))) {
             (Err(_), _) => "FAILED",
             (_, true) => "copy",
             _ => "re-encode",
