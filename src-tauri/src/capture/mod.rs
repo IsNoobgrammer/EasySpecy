@@ -63,7 +63,14 @@ static OUTPUT_PATH: Mutex<String> = Mutex::new(String::new());
 static VIDEO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
 static AUDIO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
 static START_TIME: Mutex<Option<Instant>> = Mutex::new(None);
+/// Capture thread is alive (frames can arrive).
 static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// A recording session exists: set by start, cleared only when stop/abort finishes.
+/// Separate from RECORDING_ACTIVE so a capture-thread error doesn't make Stop say
+/// "no recording" and throw away the segments already on disk.
+static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Size of the captured frames (monitor pixels) — region crops are clamped to it.
+static CAPTURE_SIZE: Mutex<(i32, i32)> = Mutex::new((0, 0));
 static RECORDING_PAUSED: AtomicBool = AtomicBool::new(false);
 static AUDIO_CAPTURE: Mutex<Option<AudioCapture>> = Mutex::new(None);
 static ENABLE_AUDIO: AtomicBool = AtomicBool::new(false);
@@ -140,6 +147,17 @@ impl CaptureHandler {
         }
         self.seg_frames = 0;
         Ok(())
+    }
+}
+
+impl Drop for CaptureHandler {
+    // Normal stop already took the encoder. On an error path this finalises (and queues)
+    // whatever the current segment holds, instead of losing it.
+    fn drop(&mut self) {
+        if self.encoder.is_some() {
+            tracing::warn!("Capture handler dropped mid-segment — salvaging segment {}", self.segment_idx);
+            let _ = self.finish_segment();
+        }
     }
 }
 
@@ -248,9 +266,18 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 /// Initializes capture pipeline and spawns threads. Returns immediately.
 /// Frontend must poll `is_capture_ready()` before showing timer.
 pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
-    if RECORDING_ACTIVE.load(Ordering::SeqCst) {
+    // compare_exchange: two concurrent starts can't both pass the check
+    if SESSION_ACTIVE.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
         return Err("Recording already in progress".to_string());
     }
+    let result = start_recording_inner(config);
+    if result.is_err() {
+        abort_recording();
+    }
+    result
+}
+
+fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
 
     // Ensure output directory exists
     if let Some(parent) = std::path::Path::new(&config.output_path).parent() {
@@ -285,6 +312,7 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
     let monitor = Monitor::primary().map_err(|e| e.to_string())?;
     let width = monitor.width().map_err(|e| e.to_string())? as i32;
     let height = monitor.height().map_err(|e| e.to_string())? as i32;
+    *CAPTURE_SIZE.lock().unwrap() = (width, height);
 
     let min_interval = if config.fps > 0 {
         MinimumUpdateIntervalSettings::Custom(Duration::from_millis(1000 / config.fps as u64))
@@ -365,10 +393,13 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
         .spawn(move || {
             if let Err(e) = CaptureHandler::start(settings) {
                 tracing::error!("Capture thread error: {}", e);
+                // Tell the UI so it stops & saves what we have. Audio is kept for stop_recording.
+                if let Some(app) = crate::app_handle() {
+                    let _ = app.emit("capture-error", e.to_string());
+                }
             }
             RECORDING_ACTIVE.store(false, Ordering::SeqCst);
             CAPTURE_READY.store(false, Ordering::SeqCst);
-            let _ = AUDIO_CAPTURE.lock().unwrap().take();
         })
         .map_err(|e| format!("Failed to spawn capture thread: {}", e))?;
 
@@ -593,9 +624,34 @@ pub(crate) fn run_ffmpeg_with_progress(
 /// Stop recording, merge audio+video if needed, crop if region is set.
 /// This is a blocking call — should be run on a background thread from the command layer.
 pub fn stop_recording() -> Result<RecordingResult, String> {
-    if !RECORDING_ACTIVE.load(Ordering::SeqCst) {
+    if !SESSION_ACTIVE.load(Ordering::SeqCst) {
         return Err("No recording in progress".to_string());
     }
+    let result = stop_recording_inner();
+    let _ = AUDIO_CAPTURE.lock().unwrap().take();
+    SESSION_ACTIVE.store(false, Ordering::SeqCst);
+    result
+}
+
+/// Tear down a session that never produced a usable recording (start failed / timed out).
+pub fn abort_recording() {
+    SHOULD_STOP.store(true, Ordering::SeqCst);
+    if let Some(mut audio) = AUDIO_CAPTURE.lock().unwrap().take() {
+        let _ = audio.stop();
+    }
+    let t = Instant::now();
+    while RECORDING_ACTIVE.load(Ordering::SeqCst) && t.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    RECORDING_ACTIVE.store(false, Ordering::SeqCst);
+    let _ = crate::webcam::stop_webcam_capture();
+    let _ = crate::postprocess::finalize();
+    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("easyspecy"));
+    SESSION_ACTIVE.store(false, Ordering::SeqCst);
+    tracing::info!("Recording session aborted");
+}
+
+fn stop_recording_inner() -> Result<RecordingResult, String> {
 
     // Record the stop time IMMEDIATELY for precise duration
     let stop_instant = Instant::now();
@@ -661,7 +717,11 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
 
     set_encoding_progress(10, "Processing audio...");
 
-    let region = region::get_region();
+    let mode = crate::config::AppConfig::load().recording_mode;
+    let region = match mode {
+        crate::config::RecordingMode::FullScreen => None,
+        _ => region::get_region().and_then(|r| region::sanitize(r, *CAPTURE_SIZE.lock().unwrap())),
+    };
     let (webcam_dir, webcam_elapsed) = crate::webcam::stop_webcam_capture();
 
     // Crop needs its own pass only when the webcam composite needs cropped input;
@@ -941,7 +1001,9 @@ fn encode_final(video: &str, audio: Option<&str>, output: &str, crop: Option<&st
                 _ => args.extend(["-crf".into(), crf]),
             }
         }
-        args.extend(["-vsync".into(), "cfr".into(), "-pix_fmt".into(), "yuv420p".into(), "-threads".into(), "0".into()]);
+        // -r: without it CFR conversion guessed 25 fps from the VFR input instead of the configured rate
+        args.extend(["-vsync".into(), "cfr".into(), "-r".into(), config.fps.max(1).to_string(),
+            "-pix_fmt".into(), "yuv420p".into(), "-threads".into(), "0".into()]);
     }
 
     if audio.is_some() {

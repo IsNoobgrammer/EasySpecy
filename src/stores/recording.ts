@@ -52,7 +52,7 @@ export interface AppConfig {
   hotkey_pause: string;
   minimize_to_tray: boolean;
   copy_path_on_save: boolean;
-  recording_mode: "FullScreen" | "Region";
+  recording_mode: "FullScreen" | "Region" | "Window";
   auto_check_updates: boolean;
 
   // Keyboard overlay settings
@@ -131,7 +131,9 @@ export interface AudioLevels {
 }
 
 type RecordingPhase = "idle" | "recording" | "encoding";
-type SelectorMode = "none" | "region";
+type SelectorMode = "none" | "region" | "window";
+
+export interface WindowInfo { title: string; x: number; y: number; width: number; height: number; hwnd: number; }
 
 interface AppState {
   config: AppConfig | null;
@@ -148,6 +150,8 @@ interface AppState {
   toastId: number;
   hotkeysRegistered: boolean;
   selectorMode: SelectorMode;
+  regionShot: string | null;   // desktop screenshot the region selector draws on
+  windows: WindowInfo[];       // candidates for Window mode
   encodingProgress: number;
   encodingStage: string;
   estimatedMbPerMin: number;
@@ -157,6 +161,7 @@ interface AppState {
   saveConfig: (config: AppConfig) => Promise<void>;
   updateField: (key: string, value: string | number | boolean) => Promise<void>;
   startRecording: () => Promise<void>;
+  recordWindow: (w: WindowInfo) => Promise<void>;
   stopRecording: () => Promise<void>;
   pauseRecording: () => Promise<void>;
   resumeRecording: () => Promise<void>;
@@ -183,6 +188,18 @@ interface AppState {
 
 const hotkeyId = (k: string) => k.toLowerCase().replace(/\s/g, "");
 
+/** Start capture and wait until the first frame is armed, then start the UI timer. */
+async function beginCapture(successMsg: string) {
+  const { addToast } = useStore.getState();
+  try {
+    addToast("Initializing capture...", "info");
+    await invoke("start_recording", { outputPath: null }); // blocks until frame 0 + audio armed
+    useStore.setState({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
+      recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
+    addToast(successMsg, "success");
+  } catch (e) { addToast(`Start failed: ${e}`, "error"); }
+}
+
 export const useStore = create<AppState>((set, get) => ({
   config: null,
   configLoaded: false,
@@ -198,6 +215,8 @@ export const useStore = create<AppState>((set, get) => ({
   toastId: 0,
   hotkeysRegistered: false,
   selectorMode: "none",
+  regionShot: null,
+  windows: [],
   encodingProgress: 0,
   encodingStage: "",
   estimatedMbPerMin: 0,
@@ -282,48 +301,51 @@ export const useStore = create<AppState>((set, get) => ({
   setSelectorMode: (mode) => set({ selectorMode: mode }),
 
   setCaptureRegion: async (region) => {
+    // Selector reports CSS px; the crop runs on physical frame px (125%/150% scaling).
+    const dpr = window.devicePixelRatio || 1;
+    await invoke("exit_region_mode").catch(() => {});
+    set({ selectorMode: "none", regionShot: null });
     try {
-      await invoke("set_capture_region", { x: region.x, y: region.y, width: region.width, height: region.height });
-      await invoke("exit_region_mode");
-      set({ selectorMode: "none" });
-      // Start recording and WAIT for capture to be armed
-      get().addToast("Initializing capture...", "info");
-      await invoke("start_recording", { outputPath: null });
-      // Only now is capture truly active
-      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
-            recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
-      get().addToast(`Recording region: ${region.width}×${region.height}`, "success");
-    } catch (e) {
-      await invoke("exit_region_mode").catch(() => {});
-      set({ selectorMode: "none" });
-      get().addToast(`Region failed: ${e}`, "error");
-    }
+      await invoke("set_capture_region", {
+        x: Math.round(region.x * dpr), y: Math.round(region.y * dpr),
+        width: Math.round(region.width * dpr), height: Math.round(region.height * dpr),
+      });
+    } catch (e) { get().addToast(`Region failed: ${e}`, "error"); return; }
+    await beginCapture(`Recording region ${Math.round(region.width * dpr)}×${Math.round(region.height * dpr)}`);
+  },
+
+  recordWindow: async (w) => {
+    set({ selectorMode: "none" });
+    try {
+      // Bounds are already physical px. Crop of the screen (not window capture) so the
+      // live overlays — webcam, trail, keys — stay in the recording.
+      await invoke("set_capture_region", { x: w.x, y: w.y, width: w.width, height: w.height });
+      await invoke("focus_window", { hwnd: w.hwnd });
+    } catch (e) { get().addToast(`Window select failed: ${e}`, "error"); return; }
+    await beginCapture(`Recording "${w.title.slice(0, 40)}"`);
   },
 
   startRecording: async () => {
     const { config } = get();
-    // If Region mode, enter fullscreen region selection
     if (config?.recording_mode === "Region") {
       try {
-        await invoke("enter_region_mode");
-        set({ selectorMode: "region" });
-        get().addToast("Drag to select area", "info");
+        const shot = await invoke<string>("enter_region_mode");
+        set({ selectorMode: "region", regionShot: shot });
       } catch (e) {
+        await invoke("exit_region_mode").catch(() => {});
         get().addToast(`Region select failed: ${e}`, "error");
       }
       return;
     }
-    // FullScreen — start and WAIT for capture to be armed
-    try {
-      get().addToast("Initializing capture...", "info");
-      // This now blocks until the first video frame is captured
-      // and audio is armed — guaranteeing perfect sync
-      await invoke("start_recording", { outputPath: null });
-      // Only NOW do we start the timer — capture is truly active
-      set({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
-            recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
-      get().addToast("Recording started", "success");
-    } catch (e) { get().addToast(`Start failed: ${e}`, "error"); }
+    if (config?.recording_mode === "Window") {
+      try {
+        set({ selectorMode: "window", windows: await invoke<WindowInfo[]>("get_windows") });
+      } catch (e) { get().addToast(`Window list failed: ${e}`, "error"); }
+      return;
+    }
+    // FullScreen — drop any region left over from an earlier region recording
+    await invoke("clear_capture_region").catch(() => {});
+    await beginCapture("Recording started");
   },
 
   stopRecording: async () => {

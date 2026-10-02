@@ -204,6 +204,7 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
                 options={[
                   { label: "Full Screen", value: "FullScreen" },
                   { label: "Region Select", value: "Region" },
+                  { label: "Window", value: "Window" },
                 ]}
               />
             </Row>

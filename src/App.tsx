@@ -198,7 +198,15 @@ export default function App() {
     const unlistenWebcamError = listen<string>("webcam-error", (event) => {
       useStore.getState().addToast(`Webcam error: ${event.payload}`, "error");
     });
+    // Capture died mid-recording (GPU reset, display change…): stop now so the segments
+    // and audio already on disk are saved instead of lost.
+    const unlistenCaptureError = listen<string>("capture-error", (event) => {
+      const st = useStore.getState();
+      st.addToast(`Capture stopped unexpectedly — saving what was recorded (${event.payload})`, "error");
+      if (st.recordingPhase === "recording") st.stopRecording();
+    });
     return () => {
+      unlistenCaptureError.then((fn) => fn());
       unlisten.then((fn) => fn());
       unlistenTrayStart.then((fn) => fn());
       unlistenTrayStop.then((fn) => fn());

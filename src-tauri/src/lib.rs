@@ -133,6 +133,7 @@ pub fn run() {
             commands::clear_capture_region,
             commands::get_windows,
             commands::enter_region_mode,
+            commands::focus_window,
             commands::exit_region_mode,
             commands::open_path,
             commands::get_cursor_packs,

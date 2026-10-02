@@ -295,7 +295,7 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
     });
 
     // Initialize capture pipeline (spawns threads, creates streams)
-    capture::start_recording(RecordingConfig {
+    let started = capture::start_recording(RecordingConfig {
         output_path: path.clone(),
         enable_audio: config.audio_enabled,
         audio_source: format!("{:?}", config.audio_source),
@@ -310,7 +310,11 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
         webcam_border_color: config.webcam_border_color.clone(),
         webcam_border_width: config.webcam_border_width,
         webcam_opacity: config.webcam_opacity,
-    })?;
+    });
+    if let Err(e) = started {
+        let _ = crate::cursors::restore_cursors();
+        return Err(e);
+    }
 
     // Start cursor metadata collection for post-processing
     crate::postprocess::start_collection();
@@ -351,7 +355,16 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
     .await
     .map_err(|e| format!("Task join error: {}", e))?;
 
-    wait_result?;
+    if let Err(e) = wait_result {
+        // Undo everything start did, or the next start says "already in progress" and the
+        // user is left with custom cursors, a live keyboard hook and a hidden overlay.
+        tracing::error!("start_recording failed: {}", e);
+        crate::keyboard::stop_keyboard_capture();
+        let _ = destroy_effects_overlay(app.clone());
+        let _ = crate::cursors::restore_cursors();
+        tauri::async_runtime::spawn_blocking(capture::abort_recording).await.ok();
+        return Err(e);
+    }
 
     // Minimize / hide main window to tray if enabled
     if config.minimize_to_tray {
@@ -413,8 +426,15 @@ pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingR
         capture::stop_recording()
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
-    ?;
+    .map_err(|e| format!("Task join error: {}", e))
+    .and_then(|r| r);
+    let result = match result {
+        Ok(r) => r,
+        Err(e) => {
+            crate::tray::update_tray_state(false, false); // don't leave the tray stuck on "recording"
+            return Err(e);
+        }
+    };
 
     let config = AppConfig::load();
     let entry = RecordingEntry {
@@ -486,15 +506,34 @@ pub fn get_windows() -> Vec<region::WindowInfo> {
     region::get_windows()
 }
 
-/// Enter region selection mode: make window fullscreen and transparent
+/// Enter region selection: hide the app, screenshot the primary monitor (the one we capture),
+/// then cover it fullscreen. Returns the screenshot so the selector draws on the real desktop
+/// (the main window isn't transparent, so without this the user saw the app's own background).
 #[tauri::command]
-pub fn enter_region_mode(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("main") {
-        window.set_fullscreen(true).map_err(|e| e.to_string())?;
-        window.set_always_on_top(true).map_err(|e| e.to_string())?;
-        window.set_decorations(false).map_err(|e| e.to_string())?;
+pub async fn enter_region_mode(app: tauri::AppHandle) -> Result<String, String> {
+    let window = app.get_webview_window("main").ok_or("No main window")?;
+    window.hide().map_err(|e| e.to_string())?;
+    let shot = tauri::async_runtime::spawn_blocking(|| {
+        std::thread::sleep(std::time::Duration::from_millis(250)); // let the hide animation finish
+        region::capture_screen_png()
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if let Some(m) = app.primary_monitor().map_err(|e| e.to_string())? {
+        let _ = window.set_position(*m.position());
     }
-    Ok(())
+    window.set_decorations(false).map_err(|e| e.to_string())?;
+    window.set_fullscreen(true).map_err(|e| e.to_string())?;
+    window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    window.show().map_err(|e| e.to_string())?;
+    let _ = window.set_focus();
+    Ok(shot)
+}
+
+/// Bring the window chosen for Window mode to the front before recording starts.
+#[tauri::command]
+pub fn focus_window(hwnd: isize) {
+    region::focus_window(hwnd);
 }
 
 /// Exit region selection mode: restore window

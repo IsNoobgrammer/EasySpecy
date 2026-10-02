@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
-import { RegionSelector } from "./RegionSelector";
+import { RegionSelector, WindowPicker } from "./RegionSelector";
 import { Footer } from "./StatusBar";
 import { useRecordingContextMenu } from "./ContextMenu";
 
@@ -220,7 +220,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     config, recordingPhase, isPaused, recordingStartTime, lastRecording, history,
     startRecording, stopRecording, pauseRecording, resumeRecording,
     openPath, updateField, loadHistory, clearHistory, loadEstimatedSize,
-    selectorMode, setCaptureRegion, setSelectorMode,
+    selectorMode, setCaptureRegion, setSelectorMode, regionShot, windows, recordWindow,
     encodingProgress, encodingStage, estimatedMbPerMin,
     pausedMs, pauseStartTime,
   } = useStore();
@@ -265,7 +265,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
   const audioValue = config?.audio_enabled
     ? config.audio_source === "Both" ? "M+S" : config.audio_source === "System" ? "SYS" : "MIC"
     : "OFF";
-  const modeValue = config?.recording_mode === "FullScreen" ? "FULL" : "REGION";
+  const modeValue = config?.recording_mode === "Window" ? "WINDOW" : config?.recording_mode === "Region" ? "REGION" : "FULL";
   const encoderValue = config?.video_encoder || "H265";
   const qualityValue = config?.video_quality || "Medium";
 
@@ -556,6 +556,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
             options={[
               { label: "FULLSCREEN", value: "FullScreen" },
               { label: "REGION SELECT", value: "Region" },
+              { label: "WINDOW", value: "Window" },
             ]}
             onSelect={(v) => updateField("recording_mode", v)}
           />
@@ -602,7 +603,15 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
       <AnimatePresence>
         {selectorMode === "region" && (
           <RegionSelector
+            shot={regionShot}
             onComplete={(region) => setCaptureRegion(region)}
+            onCancel={() => setSelectorMode("none")}
+          />
+        )}
+        {selectorMode === "window" && (
+          <WindowPicker
+            windows={windows}
+            onPick={(i) => recordWindow(windows[i])}
             onCancel={() => setSelectorMode("none")}
           />
         )}

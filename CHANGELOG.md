@@ -7,7 +7,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security
+- **Passwords no longer appear in the keyboard overlay** — Keys typed into a password field show as `•`. This covers browser `<input type="password">`, Win32 password edits and UWP PasswordBox, detected via UI Automation `IsPassword`. A focus-changed handler switches on Chromium/Electron accessibility up front, so the first keystrokes aren't missed. Shortcuts and Enter/Tab/Backspace stay visible.
+
+### Added
+- **Window recording** — Pick an open window from a list. The screen is cropped to the window's visible bounds (DWM extended frame, no invisible border), so the webcam, trail and keyboard overlays stay in the recording.
+
 ### Fixed
+- **Region selector showed the app instead of the desktop** — It now takes a screenshot first and selects on top of it, on the primary monitor (the one being captured).
+- **Region crop wrong on scaled displays** — CSS px are now converted to physical px.
+- **Odd region sizes failed the encode** — Regions are clamped to the frame and rounded to even sizes.
+- **Full-screen recordings stayed cropped after a region recording** — The region is now cleared, and is only applied in Region/Window mode.
+- **A capture error lost the whole recording** — Stop now works after a capture-thread error. The in-flight segment and audio are salvaged, and the UI auto-stops and saves.
+- **A failed start left things behind** — Cursors, the keyboard hook and the overlay were left in place, and the next start reported "already in progress".
+- **Concurrent starts** — The session is claimed atomically.
+- **Tray stuck on "recording" when stop failed.**
+- **Re-encode path output 25 fps** — It now uses the configured FPS.
 - **"Capture failed to start" on Windows 10 / older GPUs (#2)** — The live capture encoder was hardcoded to HEVC, which isn't available on GPUs like Intel HD 4000 / GT 630M or on stock Windows 10 (`0xC00D5212`). Live capture now uses H.264 unless an H.265 output is selected, and it falls back to H.264 automatically if HEVC can't be created.
 
 - **End of recording chopped off** — When system audio was shorter than the video (nothing playing near the end), `-shortest` trimmed the video to the audio length. 143 s recordings lost about 9 s. Audio is now padded to the video length.

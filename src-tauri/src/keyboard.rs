@@ -350,6 +350,7 @@ fn run_worker(
     let alt = lalt || ralt;
     let win = lwin || rwin;
     tracing::info!("Keyboard worker thread started (initial modifiers: shift={}, ctrl={}, alt={}, win={})", shift, ctrl, alt, win);
+    let password_probe = PasswordProbe::new();
 
     while running.load(Ordering::Relaxed) {
         // Poll all events currently in the lock-free queue
@@ -377,7 +378,13 @@ fn run_worker(
             let win = lwin || rwin;
 
             if is_down {
-                let key = vk_to_name(vk);
+                // Never show what's typed into a password field — only that a key was pressed.
+                // Shortcuts (Ctrl/Alt/Win combos) and editing keys stay visible: they reveal nothing.
+                let key = if is_secret_char(vk) && !ctrl && !alt && !win && password_probe.focused_is_password() {
+                    "•".to_string()
+                } else {
+                    vk_to_name(vk)
+                };
                 let st = *start_time.lock().unwrap();
                 let timestamp_ms = if raw_event.timestamp >= st {
                     raw_event.timestamp.duration_since(st).as_millis() as f64
@@ -426,6 +433,90 @@ fn run_worker(
     }
 
     tracing::info!("Keyboard worker thread stopped");
+}
+
+/// Keys whose identity would leak password characters: letters, digits, punctuation, numpad, space.
+#[cfg(target_os = "windows")]
+fn is_secret_char(vk: u32) -> bool {
+    matches!(vk, 0x20 | 0x30..=0x39 | 0x41..=0x5A | 0x60..=0x6F | 0xBA..=0xC0 | 0xDB..=0xDE | 0xE2)
+}
+
+/// Is the focused control a password field? Browsers expose `<input type="password">` as
+/// UIA IsPassword, as do Win32 ES_PASSWORD edits and UWP PasswordBox.
+///
+/// A focus-changed handler is registered for the whole capture: it (1) makes Chromium/Electron
+/// switch on their accessibility tree up front — they build it lazily, so a bare query on the
+/// first keystrokes returned stale/empty focus and leaked characters — and (2) caches the
+/// answer the moment focus moves. Keys are masked if the cache OR a live query says password:
+/// over-masking is harmless, under-masking leaks a password.
+#[cfg(target_os = "windows")]
+static FOCUS_IS_PASSWORD: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "windows")]
+#[windows::core::implement(windows::Win32::UI::Accessibility::IUIAutomationFocusChangedEventHandler)]
+struct FocusHandler;
+
+#[cfg(target_os = "windows")]
+impl windows::Win32::UI::Accessibility::IUIAutomationFocusChangedEventHandler_Impl for FocusHandler_Impl {
+    fn HandleFocusChangedEvent(
+        &self,
+        sender: windows::core::Ref<'_, windows::Win32::UI::Accessibility::IUIAutomationElement>,
+    ) -> windows::core::Result<()> {
+        let pw = sender.ok().ok()
+            .and_then(|el| unsafe { el.CurrentIsPassword() }.ok())
+            .map(|b| b.as_bool())
+            .unwrap_or(false);
+        FOCUS_IS_PASSWORD.store(pw, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct PasswordProbe(Option<windows::Win32::UI::Accessibility::IUIAutomation>);
+
+#[cfg(target_os = "windows")]
+impl PasswordProbe {
+    fn new() -> Self {
+        use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
+        use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation, IUIAutomationFocusChangedEventHandler};
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let uia: Option<IUIAutomation> = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok();
+            match &uia {
+                Some(u) => {
+                    let handler: IUIAutomationFocusChangedEventHandler = FocusHandler.into();
+                    if let Err(e) = u.AddFocusChangedEventHandler(None, &handler) {
+                        tracing::warn!("UIA focus handler not registered: {}", e);
+                    }
+                    FOCUS_IS_PASSWORD.store(false, Ordering::Relaxed);
+                }
+                None => tracing::warn!("UI Automation unavailable — password fields can't be detected"),
+            }
+            Self(uia)
+        }
+    }
+
+    fn focused_is_password(&self) -> bool {
+        if FOCUS_IS_PASSWORD.load(Ordering::Relaxed) {
+            return true;
+        }
+        let Some(uia) = &self.0 else { return false };
+        unsafe {
+            uia.GetFocusedElement()
+                .and_then(|el| el.CurrentIsPassword())
+                .map(|b| b.as_bool())
+                .unwrap_or(false)
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for PasswordProbe {
+    fn drop(&mut self) {
+        if let Some(u) = &self.0 {
+            unsafe { let _ = u.RemoveAllEventHandlers(); }
+        }
+    }
 }
 
 /// Convert Windows virtual key code to human-readable name

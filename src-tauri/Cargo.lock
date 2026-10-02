@@ -1426,12 +1426,10 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "cpal",
- "crc32fast",
  "dirs",
  "font8x8",
  "hound",
  "image",
- "miniz_oxide",
  "nnnoiseless",
  "nokhwa",
  "pipewire",
@@ -1454,6 +1452,7 @@ dependencies = [
  "uuid",
  "windows 0.62.2",
  "windows-capture",
+ "windows-core 0.62.2",
  "zip 2.4.2",
 ]
 
