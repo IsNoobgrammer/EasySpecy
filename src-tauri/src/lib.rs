@@ -1,7 +1,7 @@
 mod audio;
 pub mod capture;
 mod commands;
-mod config;
+pub mod config;
 pub mod cursors;
 mod history;
 mod keyboard;

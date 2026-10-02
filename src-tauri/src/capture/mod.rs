@@ -101,7 +101,7 @@ fn new_live_encoder(width: u32, height: u32, path: &str, want_hevc: bool) -> Res
     let make = |sub| VideoEncoder::new(
         VideoSettingsBuilder::new(width, height)
             .sub_type(sub)
-            .bitrate(config.effective_bitrate_kbps().max(1000) * 1000)
+            .bitrate(config.live_bitrate_kbps() * 1000)
             .frame_rate(config.fps.max(1)),
         AudioSettingsBuilder::default().disabled(true),
         ContainerSettingsBuilder::default(),
@@ -777,12 +777,22 @@ pub fn probe_live_encoders() -> (bool, bool) {
 const SILENT_AUDIO: &str = "anullsrc=r=48000:cl=stereo";
 
 fn encode_final(segments: &[String], duration_ms: f64, audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool) -> Result<(), String> {
+    let config = crate::config::AppConfig::load();
+    encode_final_with(&config, CAPTURED_HEVC.load(Ordering::SeqCst), segments, duration_ms, audio, output, crop, allow_copy)
+}
+
+/// The final pass with explicit settings — what stop_recording runs, exposed so the
+/// post-processing benchmark (examples/bench_post.rs) measures this exact code.
+#[allow(clippy::too_many_arguments)]
+pub fn encode_final_with(
+    config: &crate::config::AppConfig, captured_hevc: bool, segments: &[String], duration_ms: f64,
+    audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool,
+) -> Result<(), String> {
     use crate::config::VideoEncoder as Enc;
     let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
-    let config = crate::config::AppConfig::load();
     let target = config.effective_video_encoder();
 
-    let hevc = CAPTURED_HEVC.load(Ordering::SeqCst);
+    let hevc = captured_hevc;
     let codec_matches = match target {
         Enc::H264 | Enc::H264_NVENC | Enc::MobileShareable => !hevc,
         Enc::H265 | Enc::H265_NVENC => hevc,
@@ -799,6 +809,7 @@ fn encode_final(segments: &[String], duration_ms: f64, audio: Option<&str>, outp
     } else {
         // Pause/resume segments: concat demuxer stitches them inside this same run
         let list = std::env::temp_dir().join("easyspecy").join("concat_list.txt");
+        let _ = std::fs::create_dir_all(list.parent().unwrap());
         let body: String = segments.iter().map(|p| format!("file '{}'\n", p.replace('\\', "/"))).collect();
         std::fs::write(&list, body).map_err(|e| format!("Concat list write failed: {}", e))?;
         args.extend(["-f".into(), "concat".into(), "-safe".into(), "0".into(), "-i".into(), list.to_string_lossy().into_owned()]);

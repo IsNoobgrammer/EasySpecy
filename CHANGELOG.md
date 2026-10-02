@@ -13,12 +13,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Encoder scan** (Settings → Video) — Benchmarks every encoder on a 1080p clip. It reports live-capture H.264/HEVC support and, per FFmpeg encoder, works or not, speed (fps) and peak RAM. The encoder pickers then list only working encoders, mark which ones save instantly (stream copy) versus re-encode, and suggest a default.
 
 ### Changed
+- **Faster re-encodes** — Measured per minute of 1080p30 screen video:
+  - AV1 preset 6 → 10: 38.7 s → 23.0 s, same size.
+  - VP9 good/4 → realtime/8: 80.6 s → 12.9 s, ~30% larger.
+  - Region crop x264/x265 fast → veryfast: 8.6 s → 6.3 s, and smaller.
+- **Post-processing benchmark** — `examples/bench_post.rs` runs the real final pass (`encode_final_with`) over prepared intermediates, so the whole fps × encoder × duration matrix runs without re-recording.
 - **Dashboard** — 4 presets (Mode, Frame rate, Encoder, Quality) instead of 6. The no-op Resolution card is gone, and Audio moved into the new panel. The header shows the capture mode instead of the unused config resolution.
 - **Settings → Video** — Resolution shows the real native capture size. The GPU toggle and hard-coded encoder list are replaced by the scan-driven picker (choosing NVENC turns GPU encoding on automatically).
 - **Lower memory while recording** — The hidden main window's WebView is set to `MemoryUsageTargetLevel = Low` (renderer 105 → 57 MB). Audio buffers are only reserved for sources that are recorded.
 - **Capture uses BGRA** (the DWM-native format) instead of RGBA.
 
 ### Fixed
+- **Live bitrate was sized from the Resolution setting** — Output isn't scaled, so a 1280×720 setting starved 1080p captures to 44% of their bitrate. Bitrate now follows the real captured size.
+- **Live encoder over-sized files** — It's constant-bitrate, and used a table meant for CRF encoding: "High" 1080p30 was 15 Mbps ≈ 112 MB/min. A screen-content table (bits per pixel per frame; 60 fps ≈ 1.5×, not 2×) gives ~5 Mbps ≈ 35 MB/min (verified on a real recording: 4,933 kb/s). The dashboard size estimate uses the same numbers.
+- **Pause/resume concat could fail** — The concat list was written before its folder was guaranteed to exist.
 - **"Capture stopped unexpectedly (0xC00D4A44)" on a fast pause → resume → pause** — The second pause tried to finalise a segment that had received no frames. That error killed the capture and cost the last seconds. Empty segments are now kept for the next resume, a segment that fails to finalise no longer stops the recording, and pause cancels a pending resume. Before, capture could resume by itself while the UI showed "paused".
 
 ### Changed

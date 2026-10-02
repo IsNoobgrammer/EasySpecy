@@ -321,6 +321,28 @@ impl AppConfig {
         }
     }
 
+    /// Bitrate for the live (Media Foundation, constant-bitrate) encoder. Screen content is
+    /// mostly static, so this is sized in bits per pixel per frame rather than the FFmpeg table
+    /// (which assumed CRF). That table put "High" 1080p30 at 15 Mbps ≈ 112 MB/min; this is
+    /// ~5 Mbps ≈ 37 MB/min. 60 fps gets ~1.5×, not 2×: consecutive screen frames barely differ.
+    pub fn live_bitrate_kbps(&self) -> u32 {
+        if self.video_quality == VideoQuality::Custom {
+            return self.video_bitrate_kbps.max(500);
+        }
+        let bpp = match self.video_quality {
+            VideoQuality::Insane | VideoQuality::Low => 0.03,
+            VideoQuality::Medium => 0.05,
+            VideoQuality::High => 0.08,
+            VideoQuality::Ultra | VideoQuality::Custom => 0.12,
+        };
+        let codec = match self.effective_video_encoder() {
+            VideoEncoder::H265 | VideoEncoder::H265_NVENC => 0.75, // HEVC: same quality, fewer bits
+            _ => 1.0,
+        };
+        let fps_eff = 30.0 * (self.fps.max(1) as f64 / 30.0).powf(0.6);
+        ((captured_pixels(self) * fps_eff * bpp * codec / 1000.0) as u32).max(800)
+    }
+
     /// Get the effective bitrate in kbps based on quality preset
     pub fn effective_bitrate_kbps(&self) -> u32 {
         match self.video_quality {
@@ -360,8 +382,9 @@ impl AppConfig {
                     (_, VideoQuality::Custom) => self.video_bitrate_kbps,
                 };
                 // Scale by resolution and fps
-                let res_factor = (self.resolution_width * self.resolution_height) as f64
-                    / (1920.0 * 1080.0);
+                // Scale by what's actually captured (native screen), not resolution_width/height:
+                // output isn't scaled, so a 1280×720 setting starved 1080p captures to 44% bitrate.
+                let res_factor = captured_pixels(self) / (1920.0 * 1080.0);
                 let fps_factor = self.fps as f64 / 30.0;
                 (base as f64 * res_factor * fps_factor) as u32
             }
@@ -370,7 +393,11 @@ impl AppConfig {
 
     /// Estimated file size per minute in MB
     pub fn estimated_mb_per_minute(&self) -> f64 {
-        let video_kbps = self.effective_bitrate_kbps() as f64;
+        // Instant-save codecs keep the live encoder's stream, so its bitrate is the file size
+        let video_kbps = match self.effective_video_encoder() {
+            VideoEncoder::AV1 | VideoEncoder::AV1_NVENC | VideoEncoder::VP9 => self.effective_bitrate_kbps(),
+            _ => self.live_bitrate_kbps(),
+        } as f64;
         let audio_kbps = if self.audio_enabled { 192.0 } else { 0.0 };
         let total_kbps = video_kbps + audio_kbps;
         // kbps * 60s / 8 bits / 1024 = MB per minute
@@ -445,10 +472,11 @@ impl AppConfig {
             VideoEncoder::AV1 => {
                 // SVT-AV1 specific: preset 6 is good speed/quality balance for screen content
                 // tune=0 is default (PSNR), film-grain=0 for screen content
+                // preset 10: 38.7 s → 23.0 s per minute of 1080p30 screen video, same size
                 vec![
-                    "-preset".into(), "6".into(),
+                    "-preset".into(), "10".into(),
                     "-svtav1-params".into(),
-                    "tune=0:film-grain=0:enable-overlays=1:scd=1".into(),
+                    "tune=0:film-grain=0:scd=1".into(),
                 ]
             }
             VideoEncoder::AV1_NVENC => {
@@ -465,13 +493,46 @@ impl AppConfig {
                     "-rc".into(), "constqp".into(),
                 ]
             }
-            VideoEncoder::H264 | VideoEncoder::MobileShareable => vec!["-preset".into(), "fast".into()],
-            VideoEncoder::H265 => vec!["-preset".into(), "fast".into()],
+            // veryfast: crop re-encode 8.6 s → 6.3 s per minute, and smaller at the same CRF
+            VideoEncoder::H264 | VideoEncoder::MobileShareable => vec!["-preset".into(), "veryfast".into()],
+            VideoEncoder::H265 => vec!["-preset".into(), "veryfast".into()],
+            // realtime/8: 80.6 s → 12.9 s per minute (6×) for ~30% larger files
             VideoEncoder::VP9 => vec![
-                "-deadline".into(), "good".into(),
-                "-cpu-used".into(), "4".into(),
+                "-deadline".into(), "realtime".into(),
+                "-cpu-used".into(), "8".into(),
                 "-row-mt".into(), "1".into(),
+                "-tile-columns".into(), "2".into(),
             ],
         }
+    }
+}
+
+/// Pixels per captured frame: the primary monitor in physical pixels (the app is DPI-aware).
+fn captured_pixels(cfg: &AppConfig) -> f64 {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
+        let (w, h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+        if w > 0 && h > 0 {
+            return (w as f64) * (h as f64);
+        }
+    }
+    (cfg.resolution_width * cfg.resolution_height) as f64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn live_bitrate_is_screen_sized() {
+        let c = AppConfig { video_quality: VideoQuality::High, fps: 30, video_encoder: VideoEncoder::H264, ..AppConfig::default() };
+        let px = captured_pixels(&c);
+        let kbps = c.live_bitrate_kbps() as f64;
+        assert!((kbps - px * 30.0 * 0.08 / 1000.0).abs() < 2.0, "{kbps}");
+        let c60 = AppConfig { fps: 60, ..c.clone() };
+        let r = c60.live_bitrate_kbps() as f64 / kbps;
+        assert!(r > 1.45 && r < 1.6, "60 fps should be ~1.5x, got {r}");
+        let hevc = AppConfig { video_encoder: VideoEncoder::H265, ..c.clone() };
+        assert!(hevc.live_bitrate_kbps() < c.live_bitrate_kbps());
     }
 }
