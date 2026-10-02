@@ -43,7 +43,6 @@ export default function App() {
   const loadHistory = useStore((s) => s.loadHistory);
   const recordingPhase = useStore((s) => s.recordingPhase);
   const config = useStore((s) => s.config);
-  const audioLevels = useStore((s) => s.audioLevels);
   const startAudioMonitor = useStore((s) => s.startAudioMonitor);
   const stopAudioMonitor = useStore((s) => s.stopAudioMonitor);
   const pollAudioLevels = useStore((s) => s.pollAudioLevels);
@@ -199,17 +198,26 @@ export default function App() {
     return () => { stopAudioMonitor(); };
   }, []);
 
-  // Poll audio levels at ~20Hz — global so sidebar meter works everywhere
+  // Poll audio levels at ~20Hz for the meters — only while the window is visible and audio is
+  // on (it used to run while hidden in the tray, all recording long).
+  const audioEnabled = config?.audio_enabled ?? false;
   useEffect(() => {
-    const interval = setInterval(pollAudioLevels, 50);
+    if (!audioEnabled) return;
+    const interval = setInterval(() => { if (!document.hidden) pollAudioLevels(); }, 50);
     return () => clearInterval(interval);
-  }, [pollAudioLevels]);
+  }, [pollAudioLevels, audioEnabled]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
-  const isRecording = recordingPhase === "recording";
+  // Header status follows every phase (it said "System Ready" while a recording was saving)
+  const status = {
+    idle: { label: "System Ready", color: "var(--accent-primary)" },
+    starting: { label: "Starting…", color: "var(--accent-info)" },
+    recording: { label: "Recording", color: "var(--accent-record)" },
+    encoding: { label: "Saving…", color: "var(--accent-info)" },
+  }[recordingPhase];
   const appContextMenu = useAppContextMenu(setPage);
 
   // Disable browser default context menu (right-click)
@@ -241,7 +249,7 @@ export default function App() {
         <div className="px-4 mb-2">
           <motion.button
             onClick={() => { setPage("dashboard"); useStore.getState().startRecording(); }}
-            disabled={isRecording}
+            disabled={recordingPhase !== "idle"} // was only blocked while recording: clicking during encode started a new capture mid-save
             className="w-full px-4 py-2 font-mono text-[13px] font-medium flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: "var(--accent-primary-container, #00e88a)", color: "var(--on-primary-container, #006338)", borderRadius: "4px" }}
             whileHover={{ filter: "brightness(1.1)" }}
@@ -266,7 +274,6 @@ export default function App() {
             <SidebarStats
               audioSource={config?.audio_source || "Mic"}
               audioEnabled={config?.audio_enabled || false}
-              levels={audioLevels}
             />
           </div>
           <motion.div
@@ -289,14 +296,14 @@ export default function App() {
             <span className="font-mono text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>v{version}</span>
             <div className="h-3 w-px" style={{ background: "var(--border-default)" }} />
             <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full" style={{ background: isRecording ? "var(--accent-record)" : "var(--accent-primary)", boxShadow: isRecording ? "0 0 8px rgba(240,64,64,0.6)" : "0 0 8px rgba(133,255,180,0.6)" }} />
-              <span className="font-mono text-[13px] font-medium uppercase" style={{ color: isRecording ? "var(--accent-record)" : "var(--accent-primary)" }}>
-                {isRecording ? "Recording" : "System Ready"}
+              <span className="w-2 h-2 rounded-full" style={{ background: status.color, boxShadow: `0 0 8px ${status.color}` }} />
+              <span className="font-mono text-[13px] font-medium uppercase" style={{ color: status.color }} role="status">
+                {status.label}
               </span>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button className="cursor-pointer" style={{ color: "var(--text-secondary)" }} onClick={() => setPage("settings")}>
+            <button className="cursor-pointer" style={{ color: "var(--text-secondary)" }} onClick={() => setPage("settings")} aria-label="Settings" title="Settings">
               <Icon name="settings" size={18} />
             </button>
           </div>
@@ -312,11 +319,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* ═══ BACKGROUND AURORA — exact Stitch ═══ */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute rounded-full" style={{ top: "-10%", right: "-10%", width: "40%", height: "40%", background: "rgba(133,255,180,0.05)", filter: "blur(120px)" }} />
-        <div className="absolute rounded-full" style={{ bottom: "-10%", left: "-10%", width: "30%", height: "30%", background: "rgba(192,193,255,0.05)", filter: "blur(100px)" }} />
-      </div>
+      {/* ═══ BACKGROUND AURORA — radial gradients: same glow as blur(120px) at zero GPU cost ═══ */}
+      <div className="fixed inset-0 pointer-events-none z-0" style={{
+        background: "radial-gradient(40% 40% at 85% 5%, rgba(133,255,180,0.05), transparent 70%), radial-gradient(30% 30% at 10% 95%, rgba(192,193,255,0.05), transparent 70%)",
+      }} />
 
       {/* ═══ UPDATE MODAL ═══ */}
       {updateAvailable && (
@@ -438,9 +444,12 @@ export default function App() {
 
 function NavItem({ icon, label, active, onClick }: { icon: string; label: string; active: boolean; onClick: () => void }) {
   return (
-    <motion.div
+    // A real button: the clickable div wasn't reachable by Tab or visible to screen readers
+    <motion.button
+      type="button"
       onClick={onClick}
-      className="flex items-center gap-4 px-4 py-2 cursor-pointer transition-all duration-150"
+      aria-current={active ? "page" : undefined}
+      className="w-full text-left flex items-center gap-4 px-4 py-2 cursor-pointer transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
       style={{
         background: active ? "var(--surface-variant, #323440)" : "transparent",
         color: active ? "var(--accent-primary)" : "var(--text-secondary)",
@@ -450,6 +459,6 @@ function NavItem({ icon, label, active, onClick }: { icon: string; label: string
     >
       <Icon name={icon} size={18} />
       <span className="font-mono text-[13px] font-medium">{label}</span>
-    </motion.div>
+    </motion.button>
   );
 }

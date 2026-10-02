@@ -147,29 +147,24 @@ export class TrailRenderer {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Multi-layer glow: outer diffuse → mid → core
+    // Multi-pass vector glow — same layers as public/overlay.html (Rule 4). No ctx.filter
+    // blur: that was 3 GPU blur passes per frame in a preview loop that never stopped.
     const velFactor = Math.min(1, this.velocity / 15);
     const layers = [
-      { width: 28, alpha: 0.035, blur: 12 },
-      { width: 16, alpha: 0.08, blur: 6 },
-      { width: 8, alpha: 0.25, blur: 2 },
-      { width: 3, alpha: 0.9, blur: 0 },
+      { width: 32, alpha: 0.015 },
+      { width: 24, alpha: 0.03 },
+      { width: 16, alpha: 0.06 },
+      { width: 10, alpha: 0.15 },
+      { width: 5, alpha: 0.4 },
+      { width: 2, alpha: 0.9 },
     ];
 
     for (const layer of layers) {
-      ctx.save();
-      if (layer.blur > 0) {
-        ctx.filter = `blur(${layer.blur}px)`;
-      }
-
-      const w = layer.width * (0.6 + velFactor * 0.4);
-
       ctx.beginPath();
       drawSmoothPath(ctx, pts);
       ctx.strokeStyle = rgba(this.color, layer.alpha);
-      ctx.lineWidth = w;
+      ctx.lineWidth = layer.width * (0.6 + velFactor * 0.4);
       ctx.stroke();
-      ctx.restore();
     }
 
     // Head glow — pulsing radial
@@ -263,17 +258,17 @@ export class TrailRenderer {
     if (pts.length < 3) return;
     ctx.save();
 
-    // Layered ribbon: wide translucent → narrow opaque → thin highlight
+    // Layered ribbon — same passes as public/overlay.html (Rule 4), no blur filter
     const layers = [
-      { width: 18, alpha: 0.04, blur: 4 },
-      { width: 10, alpha: 0.12, blur: 1 },
-      { width: 4, alpha: 0.35, blur: 0 },
-      { width: 1.5, alpha: 0.7, blur: 0 },
+      { width: 22, alpha: 0.02 },
+      { width: 14, alpha: 0.06 },
+      { width: 8, alpha: 0.15 },
+      { width: 4, alpha: 0.35 },
+      { width: 1.5, alpha: 0.7 },
     ];
 
     for (const layer of layers) {
       ctx.save();
-      if (layer.blur > 0) ctx.filter = `blur(${layer.blur}px)`;
       ctx.beginPath();
       drawSmoothPath(ctx, pts);
       ctx.strokeStyle = rgba(this.color, layer.alpha);
@@ -680,7 +675,21 @@ export class ClickEffectRenderer {
 
 // ─── Background Grid (for preview canvases) ─────────────────────
 
+let bgCache: { w: number; h: number; canvas: HTMLCanvasElement } | null = null;
+
+/** Static backdrop — rendered once per size and blitted (was ~400 arcs every frame). */
 export function drawPreviewBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  if (!bgCache || bgCache.w !== w || bgCache.h !== h) {
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    paintPreviewBackground(canvas.getContext("2d")!, w, h);
+    bgCache = { w, h, canvas };
+  }
+  ctx.drawImage(bgCache.canvas, 0, 0);
+}
+
+function paintPreviewBackground(ctx: CanvasRenderingContext2D, w: number, h: number) {
   // Subtle dot grid
   ctx.fillStyle = "rgba(255,255,255,0.025)";
   for (let x = 0; x < w; x += 16) {

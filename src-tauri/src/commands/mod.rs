@@ -429,7 +429,7 @@ pub async fn stop_recording(app: tauri::AppHandle) -> Result<capture::RecordingR
         duration_secs: result.duration_secs,
         file_size_bytes: result.file_size_bytes,
         has_audio: result.has_audio,
-        resolution: format!("{}x{}", config.resolution_width, config.resolution_height),
+        resolution: format!("{}x{}", result.width, result.height),
         fps: config.fps,
         created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
     };

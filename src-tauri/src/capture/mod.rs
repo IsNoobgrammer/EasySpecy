@@ -36,6 +36,9 @@ pub struct RecordingResult {
     pub frame_count: u32,
     pub file_size_bytes: u64,
     pub has_audio: bool,
+    /// Actual output size (crop applied) — history used to show the config resolution
+    pub width: i32,
+    pub height: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -713,9 +716,14 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
     set_encoding_progress(100, "Complete");
 
     tracing::info!("Recording ready: {}", output_path);
+    // Read once: two `.lock()` temporaries in one struct literal deadlocked (guards live to
+    // the end of the statement, std Mutex isn't re-entrant).
+    let (cap_w, cap_h) = *CAPTURE_SIZE.lock().unwrap();
 
     Ok(RecordingResult {
         output_path,
+        width: region.as_ref().map_or(cap_w, |r| r.width),
+        height: region.as_ref().map_or(cap_h, |r| r.height),
         duration_secs: duration,
         frame_count,
         file_size_bytes: file_size,

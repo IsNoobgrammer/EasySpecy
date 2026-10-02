@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, type RecordingEntry } from "../stores/recording";
 import { RegionSelector, WindowPicker } from "./RegionSelector";
@@ -216,14 +217,12 @@ function HistoryPanel({ entries, onOpen, onClear }: {
 
 // ═══ MAIN DASHBOARD ═══
 export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings: () => void }) {
+  // Shallow-select what this page uses — a bare useStore() re-rendered it on every meter poll
   const {
-    config, recordingPhase, isPaused, recordingStartTime, lastRecording, history,
-    startRecording, stopRecording, pauseRecording, resumeRecording,
-    openPath, updateField, loadHistory, clearHistory, loadEstimatedSize,
-    selectorMode, setCaptureRegion, setSelectorMode, regionShot, windows, recordWindow,
-    encodingProgress, encodingStage, estimatedMbPerMin,
-    pausedMs, pauseStartTime,
-  } = useStore();
+    config, recordingPhase, isPaused, recordingStartTime, lastRecording, history, startRecording, stopRecording, pauseRecording, resumeRecording, openPath, updateField, loadHistory, clearHistory, loadEstimatedSize, selectorMode, setCaptureRegion, setSelectorMode, regionShot, windows, recordWindow, encodingProgress, encodingStage, estimatedMbPerMin, pausedMs, pauseStartTime,
+  } = useStore(useShallow((s) => ({
+    config: s.config, recordingPhase: s.recordingPhase, isPaused: s.isPaused, recordingStartTime: s.recordingStartTime, lastRecording: s.lastRecording, history: s.history, startRecording: s.startRecording, stopRecording: s.stopRecording, pauseRecording: s.pauseRecording, resumeRecording: s.resumeRecording, openPath: s.openPath, updateField: s.updateField, loadHistory: s.loadHistory, clearHistory: s.clearHistory, loadEstimatedSize: s.loadEstimatedSize, selectorMode: s.selectorMode, setCaptureRegion: s.setCaptureRegion, setSelectorMode: s.setSelectorMode, regionShot: s.regionShot, windows: s.windows, recordWindow: s.recordWindow, encodingProgress: s.encodingProgress, encodingStage: s.encodingStage, estimatedMbPerMin: s.estimatedMbPerMin, pausedMs: s.pausedMs, pauseStartTime: s.pauseStartTime,
+  })));
 
   const [elapsed, setElapsed] = useState("00:00:00");
   const [pauseElapsed, setPauseElapsed] = useState("00:00:00");
@@ -259,6 +258,7 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
   const isRecording = recordingPhase === "recording";
   const isEncoding = recordingPhase === "encoding";
   const isIdle = recordingPhase === "idle";
+  const isStarting = recordingPhase === "starting";
 
   const resValue = config ? `${config.resolution_width}×${config.resolution_height}` : "1920×1080";
   const fpsValue = config ? `${config.fps}` : "30";
@@ -281,13 +281,9 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
     >
       {/* ═══ RECORDING ATMOSPHERE (red aurora shift) ═══ */}
       {isRecording && !isPaused && (
-        <div className="fixed inset-0 pointer-events-none z-0" style={{ opacity: 0.6 }}>
-          <div className="absolute rounded-full" style={{
-            top: "-10%", right: "-10%", width: "40%", height: "40%",
-            background: "oklch(0.64 0.20 25 / 0.04)",
-            filter: "blur(120px)",
-          }} />
-        </div>
+        <div className="fixed inset-0 pointer-events-none z-0" style={{
+          background: "radial-gradient(40% 40% at 85% 5%, oklch(0.64 0.20 25 / 0.05), transparent 70%)",
+        }} />
       )}
       {/* ═══ TOP BAR (minimal — nav is in sidebar) ═══ */}
       <header className="flex items-center justify-between px-6 py-2.5" style={{ borderBottom: "var(--border-thin) solid var(--border-default)" }}>
@@ -313,7 +309,8 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
       </header>
 
       {/* ═══ MAIN CONTENT ═══ */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6 overflow-y-auto py-4">
+      {/* "safe center": plain centring pushed overflowing content above the scroll origin, out of reach */}
+      <div className="flex-1 flex flex-col items-center gap-5 px-6 overflow-y-auto py-4" style={{ justifyContent: "safe center" }}>
 
         {/* Recording Timer */}
         <AnimatePresence>
@@ -403,35 +400,13 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
           )}
         </AnimatePresence>
 
-        {/* Last Recording */}
-        <AnimatePresence>
-          {lastRecording && isIdle && (
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 16 }}
-              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-              onClick={() => openPath(lastRecording.output_path)}
-              className="flex items-center gap-4 px-5 py-3.5 cursor-pointer w-full max-w-md group shadow-md"
-              style={{ border: "var(--border-width) solid var(--accent-success)", background: "var(--bg-surface)", borderRadius: "var(--radius-md)" }}
-              whileHover={{ y: -2, borderColor: "var(--accent-info)", boxShadow: "var(--shadow-lg)" }}
-            >
-              <motion.div className="font-mono text-lg font-bold" style={{ color: "var(--accent-success)" }} initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: "spring", stiffness: 400, damping: 15 }}>✓</motion.div>
-              <div className="flex-1 min-w-0">
-                <div className="font-mono text-xs font-bold" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
-                  {lastRecording.duration_secs.toFixed(1)}s · {formatBytes(lastRecording.file_size_bytes)} · {lastRecording.has_audio ? "VIDEO+AUDIO" : "VIDEO"}
-                </div>
-                <div className="text-[10px] truncate mt-1 font-mono" style={{ color: "var(--text-muted)" }}>{normalizePath(lastRecording.output_path)}</div>
-              </div>
-              <motion.span className="font-mono text-[10px] font-bold uppercase" style={{ color: "var(--accent-info)" }} whileHover={{ x: 3 }}>OPEN →</motion.span>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* ═══ RECORD BUTTON ═══ */}
         <motion.button
           onClick={isRecording ? stopRecording : isIdle ? startRecording : undefined}
-          disabled={isEncoding}
+          disabled={isEncoding || isStarting}
+          aria-label={isRecording ? "Stop recording" : isStarting ? "Starting recording" : isEncoding ? "Saving recording" : "Start recording"}
+          aria-busy={isStarting || isEncoding}
           className="relative flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           style={{
             width: 110, height: 110,
@@ -439,25 +414,26 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
             background: "var(--bg-surface)",
             borderRadius: "var(--radius-full)",
           }}
-          animate={isRecording ? "breathe" : ""}
-          variants={{
-            breathe: {
-              boxShadow: [
-                "0 0 12px var(--accent-record-glow), inset 0 0 8px var(--accent-record-glow)",
-                "0 0 28px var(--accent-record-glow), inset 0 0 16px var(--accent-record-glow)",
-                "0 0 12px var(--accent-record-glow), inset 0 0 8px var(--accent-record-glow)"
-              ],
-              transition: { duration: 2, repeat: Infinity, ease: "easeInOut" }
-            }
-          }}
+
           whileHover={isIdle ? { scale: 1.05, y: -2, boxShadow: "var(--shadow-lg)" } : isRecording ? { scale: 1.03 } : {}}
           whileTap={!isEncoding ? { scale: 0.94 } : {}}
           transition={{ type: "spring", stiffness: 400, damping: 20 }}
         >
+          {/* Recording pulse: static glow ring, only opacity animates (box-shadow keyframes
+              repainted every frame for the whole recording) */}
+          {isRecording && !isPaused && (
+            <motion.span
+              aria-hidden
+              className="absolute inset-[-3px] rounded-full pointer-events-none"
+              style={{ boxShadow: "0 0 28px var(--accent-record-glow), inset 0 0 16px var(--accent-record-glow)" }}
+              animate={{ opacity: [0.35, 1, 0.35] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            />
+          )}
           <AnimatePresence mode="wait">
             {isRecording ? (
               <motion.div key="stop" initial={{ scale: 0, rotate: 90 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0, rotate: -90 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-7 h-7" style={{ background: "var(--accent-record)", borderRadius: "var(--radius-xs)" }} />
-            ) : isEncoding ? (
+            ) : isEncoding || isStarting ? (
               <motion.div key="encoding" animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="w-7 h-7 border-3 border-t-transparent rounded-full" style={{ borderColor: "var(--accent-info)", borderTopColor: "transparent" }} />
             ) : (
               <motion.div key="record" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ type: "spring", stiffness: 500, damping: 25 }} className="w-7 h-7 rounded-full" style={{ background: "var(--accent-primary)" }} />
@@ -480,6 +456,11 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
               </motion.button>
             </motion.div>
           )}
+        </AnimatePresence>
+
+        {/* Last Recording — stays until the next recording, with the actions people want next */}
+        <AnimatePresence>
+          {lastRecording && isIdle && <SavedCard rec={lastRecording} />}
         </AnimatePresence>
 
         {/* ═══ INLINE PRESET CARDS ═══ */}
@@ -628,5 +609,58 @@ function Badge({ text }: { text: string }) {
     >
       {text}
     </motion.span>
+  );
+}
+
+function SavedCard({ rec }: { rec: { output_path: string; duration_secs: number; file_size_bytes: number; has_audio: boolean } }) {
+  const { openPath, revealInExplorer, copyToClipboard, discardLastRecording } = useStore(useShallow((s) => ({
+    openPath: s.openPath, revealInExplorer: s.revealInExplorer, copyToClipboard: s.copyToClipboard, discardLastRecording: s.discardLastRecording,
+  })));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const name = normalizePath(rec.output_path).split(/[\\/]/).pop();
+  const action = "px-3 py-1.5 font-mono text-[10px] font-bold uppercase cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-offset-2";
+  const actionStyle = { border: "var(--border-thin) solid var(--border-default)", borderRadius: "var(--radius-sm)", color: "var(--text-secondary)", letterSpacing: "0.05em" };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      className="w-full max-w-md px-5 py-4 shadow-md"
+      style={{ border: "var(--border-width) solid var(--accent-success)", background: "var(--bg-surface)", borderRadius: "var(--radius-md)" }}
+      role="status"
+      aria-label="Recording saved"
+    >
+      <div className="flex items-center gap-3">
+        <span className="font-mono text-lg font-bold" style={{ color: "var(--accent-success)" }} aria-hidden>✓</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-mono text-xs font-bold" style={{ color: "var(--text-primary)", letterSpacing: "0.03em" }}>
+            Saved · {rec.duration_secs.toFixed(1)}s · {formatBytes(rec.file_size_bytes)}{rec.has_audio ? "" : " · no audio"}
+          </div>
+          <div className="text-[10px] truncate mt-1 font-mono" style={{ color: "var(--text-muted)" }} title={normalizePath(rec.output_path)}>{name}</div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 mt-3">
+        <button className={action} onClick={() => openPath(rec.output_path)}
+          style={{ ...actionStyle, background: "var(--accent-primary)", color: "#003d22", borderColor: "var(--accent-primary)" }}>
+          ▶ Open
+        </button>
+        <button className={`${action} hover:text-[var(--text-primary)]`} style={actionStyle} onClick={() => revealInExplorer(rec.output_path)}>
+          Show in folder
+        </button>
+        <button className={`${action} hover:text-[var(--text-primary)]`} style={actionStyle} onClick={() => copyToClipboard(rec.output_path)}>
+          Copy path
+        </button>
+        <button
+          className={`${action} ml-auto`}
+          style={{ ...actionStyle, color: "var(--accent-danger)", borderColor: confirmDelete ? "var(--accent-danger)" : "var(--border-default)" }}
+          onClick={() => (confirmDelete ? discardLastRecording() : setConfirmDelete(true))}
+          onBlur={() => setConfirmDelete(false)}
+        >
+          {confirmDelete ? "Confirm delete" : "Delete"}
+        </button>
+      </div>
+    </motion.div>
   );
 }

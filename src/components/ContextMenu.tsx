@@ -104,7 +104,6 @@ export function ContextMenuProvider({ children }: { children: React.ReactNode })
               border: "var(--border-thin) solid var(--border-default)",
               borderRadius: "var(--radius-md)",
               boxShadow: "var(--shadow-lg)",
-              backdropFilter: "blur(12px)",
             }}
           >
             {state.items.map((item, i) => {

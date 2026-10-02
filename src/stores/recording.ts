@@ -130,7 +130,9 @@ export interface AudioLevels {
   sysDb: number;
 }
 
-type RecordingPhase = "idle" | "recording" | "encoding";
+// "starting": start_recording can block up to 10 s waiting for frame 0 — everything that
+// could start a second recording is disabled until it resolves.
+type RecordingPhase = "idle" | "starting" | "recording" | "encoding";
 type SelectorMode = "none" | "region" | "window";
 
 export interface WindowInfo { title: string; x: number; y: number; width: number; height: number; hwnd: number; }
@@ -177,6 +179,7 @@ interface AppState {
   openPath: (path: string) => Promise<void>;
   revealInExplorer: (path: string) => Promise<void>;
   copyToClipboard: (text: string) => Promise<void>;
+  discardLastRecording: () => Promise<void>;
   pollEncodingProgress: () => Promise<void>;
   loadEstimatedSize: () => Promise<void>;
   startAudioMonitor: () => Promise<void>;
@@ -191,13 +194,16 @@ const hotkeyId = (k: string) => k.toLowerCase().replace(/\s/g, "");
 /** Start capture and wait until the first frame is armed, then start the UI timer. */
 async function beginCapture(successMsg: string) {
   const { addToast } = useStore.getState();
+  useStore.setState({ recordingPhase: "starting", lastRecording: null });
   try {
-    addToast("Initializing capture...", "info");
     await invoke("start_recording", { outputPath: null }); // blocks until frame 0 + audio armed
     useStore.setState({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
       recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
     addToast(successMsg, "success");
-  } catch (e) { addToast(`Start failed: ${e}`, "error"); }
+  } catch (e) {
+    useStore.setState({ recordingPhase: "idle" });
+    addToast(`Start failed: ${e}`, "error");
+  }
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -233,7 +239,8 @@ export const useStore = create<AppState>((set, get) => ({
   addToast: (message, type, action) => {
     const id = get().toastId + 1;
     set((s) => ({ toasts: [...s.toasts, { id, message, type, action }], toastId: id }));
-    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), 4000);
+    // Errors stay until dismissed (4 s was too short to read "Start failed: …"); others auto-hide
+    if (type !== "error") setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), 4000);
   },
 
   removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
@@ -326,7 +333,8 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   startRecording: async () => {
-    const { config } = get();
+    const { config, recordingPhase } = get();
+    if (recordingPhase !== "idle") return; // hotkey/tray/button can't stack a second start
     if (config?.recording_mode === "Region") {
       try {
         const shot = await invoke<string>("enter_region_mode");
@@ -349,24 +357,22 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   stopRecording: async () => {
+    if (get().recordingPhase !== "recording") return;
+    set({ recordingPhase: "encoding", encodingProgress: 0, encodingStage: "Stopping capture..." });
+    const progressInterval = setInterval(async () => {
+      try {
+        const [progress, stage] = await invoke<[number, string]>("get_encoding_progress");
+        set({ encodingProgress: progress, encodingStage: stage });
+      } catch {}
+    }, 200);
     try {
-      set({ recordingPhase: "encoding", encodingProgress: 0, encodingStage: "Stopping capture..." });
-      // Start polling encoding progress
-      const progressInterval = setInterval(async () => {
-        try {
-          const [progress, stage] = await invoke<[number, string]>("get_encoding_progress");
-          set({ encodingProgress: progress, encodingStage: stage });
-        } catch {}
-      }, 200);
-
       const result = await invoke<RecordingResult>("stop_recording");
-      clearInterval(progressInterval);
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null,
             pausedMs: 0, pauseStartTime: null, lastRecording: result,
             encodingProgress: 100, encodingStage: "Done" });
       const sizeMB = (result.file_size_bytes / 1_048_576).toFixed(1);
       const dur = result.duration_secs.toFixed(1);
-      get().addToast(`Saved! ${dur}s, ${sizeMB}MB`, "success", { label: "Open", onClick: () => get().openPath(result.output_path) });
+      get().addToast(`Saved — ${dur}s, ${sizeMB} MB`, "success");
       if (get().config?.copy_path_on_save) await get().copyToClipboard(result.output_path);
       try {
         if ("Notification" in window && Notification.permission === "granted") {
@@ -377,6 +383,8 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (e) {
       set({ recordingPhase: "idle", isPaused: false, recordingStartTime: null, pausedMs: 0, pauseStartTime: null });
       get().addToast(`Stop failed: ${e}`, "error");
+    } finally {
+      clearInterval(progressInterval); // was skipped on error → polled forever
     }
   },
 
@@ -425,6 +433,17 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  discardLastRecording: async () => {
+    const rec = get().lastRecording;
+    if (!rec) return;
+    try {
+      await invoke("delete_recording", { path: rec.output_path });
+      set({ lastRecording: null });
+      get().addToast("Recording deleted", "info");
+      await get().loadHistory();
+    } catch (e) { get().addToast(`Delete failed: ${e}`, "error"); }
+  },
+
   copyToClipboard: async (text: string) => {
     try { await navigator.clipboard.writeText(text); get().addToast("Path copied!", "info"); } catch {}
   },
@@ -461,6 +480,9 @@ export const useStore = create<AppState>((set, get) => ({
   pollAudioLevels: async () => {
     try {
       const levels = await invoke<{ mic_rms: number; mic_peak: number; mic_db: number; sys_rms: number; sys_peak: number; sys_db: number }>("get_audio_levels");
+      const cur = get().audioLevels;
+      // Skip no-op updates: a fresh object every 50 ms re-rendered the meters even in silence
+      if (Math.abs(cur.micDb - levels.mic_db) < 0.5 && Math.abs(cur.sysDb - levels.sys_db) < 0.5) return;
       set({ audioLevels: { micRms: levels.mic_rms, micPeak: levels.mic_peak, micDb: levels.mic_db, sysRms: levels.sys_rms, sysPeak: levels.sys_peak, sysDb: levels.sys_db } });
     } catch {}
   },

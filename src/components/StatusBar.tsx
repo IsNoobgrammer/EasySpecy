@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { motion } from "motion/react";
+import { useStore } from "../stores/recording";
 
 // ═══ FOOTER (credit line only) ═══
 
@@ -46,14 +47,6 @@ export function Footer({ isRecording }: { isRecording: boolean }) {
 // ═══ SIDEBAR STATS PANEL ═══
 // Combines system info + loudness meter in the sidebar bottom section
 
-interface AudioLevels {
-  micRms: number;
-  micPeak: number;
-  micDb: number;
-  sysRms: number;
-  sysPeak: number;
-  sysDb: number;
-}
 
 function lerp(current: number, target: number, speed: number): number {
   return current + (target - current) * speed;
@@ -62,10 +55,9 @@ function lerp(current: number, target: number, speed: number): number {
 interface SidebarStatsProps {
   audioSource: "Mic" | "System" | "Both";
   audioEnabled: boolean;
-  levels: AudioLevels;
 }
 
-export function SidebarStats({ audioSource, audioEnabled, levels }: SidebarStatsProps) {
+export function SidebarStats({ audioSource, audioEnabled }: SidebarStatsProps) {
   const [systemInfo, setSystemInfo] = useState<{
     screenWidth: number;
     screenHeight: number;
@@ -152,7 +144,6 @@ export function SidebarStats({ audioSource, audioEnabled, levels }: SidebarStats
           <LoudnessMeterInline
             audioSource={audioSource}
             audioEnabled={audioEnabled}
-            levels={levels}
           />
         </div>
       )}
@@ -191,8 +182,13 @@ function StatItem({ label, value, color }: { label: string; value: string; color
 }
 
 // ═══ INLINE LOUDNESS METER (horizontal, fits sidebar width) ═══
-function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStatsProps) {
+function LoudnessMeterInline({ audioSource, audioEnabled }: SidebarStatsProps) {
+  // Only this meter subscribes to levels (it used to re-render the whole app at 20 Hz).
+  const levels = useStore((s) => s.audioLevels);
+  const levelsRef = useRef(levels);
+  levelsRef.current = levels;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const kickRef = useRef<() => void>(() => {});
   const animRef = useRef<{
     level: number;
     peak: number;
@@ -203,7 +199,10 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
     peakHoldTimer: 0,
   });
 
+  // Reads the ref, not props: the draw loop below stays mounted instead of being torn
+  // down and rebuilt on every poll.
   const getActiveLevel = useCallback((): { rms: number; peak: number; db: number } => {
+    const levels = levelsRef.current;
     if (!audioEnabled) return { rms: 0, peak: 0, db: -60 };
     switch (audioSource) {
       case "Mic":
@@ -217,7 +216,7 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
           db: Math.max(levels.micDb, levels.sysDb),
         };
     }
-  }, [audioSource, audioEnabled, levels]);
+  }, [audioSource, audioEnabled]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -226,10 +225,16 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
     if (!ctx) return;
 
     let running = true;
+    let active = false; // is a rAF chain live?
     const state = animRef.current;
+    let drawn = { level: -1, peak: -1, w: 0 };
+    // Animate only while the bar is moving; a pending rAF alone keeps Chromium's renderer
+    // + GPU process waking at 60 Hz, so a settled meter stops and levels changes restart it.
+    const kick = () => { if (running && !active) { active = true; requestAnimationFrame(draw); } };
+    kickRef.current = kick;
 
     const draw = () => {
-      if (!running) return;
+      if (!running) { active = false; return; }
 
       const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth;
@@ -240,8 +245,6 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
         canvas.height = h * dpr;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
-
-      ctx.clearRect(0, 0, w, h);
 
       const activeLevel = getActiveLevel();
       const dbNorm = Math.max(0, Math.min(1, (activeLevel.db + 60) / 60));
@@ -259,6 +262,15 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
           state.peak = Math.max(0, state.peak - 0.01);
         }
       }
+
+      // Nothing moved since the last paint → skip it; once fully settled, stop the loop
+      if (Math.abs(state.level - drawn.level) < 0.002 && Math.abs(state.peak - drawn.peak) < 0.002 && drawn.w === w) {
+        if (Math.abs(state.level - targetLevel) < 0.002 && state.peak - state.level < 0.002) { active = false; return; }
+        requestAnimationFrame(draw);
+        return;
+      }
+      drawn = { level: state.level, peak: state.peak, w };
+      ctx.clearRect(0, 0, w, h);
 
       // Horizontal segmented bar
       const barY = 2;
@@ -294,18 +306,8 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
             color = "rgba(240, 64, 64, 0.9)";
           }
           ctx.fillStyle = color;
-
-          if (segNorm > 0.7) {
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 3;
-          } else {
-            ctx.shadowColor = "transparent";
-            ctx.shadowBlur = 0;
-          }
         } else {
           ctx.fillStyle = "rgba(59, 74, 63, 0.15)";
-          ctx.shadowColor = "transparent";
-          ctx.shadowBlur = 0;
         }
 
         ctx.beginPath();
@@ -314,8 +316,6 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
       }
 
       // Peak indicator
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
       const peakX = barLeft + state.peak * barWidth;
       ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
       ctx.fillRect(peakX - 1, barY - 1, 2, barHeight + 2);
@@ -323,9 +323,11 @@ function LoudnessMeterInline({ audioSource, audioEnabled, levels }: SidebarStats
       requestAnimationFrame(draw);
     };
 
-    requestAnimationFrame(draw);
+    kick();
     return () => { running = false; };
   }, [getActiveLevel]);
+
+  useEffect(() => { kickRef.current(); }, [levels]);
 
   const activeLevel = getActiveLevel();
   const dbDisplay = activeLevel.db > -59 ? `${activeLevel.db.toFixed(0)}` : "--";

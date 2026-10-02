@@ -923,7 +923,6 @@ export function KeyboardPreview({
                   color: overlay.textColor,
                   gap: `${10 * scale}px`,
                   padding: `${8 * scale}px ${16 * scale}px`,
-                  backdropFilter: `blur(${12 * scale}px)`,
                   boxShadow: `0 ${4 * scale}px ${30 * scale}px rgba(0, 0, 0, 0.4), inset 0 ${1 * scale}px 0 rgba(255,255,255,0.1)`,
                 }}
               >

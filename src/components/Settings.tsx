@@ -1,4 +1,5 @@
 import { Icon } from "./Icon";
+import { useShallow } from "zustand/react/shallow";
 import { useState, useEffect, useId, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useStore, AppConfig } from "../stores/recording";
@@ -38,10 +39,9 @@ const CLICK_EFFECTS: { id: ClickEffect; label: string; desc: string }[] = [
 ];
 
 export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onCheckUpdate: (manual: boolean) => Promise<void> }) {
-  const {
-    config, saveConfig, loadAudioDevices, audioDevices,
-    audioLevels, startAudioMonitor, stopAudioMonitor, pollAudioLevels
-  } = useStore();
+  const { config, saveConfig, loadAudioDevices, audioDevices } = useStore(useShallow((s) => ({
+    config: s.config, saveConfig: s.saveConfig, loadAudioDevices: s.loadAudioDevices, audioDevices: s.audioDevices,
+  })));
   const { theme, toggleTheme } = useThemeStore();
   const [local, setLocal] = useState<AppConfig | null>(null);
   const [saved, setSaved] = useState(false);
@@ -71,22 +71,6 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
       .then(setCursorPacks)
       .catch((err) => console.error("Failed to load cursor packs:", err));
   }, [config]);
-
-  // Handle active audio monitoring VU meter
-  useEffect(() => {
-    let active = true;
-    if (local?.audio_enabled) {
-      startAudioMonitor();
-      const interval = setInterval(() => {
-        if (active) pollAudioLevels();
-      }, 100);
-      return () => {
-        active = false;
-        clearInterval(interval);
-        stopAudioMonitor();
-      };
-    }
-  }, [local?.audio_enabled]);
 
   const handleSave = async () => {
     if (!local) return;
@@ -142,7 +126,7 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
 
       {/* ═══ HEADER ═══ */}
       <header
-        className="flex items-center justify-between px-6 py-3 sticky top-0 z-50 backdrop-blur-md border-b"
+        className="flex items-center justify-between px-6 py-3 sticky top-0 z-50 border-b"
         style={{ background: "var(--bg-overlay)", borderColor: "var(--border-default)" }}
       >
         <motion.button
@@ -349,42 +333,9 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
 
                   {/* Active Loudness Meter Visualization */}
                   <div className="p-3 rounded-lg space-y-3 border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
-                    <div className="space-y-1">
-                      <div className="flex justify-between font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>
-                        <span>MIC LEVEL MONITOR</span>
-                        <span className={audioLevels.micDb > -12 ? "text-red-400 font-bold" : audioLevels.micDb > -24 ? "text-yellow-400 font-bold" : "text-[var(--accent-primary)] font-bold"}>
-                          {audioLevels.micDb > -60 ? `${audioLevels.micDb.toFixed(0)} dB` : "Silent"}
-                        </span>
-                      </div>
-                      <div className="h-2 w-full rounded-full overflow-hidden relative border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
-                        <div
-                          className="h-full rounded-full transition-all duration-75"
-                          style={{
-                            width: `${Math.max(0, Math.min(100, ((audioLevels.micDb + 60) / 60) * 100))}%`,
-                            background: "linear-gradient(to right, var(--accent-primary) 65%, #ffd000 85%, #ff4444 100%)",
-                          }}
-                        />
-                      </div>
-                    </div>
-                    
+                    <LevelRow label="MIC LEVEL MONITOR" kind="mic" accent="var(--accent-primary)" />
                     {(local.audio_source === "Both" || local.audio_source === "System") && (
-                      <div className="space-y-1">
-                        <div className="flex justify-between font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>
-                          <span>SYSTEM LEVEL MONITOR</span>
-                          <span className={audioLevels.sysDb > -12 ? "text-red-400 font-bold" : audioLevels.sysDb > -24 ? "text-yellow-400 font-bold" : "text-[var(--accent-info)] font-bold"}>
-                            {audioLevels.sysDb > -60 ? `${audioLevels.sysDb.toFixed(0)} dB` : "Silent"}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full rounded-full overflow-hidden relative border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
-                          <div
-                            className="h-full rounded-full transition-all duration-75"
-                            style={{
-                              width: `${Math.max(0, Math.min(100, ((audioLevels.sysDb + 60) / 60) * 100))}%`,
-                              background: "linear-gradient(to right, var(--accent-info) 65%, #ffcc00 85%, #ff4444 100%)",
-                            }}
-                          />
-                        </div>
-                      </div>
+                      <LevelRow label="SYSTEM LEVEL MONITOR" kind="sys" accent="var(--accent-info)" />
                     )}
                   </div>
                 </motion.div>
@@ -1099,8 +1050,14 @@ function MiniPreview({
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
     let raf: number;
+    // Don't render while scrolled out of view (Settings is a long page)
+    let visible = true;
+    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; });
+    io.observe(canvas);
 
     const animate = () => {
+      raf = requestAnimationFrame(animate);
+      if (!visible) return;
       timeRef.current++;
       const w = canvas.width;
       const h = canvas.height;
@@ -1122,11 +1079,9 @@ function MiniPreview({
 
       clickRef.current.update();
       clickRef.current.draw(ctx, w, h);
-
-      raf = requestAnimationFrame(animate);
     };
     animate();
-    return () => cancelAnimationFrame(raf);
+    return () => { cancelAnimationFrame(raf); io.disconnect(); };
   }, [trailStyle, clickEffect]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1157,5 +1112,27 @@ function MiniPreview({
       onMouseDown={handleMouseDown}
       onContextMenu={(e) => e.preventDefault()}
     />
+  );
+}
+
+/** One level bar. Subscribes to a single dB number so only this row re-renders on a poll. */
+function LevelRow({ label, kind, accent }: { label: string; kind: "mic" | "sys"; accent: string }) {
+  const db = useStore((s) => (kind === "mic" ? s.audioLevels.micDb : s.audioLevels.sysDb));
+  const frac = Math.max(0, Math.min(1, (db + 60) / 60));
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between font-mono text-[9px]" style={{ color: "var(--text-secondary)" }}>
+        <span>{label}</span>
+        <span className="font-bold" style={{ color: db > -12 ? "var(--accent-danger)" : db > -24 ? "#ffd000" : accent }}>
+          {db > -60 ? `${db.toFixed(0)} dB` : "Silent"}
+        </span>
+      </div>
+      <div className="h-2 w-full rounded-full overflow-hidden border" style={{ background: "var(--surface-container-low)", borderColor: "var(--border-default)" }}>
+        <div
+          className="h-full w-full origin-left transition-transform duration-75"
+          style={{ transform: `scaleX(${frac})`, background: `linear-gradient(to right, ${accent} 65%, #ffd000 85%, #ff4444 100%)` }}
+        />
+      </div>
+    </div>
   );
 }

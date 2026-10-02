@@ -43,7 +43,6 @@ function ToastItem({ toast, onClose }: { toast: Toast; onClose: () => void }) {
         background: "var(--bg-surface)",
         boxShadow: "var(--shadow-md)",
         borderRadius: "var(--radius-sm)",
-        backdropFilter: "blur(8px)",
       }}
     >
       <Icon name={icons[toast.type]} size={16} style={{ color: borderColors[toast.type] }} />

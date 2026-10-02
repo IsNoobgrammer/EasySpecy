@@ -34,6 +34,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Cursor effects toggle ignored** — The trail and click effects drew even with effects turned off.
 - **Mixed-codec segments** — Later segments reuse the codec that segment 0 actually got, so a settings change during a pause can't break concat.
 
+### UI
+- **Idle CPU: 32% → 5% of a core** — measured on the Dashboard; the WebView GPU process went from ~10% to 0.
+  - **Re-render storm** — The whole app re-rendered 20×/s from audio-level polling, even hidden in the tray. Now only the meters subscribe, polling pauses while the window is hidden, and unchanged levels are skipped.
+  - **Sidebar meter** — Its rAF loop stops when the bar settles. It used to keep Chromium compositing at 60 Hz forever.
+  - **Settings preview** — It drew canvas `blur()` filters forever. It now uses the overlay's multi-pass strokes (Rule 4 parity), caches the background, and pauses when scrolled off.
+  - **Expensive CSS removed** — Full-window `blur(120px)` glows became radial gradients, `backdrop-filter` on opaque surfaces is gone, and the record button's infinite `box-shadow` animation became an opacity pulse.
+- **Saved card** — Stays after every recording, with Open / Show in folder / Copy path / two-step Delete. The file name shows on the card.
+- **Clear states** — A new "Starting…" phase means a recording can't start twice. The header shows Starting / Recording / Saving. NEW RECORDING and the record button are disabled while busy. Error toasts stay until dismissed.
+- **Layout** — Content no longer clips above the window (`safe center`).
+- **Accessibility** — Accessible names on the record and settings buttons. Sidebar nav items are real buttons.
+- **History** — Shows the real output resolution, not the config value.
+- **Fixed** — The progress poll leaked forever when stop failed. Leaving Settings killed the sidebar meter.
+
 ### Removed
 - **Dead post-processing (about 4,500 lines)** — The Rust webcam capture (PNG sequence + FFmpeg composite), effect baking (`apply_effects`) and the cursor/click/keystroke metadata that only fed them. The webcam, trail and keys are drawn live by the overlay and captured directly. This also removes the `.meta.json` that briefly held every keystroke, and a thread spawned per click.
 - **Unused crates** — `nokhwa`, `rayon`, `font8x8`, `miniz_oxide`, `crc32fast`.
