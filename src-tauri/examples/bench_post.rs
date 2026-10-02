@@ -62,7 +62,7 @@ fn main() {
 
         let config = AppConfig { video_encoder: c.encoder.clone(), video_quality: VideoQuality::High, fps: c.fps, compact_output: c.small, gpu_encoders_enabled: true, ..AppConfig::default() };
         let t = Instant::now();
-        let r = encode_final_with(&config, hevc, &segments, c.secs as f64 * 1000.0, Some(&audio), &output, c.crop, c.crop.is_none());
+        let r = encode_final_with(&config, hevc, &segments, &[], c.secs as f64 * 1000.0, Some(&audio), &output, c.crop, c.crop.is_none());
         let secs = t.elapsed().as_secs_f64();
         let mb = std::fs::metadata(&output).map(|m| m.len() as f64 / 1_048_576.0).unwrap_or(0.0);
         let path = match (&r, !c.small && c.crop.is_none() && (hevc || matches!(c.encoder, H264 | MobileShareable))) {

@@ -270,7 +270,15 @@ impl AppConfig {
         let path = Self::config_path();
         let mut config = if path.exists() {
             match std::fs::read_to_string(&path) {
-                Ok(content) => toml::from_str(&content).unwrap_or_default(),
+                Ok(content) => match toml::from_str(&content) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::warn!("Config parse error: {}", e);
+                        let c = Self::parse_lenient(&content, &path);
+                        let _ = c.save(); // write the repaired file so this runs once, not every load
+                        c
+                    }
+                },
                 Err(_) => Self::default(),
             }
         } else {
@@ -289,6 +297,32 @@ impl AppConfig {
             }
         }
         config
+    }
+
+    /// Parse the config, keeping every setting that's still valid. One bad value (a hand edit,
+    /// an enum variant from another version) used to silently reset ALL settings to defaults.
+    /// On a bad file, the original is kept as `config.toml.bad` for recovery.
+    fn parse_lenient(content: &str, path: &std::path::Path) -> Self {
+        if let Ok(c) = toml::from_str(content) {
+            return c;
+        }
+        let _ = std::fs::copy(path, path.with_extension("toml.bad"));
+        let Ok(file) = content.parse::<toml::Table>() else {
+            tracing::warn!("Config file is not valid TOML — using defaults (original kept as config.toml.bad)");
+            return Self::default();
+        };
+        // Start from defaults and take each key from the file only if it still deserializes
+        let mut merged = toml::Table::try_from(Self::default()).unwrap_or_default();
+        let mut dropped = Vec::new();
+        for (k, v) in file {
+            let prev = merged.insert(k.clone(), v);
+            if merged.clone().try_into::<Self>().is_err() {
+                match prev { Some(p) => { merged.insert(k.clone(), p); } None => { merged.remove(&k); } }
+                dropped.push(k);
+            }
+        }
+        tracing::warn!("Config had invalid values, reset only these to defaults: {:?} (original kept as config.toml.bad)", dropped);
+        merged.try_into().unwrap_or_default()
     }
 
     /// Save config to disk
@@ -526,6 +560,21 @@ fn captured_pixels(cfg: &AppConfig) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bad_value_keeps_other_settings() {
+        let dir = std::env::temp_dir().join("easyspecy_cfg_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "fps = 60
+video_encoder = \"NotARealEncoder\"
+").unwrap();
+        let c = super::AppConfig::parse_lenient(&std::fs::read_to_string(&path).unwrap(), &path);
+        assert_eq!(c.fps, 60);
+        assert_eq!(c.video_encoder, super::AppConfig::default().video_encoder);
+        assert!(path.with_extension("toml.bad").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
     #[test]
     fn live_bitrate_is_screen_sized() {

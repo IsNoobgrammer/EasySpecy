@@ -66,6 +66,8 @@ static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
 static SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Size of the captured frames (monitor pixels) — region crops are clamped to it.
 static CAPTURE_SIZE: Mutex<(i32, i32)> = Mutex::new((0, 0));
+/// Desktop position of the captured monitor's top-left (non-zero for a secondary monitor)
+static CAPTURE_ORIGIN: Mutex<(i32, i32)> = Mutex::new((0, 0));
 static RECORDING_PAUSED: AtomicBool = AtomicBool::new(false);
 static AUDIO_CAPTURE: Mutex<Option<AudioCapture>> = Mutex::new(None);
 static ENABLE_AUDIO: AtomicBool = AtomicBool::new(false);
@@ -90,6 +92,11 @@ static SHOULD_RESUME_CAPTURE: AtomicBool = AtomicBool::new(false);
 static TOTAL_PAUSED_DURATION: Mutex<Duration> = Mutex::new(Duration::ZERO);
 /// Wall-clock instant when the current pause began
 static PAUSE_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
+/// Completed pauses as (paused at, resumed at) — maps wall-clock instants onto the recording's
+/// timeline (which, like the audio, skips paused time).
+static PAUSE_LOG: Mutex<Vec<(Instant, Instant)>> = Mutex::new(Vec::new());
+/// Arrival time of each finalised segment's first frame, parallel to SEGMENT_PATHS
+static SEGMENT_STARTS: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
 /// True if the live encoder produced HEVC (else H.264). Decides whether the final pass can stream-copy.
 static CAPTURED_HEVC: AtomicBool = AtomicBool::new(false);
 
@@ -124,6 +131,8 @@ struct CaptureHandler {
     segment_idx: u32,
     /// Frames sent to the current segment's encoder (diagnostics for segment loss)
     seg_frames: u32,
+    /// When the current segment's first frame arrived
+    seg_first: Option<Instant>,
 }
 
 impl CaptureHandler {
@@ -142,12 +151,14 @@ impl CaptureHandler {
                     Ok(()) => {
                         tracing::info!("Segment {} finalised: {} ({} frames)", self.segment_idx, seg, self.seg_frames);
                         SEGMENT_PATHS.lock().unwrap().push(seg);
+                        SEGMENT_STARTS.lock().unwrap().push(self.seg_first.unwrap_or_else(Instant::now));
                     }
                     Err(e) => tracing::error!("Segment {} could not be finalised ({} frames lost): {}", self.segment_idx, self.seg_frames, e),
                 }
             }
         }
         self.seg_frames = 0;
+        self.seg_first = None;
         Ok(())
     }
 }
@@ -184,6 +195,7 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             height,
             segment_idx: 0,
             seg_frames: 0,
+            seg_first: None,
         })
     }
 
@@ -216,6 +228,17 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         // ═══ STOP: finish current segment, signal done ═══
         if SHOULD_STOP.load(Ordering::SeqCst) {
+            // Close the video at the stop moment with this frame: on a still screen the last
+            // frame sent can be long before Stop, which left the video shorter than the audio.
+            let recording = !RECORDING_PAUSED.load(Ordering::SeqCst) && !SHOULD_FINISH_SEGMENT.load(Ordering::SeqCst);
+            if recording && self.seg_frames > 0 {
+                if let Some(encoder) = self.encoder.as_mut() {
+                    if encoder.send_frame(frame).is_ok() {
+                        self.seg_frames += 1;
+                        FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
             self.finish_segment()?;
             capture_control.stop();
             return Ok(());
@@ -257,6 +280,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         if self.encoder.is_none() {
             // Only reachable if the warm-up at pause failed; better a cold encoder than a panic
             self.encoder = Some(new_live_encoder(self.width, self.height, &segment_path(self.segment_idx), CAPTURED_HEVC.load(Ordering::SeqCst))?);
+        }
+        if self.seg_frames == 0 {
+            self.seg_first = Some(Instant::now());
         }
         self.seg_frames += 1;
         self.encoder.as_mut().unwrap().send_frame(frame)?;
@@ -332,9 +358,14 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
     SHOULD_RESUME_CAPTURE.store(false, Ordering::SeqCst);
     *TOTAL_PAUSED_DURATION.lock().unwrap() = Duration::ZERO;
     *PAUSE_INSTANT.lock().unwrap() = None;
+    PAUSE_LOG.lock().unwrap().clear();
+    SEGMENT_STARTS.lock().unwrap().clear();
 
-    // Initialize monitor and settings BEFORE spawning threads
-    let monitor = Monitor::primary().map_err(|e| e.to_string())?;
+    // Initialize monitor and settings BEFORE spawning threads. Region / Window mode records
+    // the monitor holding the selection; crops are then relative to that monitor.
+    let target = region::recording_monitor();
+    *CAPTURE_ORIGIN.lock().unwrap() = (target.x, target.y);
+    let monitor = Monitor::from_raw_hmonitor(target.hmonitor as *mut std::ffi::c_void);
     let width = monitor.width().map_err(|e| e.to_string())? as i32;
     let height = monitor.height().map_err(|e| e.to_string())? as i32;
     *CAPTURE_SIZE.lock().unwrap() = (width, height);
@@ -415,6 +446,9 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
                 }
             };
 
+            let origin = *CAPTURE_ORIGIN.lock().unwrap();
+            last_x -= origin.0;
+            last_y -= origin.1;
             tracing::info!("Mouse tracking thread started");
 
             // Wait until capture is armed (first video frame)
@@ -431,6 +465,9 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
                 let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
 
                 if unsafe { GetCursorPos(&mut point).is_ok() } {
+                    // Overlay covers the captured monitor: send coordinates relative to it
+                    point.x -= origin.0;
+                    point.y -= origin.1;
 
                     // Emit and record only if position changed (prevents high-frequency lock contention)
                     if point.x != last_x || point.y != last_y {
@@ -640,10 +677,16 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
 
     // Signal video to stop on next frame
     SHOULD_STOP.store(true, Ordering::SeqCst);
+    nudge_frame();
 
     // Wait for video capture thread to finish flushing encoder
     let wait_start = Instant::now();
+    let mut last_nudge = Instant::now();
     while RECORDING_ACTIVE.load(Ordering::SeqCst) {
+        if last_nudge.elapsed() > Duration::from_millis(500) {
+            nudge_frame();
+            last_nudge = Instant::now();
+        }
         if wait_start.elapsed() > Duration::from_secs(15) {
             tracing::error!("Timeout waiting for capture thread to stop");
             RECORDING_ACTIVE.store(false, Ordering::SeqCst);
@@ -662,10 +705,17 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
     let start = START_TIME.lock().unwrap().take();
     // Compute active recording duration: wall-clock elapsed MINUS total paused time.
     // This is what we pass to sync_verifier so it compares against actual content.
-    let paused_total = *TOTAL_PAUSED_DURATION.lock().unwrap();
+    // A pause still open at stop counts too — it used to be added to the length
+    let mut paused_total = *TOTAL_PAUSED_DURATION.lock().unwrap();
+    if let Some(p) = *PAUSE_INSTANT.lock().unwrap() {
+        paused_total += stop_instant.saturating_duration_since(p);
+    }
     let duration = start
         .map(|s| ((stop_instant - s).as_secs_f64() - paused_total.as_secs_f64()).max(0.0))
         .unwrap_or(0.0);
+    let seg_durations = start
+        .map(|s| segment_durations(s, &SEGMENT_STARTS.lock().unwrap(), &PAUSE_LOG.lock().unwrap()))
+        .unwrap_or_default();
     let has_audio = audio_path.is_some();
 
     tracing::info!(
@@ -678,7 +728,11 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
     let mode = crate::config::AppConfig::load().recording_mode;
     let region = match mode {
         crate::config::RecordingMode::FullScreen => None,
-        _ => region::get_region().and_then(|r| region::sanitize(r, *CAPTURE_SIZE.lock().unwrap())),
+        _ => {
+            let origin = *CAPTURE_ORIGIN.lock().unwrap();
+            let size = *CAPTURE_SIZE.lock().unwrap();
+            region::get_region().and_then(|r| region::sanitize(region::to_monitor_local(r, origin), size))
+        }
     };
     // Crop (Region/Window mode) is folded into the single final encode.
     let crop = region.as_ref().map(|r| format!("crop={}:{}:{}:{}", r.width, r.height, r.x, r.y));
@@ -697,7 +751,7 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
         }
     });
     let audio_silent = audio_file.as_deref() == Some(SILENT_AUDIO);
-    encode_final(&segments, duration * 1000.0, audio_file.as_deref(), &output_path, crop.as_deref(), crop.is_none())?;
+    encode_final(&segments, &seg_durations, duration * 1000.0, audio_file.as_deref(), &output_path, crop.as_deref(), crop.is_none())?;
     for seg in &segments {
         let _ = std::fs::remove_file(seg);
     }
@@ -777,16 +831,31 @@ pub fn probe_live_encoders() -> (bool, bool) {
 /// Sentinel audio "path" for a generated silent track (lavfi source).
 const SILENT_AUDIO: &str = "anullsrc=r=48000:cl=stereo";
 
-fn encode_final(segments: &[String], duration_ms: f64, audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool) -> Result<(), String> {
+fn encode_final(segments: &[String], seg_durations: &[f64], duration_ms: f64, audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool) -> Result<(), String> {
     let config = crate::config::AppConfig::load();
-    encode_final_with(&config, CAPTURED_HEVC.load(Ordering::SeqCst), segments, duration_ms, audio, output, crop, allow_copy)
+    encode_final_with(&config, CAPTURED_HEVC.load(Ordering::SeqCst), segments, seg_durations, duration_ms, audio, output, crop, allow_copy)
+}
+
+/// How long each pause/resume segment must play so video stays on the audio's timeline.
+/// A segment's file only spans first → last *changed* frame: on a still screen (WGC sends no
+/// frames) the time before a pause, or after a resume, was missing from the video but not the
+/// audio, so every pause shifted the audio later. Segment i is given the timeline span from
+/// its first frame to the next segment's first frame; its last frame simply holds, exactly as
+/// it did on screen. The last segment's length comes from the final `-t`.
+fn segment_durations(armed: Instant, starts: &[Instant], pauses: &[(Instant, Instant)]) -> Vec<f64> {
+    // Recording-timeline position of a wall-clock instant (paused time removed)
+    let at = |t: Instant| {
+        let paused: f64 = pauses.iter().filter(|(_, r)| *r <= t).map(|(p, r)| (*r - *p).as_secs_f64()).sum();
+        t.saturating_duration_since(armed).as_secs_f64() - paused
+    };
+    starts.windows(2).map(|w| (at(w[1]) - at(w[0])).max(0.0)).collect()
 }
 
 /// The final pass with explicit settings — what stop_recording runs, exposed so the
 /// post-processing benchmark (examples/bench_post.rs) measures this exact code.
 #[allow(clippy::too_many_arguments)]
 pub fn encode_final_with(
-    config: &crate::config::AppConfig, captured_hevc: bool, segments: &[String], duration_ms: f64,
+    config: &crate::config::AppConfig, captured_hevc: bool, segments: &[String], seg_durations: &[f64], duration_ms: f64,
     audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool,
 ) -> Result<(), String> {
     use crate::config::VideoEncoder as Enc;
@@ -821,8 +890,12 @@ pub fn encode_final_with(
         // Pause/resume segments: concat demuxer stitches them inside this same run
         let list = std::env::temp_dir().join("easyspecy").join("concat_list.txt");
         let _ = std::fs::create_dir_all(list.parent().unwrap());
-        let body: String = segments.iter().map(|p| format!("file '{}'\n", p.replace('\\', "/"))).collect();
+        let body: String = segments.iter().enumerate().map(|(i, p)| match seg_durations.get(i) {
+            Some(d) => format!("file '{}'\nduration {:.6}\n", p.replace('\\', "/"), d),
+            None => format!("file '{}'\n", p.replace('\\', "/")),
+        }).collect();
         std::fs::write(&list, body).map_err(|e| format!("Concat list write failed: {}", e))?;
+        tracing::info!("Concat segment timeline lengths: {:?}", seg_durations);
         args.extend(["-f".into(), "concat".into(), "-safe".into(), "0".into(), "-i".into(), list.to_string_lossy().into_owned()]);
     }
     if let Some(a) = audio {
@@ -860,13 +933,19 @@ pub fn encode_final_with(
 
     if audio.is_some() {
         args.extend([
-            // apad + -shortest: output length = video length. Loopback audio is shorter
-            // when nothing plays; without apad, -shortest chopped the end of the video.
+            // apad: loopback audio is shorter when nothing plays — pad it with silence
             "-af".into(), "asetpts=PTS-STARTPTS,apad".into(),
             "-c:a".into(), "aac".into(),
             "-b:a".into(), "192k".into(),
-            "-shortest".into(),
         ]);
+        // Output length = the real recording length. -shortest cut it to the video stream,
+        // which ends at the last *changed* frame, so talking over a still screen at the end
+        // lost that audio. Players hold the last frame for the rest.
+        if duration_ms > 0.0 {
+            args.extend(["-t".into(), format!("{:.3}", duration_ms / 1000.0)]);
+        } else {
+            args.push("-shortest".into());
+        }
     } else {
         args.push("-an".into());
     }
@@ -963,6 +1042,16 @@ pub fn find_ffmpeg_pub() -> Option<String> {
     find_ffmpeg()
 }
 
+/// WGC only delivers a frame when something on screen changes, and pause / resume / stop are
+/// handled on the next frame. On a completely still screen that could take forever — Stop
+/// timed out after 15 s and lost the last segment. The overlay flips one invisible pixel,
+/// which makes Windows compose (and WGC deliver) exactly one frame.
+fn nudge_frame() {
+    if let Some(app) = crate::app_handle() {
+        let _ = app.emit_to("effects-overlay", "capture-nudge", ());
+    }
+}
+
 /// Returns the temp file path for video segment N.
 fn segment_path(idx: u32) -> String {
     std::env::temp_dir()
@@ -982,6 +1071,7 @@ pub fn pause_recording() {
     SHOULD_FINISH_SEGMENT.store(true, Ordering::SeqCst);
     // A resume that no frame has processed yet must not fire after this pause
     SHOULD_RESUME_CAPTURE.store(false, Ordering::SeqCst);
+    nudge_frame();
     // Pause audio immediately (sample collection stops now)
     let lock = AUDIO_CAPTURE.lock().unwrap();
     if let Some(audio) = lock.as_ref() {
@@ -995,6 +1085,7 @@ pub fn resume_recording() {
     if let Some(pause_start) = PAUSE_INSTANT.lock().unwrap().take() {
         let paused = pause_start.elapsed();
         *TOTAL_PAUSED_DURATION.lock().unwrap() += paused;
+        PAUSE_LOG.lock().unwrap().push((pause_start, Instant::now()));
         tracing::info!("resume_recording: paused for {:.2}s, total paused: {:.2}s",
             paused.as_secs_f64(),
             TOTAL_PAUSED_DURATION.lock().unwrap().as_secs_f64()
@@ -1003,6 +1094,7 @@ pub fn resume_recording() {
     // Signal on_frame_arrived to start a fresh encoder segment.
     // on_frame_arrived clears RECORDING_PAUSED after the new encoder is ready.
     SHOULD_RESUME_CAPTURE.store(true, Ordering::SeqCst);
+    nudge_frame(); // the resumed segment starts now, not whenever the screen next changes
     // Resume audio immediately
     let lock = AUDIO_CAPTURE.lock().unwrap();
     if let Some(audio) = lock.as_ref() {
@@ -1053,4 +1145,20 @@ pub struct DisplayInfo {
     pub width: u32,
     pub height: u32,
     pub is_primary: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segment_durations_follow_the_timeline() {
+        let t0 = Instant::now();
+        let at = |s: f64| t0 + Duration::from_secs_f64(s);
+        // seg 0 records 0–10 s (screen went still at 4 s); paused 10–25 s; the screen first
+        // changes again at 30 s, so seg 1 must start at timeline 10 + 5 = 15 s
+        let d = segment_durations(t0, &[at(0.0), at(30.0)], &[(at(10.0), at(25.0))]);
+        assert_eq!(d.len(), 1);
+        assert!((d[0] - 15.0).abs() < 1e-6, "{:?}", d);
+    }
 }

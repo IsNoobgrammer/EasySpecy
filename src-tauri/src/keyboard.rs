@@ -110,13 +110,10 @@ pub fn start_keyboard_capture() {
     let capture_mutex = KEYBOARD_CAPTURE.get_or_init(|| Mutex::new(None));
     let mut capture = capture_mutex.lock().unwrap();
 
-    // Stop any existing capture first
-    if capture.is_some() {
-        *capture = None;
-    }
-    *HOOK_THREAD_ID.lock().unwrap() = None;
-    if let Ok(mut guard) = WORKER_THREAD.lock() {
-        *guard = None;
+    // A previous capture still running is shut down properly — just dropping it left its hook
+    // and worker threads alive, both draining the single-consumer key queue.
+    if let Some(old) = capture.take() {
+        shutdown(old);
     }
 
     #[cfg(target_os = "windows")]
@@ -132,13 +129,18 @@ pub fn start_keyboard_capture() {
     let events_clone = events.clone();
     let running_clone = running.clone();
     let start_time_clone = start_time.clone();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel();
 
     let hook_thread = std::thread::Builder::new()
         .name("keyboard-hook".into())
         .spawn(move || {
-            run_keyboard_hook(events_clone, running_clone, start_time_clone);
+            run_keyboard_hook(events_clone, running_clone, start_time_clone, ready_tx);
         })
         .expect("Failed to spawn keyboard hook thread");
+    // Wait until the hook thread has its message queue and published its id: a stop right
+    // after start (a quick start/stop) could otherwise find no thread to send WM_QUIT to,
+    // and join() hung forever.
+    let _ = ready_rx.recv_timeout(std::time::Duration::from_secs(2));
 
     *capture = Some(KeyboardCapture {
         events,
@@ -150,14 +152,9 @@ pub fn start_keyboard_capture() {
     tracing::info!("Keyboard capture started");
 }
 
-/// Stop capturing keyboard events.
-pub fn stop_keyboard_capture() -> Vec<KeyEvent> {
-    let capture_mutex = KEYBOARD_CAPTURE.get_or_init(|| Mutex::new(None));
-    let mut capture = capture_mutex.lock().unwrap();
-
-    if let Some(ref mut cap) = *capture {
-        cap.running.store(false, Ordering::SeqCst);
-    }
+/// Stop the hook + worker threads. Bounded: never blocks recording stop for more than ~2 s.
+fn shutdown(cap: KeyboardCapture) -> Vec<KeyEvent> {
+    cap.running.store(false, Ordering::SeqCst);
 
     // Wake up worker thread so it can exit
     if let Ok(guard) = WORKER_THREAD.lock() {
@@ -166,28 +163,40 @@ pub fn stop_keyboard_capture() -> Vec<KeyEvent> {
         }
     }
 
-    if let Some(thread_id) = *HOOK_THREAD_ID.lock().unwrap() {
-        unsafe {
-            use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
-            use windows::Win32::Foundation::{LPARAM, WPARAM};
-            let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+    if let Some(handle) = cap._hook_thread {
+        let deadline = Instant::now() + std::time::Duration::from_secs(2);
+        // Retry WM_QUIT until the thread exits: a post can fail if it lands before the thread's
+        // message queue exists.
+        while !handle.is_finished() && Instant::now() < deadline {
+            if let Some(thread_id) = *HOOK_THREAD_ID.lock().unwrap() {
+                unsafe {
+                    use windows::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+                    use windows::Win32::Foundation::{LPARAM, WPARAM};
+                    let _ = PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        if handle.is_finished() {
+            let _ = handle.join();
+        } else {
+            tracing::warn!("Keyboard hook thread did not exit within 2 s — detached");
         }
     }
+    *HOOK_THREAD_ID.lock().unwrap() = None;
+    if let Ok(mut guard) = WORKER_THREAD.lock() {
+        *guard = None;
+    }
+    let evts = cap.events.lock().unwrap();
+    evts.iter().cloned().collect()
+}
 
-    // Join the hook thread BEFORE extracting events (hook thread joins worker internally)
-    let events = if let Some(cap) = capture.take() {
-        if let Some(handle) = cap._hook_thread {
-            let _ = handle.join();
-        }
-        if let Ok(mut guard) = WORKER_THREAD.lock() {
-            *guard = None;
-        }
-        let evts = cap.events.lock().unwrap();
-        evts.iter().cloned().collect()
-    } else {
-        Vec::new()
-    };
-
+/// Stop capturing keyboard events.
+pub fn stop_keyboard_capture() -> Vec<KeyEvent> {
+    let capture_mutex = KEYBOARD_CAPTURE.get_or_init(|| Mutex::new(None));
+    let cap = capture_mutex.lock().unwrap().take();
+    // Shut down outside the lock so event polling / arm-time reset can't wait on the join
+    let events = cap.map(shutdown).unwrap_or_default();
     tracing::info!("Keyboard capture stopped ({} events)", events.len());
     events
 }
@@ -243,6 +252,7 @@ fn run_keyboard_hook(
     events: Arc<Mutex<VecDeque<KeyEvent>>>,
     running: Arc<AtomicBool>,
     start_time: Arc<Mutex<Instant>>,
+    ready: std::sync::mpsc::Sender<()>,
 ) {
     use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::*;
@@ -263,8 +273,13 @@ fn run_keyboard_hook(
         .expect("Failed to spawn keyboard worker thread");
 
     unsafe {
+        // Force this thread's message queue into existence before publishing the id, so a
+        // WM_QUIT posted by stop can't be lost.
+        let mut msg = MSG::default();
+        let _ = PeekMessageW(&mut msg, None, WM_USER, WM_USER, PM_NOREMOVE);
         *HOOK_THREAD_ID.lock().unwrap() = Some(GetCurrentThreadId());
     }
+    let _ = ready.send(());
 
     unsafe extern "system" fn keyboard_hook_proc(
         n_code: i32,
@@ -298,6 +313,9 @@ fn run_keyboard_hook(
 
         if let Err(e) = hook {
             tracing::error!("Failed to install keyboard hook: {}", e);
+            // The worker only exits once running is false — joining it first deadlocked here
+            running.store(false, Ordering::SeqCst);
+            worker_thread.thread().unpark();
             let _ = worker_thread.join();
             return;
         }
@@ -607,6 +625,7 @@ fn run_keyboard_hook(
     _events: Arc<Mutex<VecDeque<KeyEvent>>>,
     _running: Arc<AtomicBool>,
     _start_time: Arc<Mutex<Instant>>,
+    _ready: std::sync::mpsc::Sender<()>,
 ) {
     tracing::warn!("Keyboard overlay not supported on this platform");
 }

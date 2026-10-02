@@ -74,6 +74,7 @@ pub fn apply_cursor_pack(pack_id: &str) -> Result<(), String> {
         apply_cur(id, data)?;
     }
     *CURSORS_APPLIED.lock().unwrap() = true;
+    let _ = std::fs::write(applied_marker(), pack_id); // survives a crash — see restore_after_crash
     tracing::info!("Applied cursor pack '{}' ({} types)", pack_id, cursors.len());
     Ok(())
 }
@@ -90,8 +91,30 @@ pub fn restore_cursors() -> Result<(), String> {
             .map_err(|e| format!("Restore: {}", e))?;
     }
     *applied = false;
+    let _ = std::fs::remove_file(applied_marker());
     tracing::info!("Cursors restored to system default");
     Ok(())
+}
+
+/// SetSystemCursor lasts for the whole Windows session, so a crash or force-kill mid-recording
+/// left the pack applied everywhere. The marker file records that a pack is on; startup
+/// restores the system cursors if it's still there.
+#[cfg(target_os = "windows")]
+pub fn restore_after_crash() {
+    if applied_marker().exists() {
+        *CURSORS_APPLIED.lock().unwrap() = true;
+        match restore_cursors() {
+            Ok(()) => tracing::warn!("Cursor pack was still applied from a previous run — restored"),
+            Err(e) => tracing::error!("Could not restore cursors left by a previous run: {}", e),
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn restore_after_crash() {}
+
+fn applied_marker() -> PathBuf {
+    std::env::temp_dir().join("easyspecy_cursor_pack_applied")
 }
 
 #[cfg(not(target_os = "windows"))]

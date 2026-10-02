@@ -63,6 +63,9 @@
 </head>
 <body>
   <canvas id="fx"></canvas>
+  <!-- Flipped on "capture-nudge": a change no one can see, but enough for Windows to compose
+       one frame so pause/stop are handled on a completely still screen -->
+  <div id="nudge" style="position:fixed;left:0;top:0;width:1px;height:1px;background:#000;opacity:0;pointer-events:none"></div>
   <div id="webcam-pip"><video id="webcam-video" autoplay muted playsinline></video></div>
   <div id="keyboard-overlay"></div>
   <script>
@@ -857,6 +860,11 @@
     async function setupEventListeners() {
       try {
         const { listen } = window.__TAURI__.event;
+
+        const nudgeEl = document.getElementById("nudge");
+        await listen("capture-nudge", () => {
+          nudgeEl.style.opacity = nudgeEl.style.opacity === "0.004" ? "0" : "0.004";
+        });
 
         // Cursor movement — arrives at ~120Hz from Rust
         await listen("cursor-move", (event) => {

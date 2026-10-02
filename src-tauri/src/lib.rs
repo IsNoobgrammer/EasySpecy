@@ -154,6 +154,7 @@ pub fn run() {
         ])
         .setup(|app| {
             commands::remove_preview(); // leftover from a crash / force-kill
+            cursors::restore_after_crash();
             // Store AppHandle globally for background thread access (cursor events)
             let _ = APP_HANDLE.set(app.handle().clone());
             tray::setup_tray(app.handle())?;
@@ -165,6 +166,7 @@ pub fn run() {
             // Previews are temporary: never outlive the app
             if let tauri::RunEvent::Exit = event {
                 commands::remove_preview();
+                let _ = cursors::restore_cursors();
             }
         });
 }

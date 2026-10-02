@@ -7,6 +7,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Noise reduction mostly just lowered the volume.** RNNoise expects 48 kHz audio at 16-bit scale and was fed ±1.0 floats, which it heard as near-silence. It's now fed the right scale, resampled to 48 kHz, with its one-frame (10 ms) delay removed. Tested: voice keeps its level, and fan-like background noise drops by ~45 dB.
+- **The microphone chosen in Settings was ignored.** Recording and the level meter now use it, and fall back to the default if it's unplugged.
+- **Mic-only recordings skipped gain and noise reduction.** They now get the same processing as Mic + System.
+- **Audio drifted on long recordings.** Each source is fitted to the true recording length: sound-card clock error is stretched out, and gaps are filled with silence. Audio also measured its length after a 50 ms flush wait, making it ~100 ms too long.
+- **A/V drift after pausing on a still screen.** Windows only sends a frame when the screen changes, so a segment's video ended at its last change and the audio slid later after every pause. Each segment now gets its true timeline length when joined, so its last frame holds as it did on screen. The final file uses the real recording length (`-t`) instead of being cut to the video (`-shortest`), so talking over a still ending is no longer lost.
+- **Pause / Stop on a completely still screen.** These are handled on the next frame, so Stop could time out after 15 s and lose the last segment. The overlay now flips one invisible pixel to force a frame, and Stop records that frame so the video runs right up to the Stop press.
+- **Stop pressed while a recording was still starting (~1–2 s) was ignored**, so a quick start → stop kept recording. It's now queued and runs as soon as capture is live.
+- **Region / window recording only worked on the primary monitor.** The selector opens on the monitor under the cursor. Region and window recordings capture whichever monitor holds the selection, and the effects overlay follows it.
+- **Cursor packs stayed applied after a crash.** A marker records that a pack is on, and the next launch restores the system cursors. Exiting the app restores them too.
+- **Keyboard capture could hang on a quick start/stop.** Stop could run before the hook thread had a message queue, so its quit message was lost and the join blocked forever. Startup now waits for the hook thread, Stop retries and is capped at 2 s, a failed hook install no longer deadlocks, and restarting a capture shuts the old threads down instead of leaking them.
+- **A corrupt or outdated config reset every setting.** Only the invalid values reset, and the original is kept as `config.toml.bad`.
+- **Changing any setting while running as admin restarted the app.** It now relaunches only when the game-capture toggle itself changes, and never mid-recording.
+- **Leaving Settings without pressing Save lost the changes.** Settings now saves automatically half a second after each change, and when you leave the page.
+
 ## [1.1.0] - 2026-10-02
 
 ### Added

@@ -162,8 +162,8 @@ export default function App() {
     });
     
     const unlistenTrayStop = listen("tray-stop-recording", async () => {
-      const { recordingPhase, stopRecording } = useStore.getState();
-      if (recordingPhase === "recording") await stopRecording(); // not while encoding: that double-stopped
+      const { stopRecording } = useStore.getState();
+      await stopRecording(); // ignores encoding (that double-stopped); queues a stop while starting
     });
     
     const unlistenTrayPause = listen("tray-pause-recording", async () => {
@@ -182,7 +182,7 @@ export default function App() {
     const unlistenCaptureError = listen<string>("capture-error", (event) => {
       const st = useStore.getState();
       st.addToast(`Capture stopped unexpectedly — saving what was recorded (${event.payload})`, "error");
-      if (st.recordingPhase === "recording") st.stopRecording();
+      st.stopRecording();
     });
     return () => {
       unlistenCaptureError.then((fn) => fn());

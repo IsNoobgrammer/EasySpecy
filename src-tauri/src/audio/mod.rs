@@ -82,6 +82,20 @@ fn rms_to_db(rms: f32) -> f32 {
     if rms < 0.001 { -60.0 } else { 20.0 * (rms as f64).log10() as f32 }
 }
 
+/// The microphone picked in Settings (matched by name), else the system default. The setting
+/// used to be saved but never read, so recordings always used the default mic.
+fn input_device(host: &cpal::Host) -> Option<cpal::Device> {
+    let wanted = crate::config::AppConfig::load().audio_device;
+    if !wanted.is_empty() && wanted != "default" {
+        let found = host.input_devices().ok().and_then(|mut it| it.find(|d| d.name().map_or(false, |n| n == wanted)));
+        match found {
+            Some(d) => return Some(d),
+            None => tracing::warn!("Microphone '{}' not found — using the default input", wanted),
+        }
+    }
+    host.default_input_device()
+}
+
 // ═══ AUDIO MONITOR (pre-recording level check) ═══
 /// Lightweight streams that only compute levels — no sample buffering.
 /// These run before recording starts so users can verify mic/system audio.
@@ -106,7 +120,7 @@ pub fn start_audio_monitor(source: &AudioSource) -> Result<(), String> {
     // Mic monitor stream
     if *source == AudioSource::Mic || *source == AudioSource::Both {
         if monitor._mic_stream.is_none() {
-            if let Some(device) = host.default_input_device() {
+            if let Some(device) = input_device(&host) {
                 if let Ok(supported) = device.default_input_config() {
                     let config: cpal::StreamConfig = supported.clone().into();
                     let lvl = levels.clone();
@@ -274,7 +288,7 @@ impl AudioCapture {
 
         // ── Mic stream ──
         if self.source == AudioSource::Mic || self.source == AudioSource::Both {
-            let device = host.default_input_device()
+            let device = input_device(&host)
                 .ok_or("No microphone device found")?;
             let supported = device.default_input_config()
                 .map_err(|e| format!("Mic config error: {}", e))?;
@@ -408,6 +422,9 @@ impl AudioCapture {
     /// Stop recording, drop streams, process samples, write WAV.
     /// For "Both" mode: mic and system are MIXED (overlapped), not concatenated.
     pub fn stop(&mut self) -> Result<String, String> {
+        // The recording ends NOW — measured before the flush wait below, which used to add
+        // ~100 ms of length the video doesn't have
+        let ended = std::time::Instant::now();
         self.recording.store(false, Ordering::SeqCst);
 
         // Drop streams IMMEDIATELY — this releases WASAPI handles
@@ -428,56 +445,26 @@ impl AudioCapture {
         );
 
         // ═══ WALL-CLOCK SYNC CORRECTION ═══
-        // Both streams armed at the same instant, but WASAPI delivers callbacks
-        // at different cadences for mic vs loopback, causing sample count drift.
-        // Fix: compute expected sample count from wall-clock elapsed time, trim excess.
+        // Video timestamps follow the system clock; sound cards run on their own crystal, a
+        // fraction of a percent off, so audio slowly drifted against video on long recordings.
+        // Each source is fitted to the exact armed→stop time (minus pauses, including one
+        // still open at stop): small rate errors are stretched out, gaps (loopback sends no
+        // packets while nothing plays) are filled with silence.
         let (mic_raw, sys_raw) = if let Some(armed_at) = *self.armed_instant.lock().unwrap() {
-            let mut elapsed = armed_at.elapsed();
-            let paused_dur = *self.paused_duration.lock().unwrap();
-            elapsed = elapsed.saturating_sub(paused_dur);
-            let elapsed_secs = elapsed.as_secs_f64();
-
-            if self.source == AudioSource::Both && self.mic_rate > 0 && self.sys_rate > 0 {
-                let expected_mic = (elapsed_secs * self.mic_rate as f64 * self.mic_channels as f64) as usize;
-                let expected_sys = (elapsed_secs * self.sys_rate as f64 * self.sys_channels as f64) as usize;
-
-                // Allow 1-second tolerance before trimming
-                let mic_tolerance = self.mic_rate as usize * self.mic_channels as usize;
-                let sys_tolerance = self.sys_rate as usize * self.sys_channels as usize;
-
-                let mic_trimmed = if mic_raw.len() > expected_mic + mic_tolerance {
-                    let trim_to = expected_mic.min(mic_raw.len());
-                    tracing::warn!(
-                        "SYNC FIX: mic had {} excess samples, trimmed {} -> {} (expected {} from {:.2}s)",
-                        mic_raw.len(), mic_raw.len() - trim_to, trim_to, expected_mic, elapsed_secs
-                    );
-                    mic_raw[..trim_to].to_vec()
-                } else {
-                    mic_raw
-                };
-
-                let sys_trimmed = if sys_raw.len() > expected_sys + sys_tolerance {
-                    let trim_to = expected_sys.min(sys_raw.len());
-                    tracing::warn!(
-                        "SYNC FIX: sys had {} excess samples, trimmed {} -> {} (expected {} from {:.2}s)",
-                        sys_raw.len(), sys_raw.len() - trim_to, trim_to, expected_sys, elapsed_secs
-                    );
-                    sys_raw[..trim_to].to_vec()
-                } else {
-                    sys_raw
-                };
-
-                let mic_secs = mic_trimmed.len() as f64 / (self.mic_rate as f64 * self.mic_channels as f64);
-                let sys_secs = sys_trimmed.len() as f64 / (self.sys_rate as f64 * self.sys_channels as f64);
-                tracing::info!(
-                    "SYNC: elapsed={:.2}s, mic={:.2}s, sys={:.2}s, drift={:.1}ms",
-                    elapsed_secs, mic_secs, sys_secs, (mic_secs - sys_secs) * 1000.0
-                );
-
-                (mic_trimmed, sys_trimmed)
-            } else {
-                (mic_raw, sys_raw)
+            let mut paused = *self.paused_duration.lock().unwrap();
+            if let Some(p) = *self.pause_start.lock().unwrap() {
+                paused += ended.saturating_duration_since(p);
             }
+            let elapsed_secs = ended.saturating_duration_since(armed_at).saturating_sub(paused).as_secs_f64();
+            let mic_fit = fit_to_duration(&mic_raw, self.mic_channels, self.mic_rate, elapsed_secs);
+            let sys_fit = fit_to_duration(&sys_raw, self.sys_channels, self.sys_rate, elapsed_secs);
+            tracing::info!(
+                "SYNC: elapsed={:.2}s, mic {:.3}s -> {:.3}s, sys {:.3}s -> {:.3}s",
+                elapsed_secs,
+                secs_of(&mic_raw, self.mic_channels, self.mic_rate), secs_of(&mic_fit, self.mic_channels, self.mic_rate),
+                secs_of(&sys_raw, self.sys_channels, self.sys_rate), secs_of(&sys_fit, self.sys_channels, self.sys_rate),
+            );
+            (mic_fit, sys_fit)
         } else {
             (mic_raw, sys_raw)
         };
@@ -509,7 +496,8 @@ impl AudioCapture {
 
         // Step 3: MIX (overlap, NOT concatenate)
         let mixed: Vec<f32> = match self.source {
-            AudioSource::Mic => mic_stereo,
+            // Mic-only used to skip gain + noise reduction entirely
+            AudioSource::Mic => process_mic_audio(&mic_stereo, &[], out_rate, out_channels),
             AudioSource::System => sys_stereo,
             AudioSource::Both => {
                 // ═══ MIC POST-PROCESSING PIPELINE ═══
@@ -633,6 +621,52 @@ fn aligned_append(
     }
 }
 
+fn secs_of(samples: &[f32], channels: u32, rate: u32) -> f64 {
+    if channels == 0 || rate == 0 { 0.0 } else { samples.len() as f64 / (channels as f64 * rate as f64) }
+}
+
+/// Fit captured audio to the true recording length. Within ±2% the difference is clock drift,
+/// so the audio is stretched (pitch change is inaudible at that size); beyond that something
+/// else happened (device gaps, silent loopback), so it's padded with silence or trimmed.
+fn fit_to_duration(input: &[f32], channels: u32, rate: u32, secs: f64) -> Vec<f32> {
+    let ch = channels as usize;
+    if input.is_empty() || ch == 0 || rate == 0 || secs <= 0.0 {
+        return input.to_vec();
+    }
+    let have = input.len() / ch;
+    let want = (secs * rate as f64).round() as usize;
+    if have == want {
+        return input.to_vec();
+    }
+    if ((have as f64 / want as f64) - 1.0).abs() <= 0.02 {
+        return stretch_frames(input, ch, want);
+    }
+    let mut out = input[..have.min(want) * ch].to_vec();
+    out.resize(want * ch, 0.0);
+    out
+}
+
+/// Linear-interpolation resample of interleaved audio to exactly `out_frames` frames.
+fn stretch_frames(input: &[f32], ch: usize, out_frames: usize) -> Vec<f32> {
+    let n = input.len() / ch;
+    if n < 2 || out_frames == 0 {
+        return input.to_vec();
+    }
+    let step = (n - 1) as f64 / (out_frames.max(2) - 1) as f64;
+    let mut out = Vec::with_capacity(out_frames * ch);
+    for i in 0..out_frames {
+        let pos = i as f64 * step;
+        let f0 = (pos as usize).min(n - 1);
+        let f1 = (f0 + 1).min(n - 1);
+        let frac = (pos - f0 as f64) as f32;
+        for c in 0..ch {
+            let (a, b) = (input[f0 * ch + c], input[f1 * ch + c]);
+            out.push(a + (b - a) * frac);
+        }
+    }
+    out
+}
+
 /// Frame-aware resampling using linear interpolation between frames.
 fn resample_frames(input: &[f32], channels: u32, from_rate: u32, to_rate: u32) -> Vec<f32> {
     if input.is_empty() || from_rate == to_rate || from_rate == 0 || channels == 0 {
@@ -708,54 +742,42 @@ fn convert_channels(input: &[f32], from_ch: u32, to_ch: u32) -> Vec<f32> {
 // MIC POST-PROCESSING: Noise reduction + loudness normalization
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// RNN-based noise suppression using nnnoiseless.
-/// Processes audio through a recurrent neural network trained on speech+noise.
-/// Converts to mono for RNN processing, then mixes back based on strength.
-fn rnn_denoise(input: &[f32], _sample_rate: u32, channels: u32, strength: f32) -> Vec<f32> {
+/// RNN-based noise suppression using nnnoiseless (RNNoise).
+/// RNNoise is trained on 48 kHz audio at 16-bit scale (±32768). It used to get ±1.0 floats —
+/// to the network that's near-silence, so it mostly just turned everything down. Its output
+/// also lags the input by one 480-sample frame (overlap-add), which is compensated here.
+/// Runs on a mono downmix, then blends with the original by `strength`.
+fn rnn_denoise(input: &[f32], sample_rate: u32, channels: u32, strength: f32) -> Vec<f32> {
     use nnnoiseless::DenoiseState;
+    const FRAME: usize = DenoiseState::FRAME_SIZE; // 480 samples = 10 ms at 48 kHz
+    const SCALE: f32 = 32768.0;
 
-    let ch = channels as usize;
-    let frame_size = DenoiseState::FRAME_SIZE; // 480 samples
+    let ch = channels.max(1) as usize;
+    let mono: Vec<f32> = input.chunks(ch).map(|f| f.iter().sum::<f32>() / f.len() as f32).collect();
+    let at48 = resample_frames(&mono, 1, sample_rate, 48000);
 
-    // Convert to mono for RNN processing
-    let mono: Vec<f32> = if ch > 1 {
-        input.chunks(ch).map(|frame| frame.iter().sum::<f32>() / ch as f32).collect()
-    } else {
-        input.to_vec()
-    };
-
-    let mut denoise_state = DenoiseState::new();
-    let mut output_mono = vec![0.0f32; mono.len()];
-    let mut input_frame = [0.0f32; 480];
-    let mut output_frame = [0.0f32; 480];
-    
-    // Process in 480-sample chunks
-    for (chunk_idx, chunk) in mono.chunks(frame_size).enumerate() {
-        let len = chunk.len().min(frame_size);
-        input_frame[..len].copy_from_slice(&chunk[..len]);
-        if len < frame_size {
-            input_frame[len..].fill(0.0);
+    let mut state = DenoiseState::new();
+    let (mut inb, mut outb) = ([0.0f32; FRAME], [0.0f32; FRAME]);
+    let mut den = Vec::with_capacity(at48.len() + 2 * FRAME);
+    // One trailing silent frame flushes the last real frame out of the network's delay line
+    for chunk in at48.chunks(FRAME).chain(std::iter::once(&[0.0f32; FRAME][..])) {
+        for (i, v) in inb.iter_mut().enumerate() {
+            *v = chunk.get(i).map_or(0.0, |s| s * SCALE);
         }
-        
-        denoise_state.process_frame(&mut output_frame, &input_frame);
-        
-        let offset = chunk_idx * frame_size;
-        for i in 0..len {
-            output_mono[offset + i] = output_frame[i];
-        }
+        state.process_frame(&mut outb, &inb);
+        den.extend(outb.iter().map(|s| s / SCALE));
     }
+    let den = resample_frames(&den[FRAME..FRAME + at48.len()], 1, 48000, sample_rate);
 
-    // Mix denoised mono back with original based on strength
     // strength 0.0 = original, 1.0 = fully denoised
-    let mut output = Vec::with_capacity(input.len());
-    for (i, &orig) in input.iter().enumerate() {
-        let mono_idx = i / ch;
-        let denoised_sample = if mono_idx < output_mono.len() { output_mono[mono_idx] } else { orig };
-        let mixed = orig * (1.0 - strength) + denoised_sample * strength;
-        output.push(mixed.clamp(-1.0, 1.0));
-    }
-
-    output
+    input
+        .iter()
+        .enumerate()
+        .map(|(i, &orig)| {
+            let d = den.get(i / ch).copied().unwrap_or(orig);
+            (orig * (1.0 - strength) + d * strength).clamp(-1.0, 1.0)
+        })
+        .collect()
 }
 
 /// Full mic processing pipeline for "Both" mode:
@@ -1000,5 +1022,62 @@ fn soft_limit(x: f32) -> f32 {
         // Maps [0.8, inf) -> [0.8, 1.0) smoothly
         let compressed = 0.8 + (1.0 - 0.8) * (1.0 - (-((abs_x - 0.8) * 4.0)).exp());
         sign * compressed.min(0.99)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Speech-like test signal: a gliding harmonic tone with syllable-rate loudness changes.
+    fn voice(n: usize, rate: f32) -> Vec<f32> {
+        (0..n).map(|i| {
+            let t = i as f32 / rate;
+            let am = (0.5 + 0.5 * (2.0 * std::f32::consts::PI * 4.0 * t).sin()).powi(2);
+            let f0 = 120.0 + 200.0 * t;
+            let s: f32 = (1..8).map(|h| (2.0 * std::f32::consts::PI * f0 * h as f32 * t).sin() / h as f32).sum();
+            0.25 * s * am
+        }).collect()
+    }
+
+    #[test]
+    fn rnn_keeps_voice_level_and_timing() {
+        let x = voice(48000, 48000.0);
+        let y = rnn_denoise(&x, 48000, 1, 1.0);
+        assert_eq!(y.len(), x.len());
+        let r = |v: &[f32]| rms(&v[10000..40000]);
+        // used to come out several times quieter (wrong input scale)
+        assert!(r(&y) > 0.7 * r(&x), "voice level {} vs {}", r(&y), r(&x));
+        // no 10 ms lag: best alignment is at offset 0
+        let corr = |lag: usize| (10000..40000).map(|i| x[i] as f64 * y[i + lag] as f64).sum::<f64>();
+        let best = (0..1000).max_by(|a, b| corr(*a).partial_cmp(&corr(*b)).unwrap()).unwrap();
+        assert!(best < 5, "denoised audio lags by {} samples", best);
+    }
+
+    #[test]
+    fn rnn_suppresses_steady_noise() {
+        // fan-like background: low-passed noise (pure white noise looks like an "s" sound to RNNoise)
+        let (mut seed, mut lp) = (1u32, 0.0f32);
+        let noise: Vec<f32> = (0..3 * 48000).map(|_| {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            lp += 0.05 * (((seed >> 8) as f32 / 8388608.0 - 1.0) - lp);
+            lp * 0.2
+        }).collect();
+        let y = rnn_denoise(&noise, 48000, 1, 1.0);
+        let (i, o) = (rms(&noise[48000..]), rms(&y[48000..]));
+        println!("noise in {:.4} out {:.4}", i, o);
+        assert!(o < 0.3 * i);
+    }
+
+    #[test]
+    fn fit_stretches_drift_and_pads_gaps() {
+        // 1% fast clock: 10.1 s of samples for 10 s of video → stretched to exactly 10 s
+        let a = vec![0.1f32; 2 * 48480];
+        assert_eq!(fit_to_duration(&a, 2, 4800, 10.0).len(), 2 * 48000);
+        // loopback stopped delivering (nothing playing): 5 s of 10 → padded with silence
+        let b = vec![0.2f32; 2 * 24000];
+        let f = fit_to_duration(&b, 2, 4800, 10.0);
+        assert_eq!((f.len(), f[0], *f.last().unwrap()), (2 * 48000, 0.2, 0.0));
     }
 }

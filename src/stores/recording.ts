@@ -212,14 +212,20 @@ interface AppState {
 const hotkeyId = (k: string) => k.toLowerCase().replace(/\s/g, "");
 
 /** Start capture and wait until the first frame is armed, then start the UI timer. */
+/** Stop pressed while start was still waiting for the first frame (~1–2 s). It used to be
+ *  dropped, so a quick start → stop kept recording until stopped again. */
+let stopAfterStart = false;
+
 async function beginCapture(successMsg: string, preview = false) {
   const { addToast, config } = useStore.getState();
+  stopAfterStart = false;
   useStore.setState({ recordingPhase: "starting", lastRecording: null, previewing: preview, previewPath: null });
   if (config && !config.audio_enabled && !preview) addToast("Recording without audio — turn on Mic or System on the dashboard", "info");
   try {
     await invoke("start_recording", { outputPath: null, preview }); // blocks until frame 0 + audio armed
     useStore.setState({ keyboardEvents: [], recordingPhase: "recording", isPaused: false,
       recordingStartTime: Date.now(), pausedMs: 0, pauseStartTime: null });
+    if (stopAfterStart) { stopAfterStart = false; await useStore.getState().stopRecording(); return; }
     addToast(successMsg, "success");
   } catch (e) {
     useStore.setState({ recordingPhase: "idle", previewing: false });
@@ -307,7 +313,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (event.state === "Pressed" && get().recordingPhase === "idle") get().startRecording();
       });
       await register(stopKey, (event) => {
-        if (event.state === "Pressed" && get().recordingPhase === "recording") get().stopRecording();
+        if (event.state === "Pressed") get().stopRecording();
       });
       if (config.hotkey_pause) {
         await register(hotkeyId(config.hotkey_pause), (event) => {
@@ -342,6 +348,7 @@ export const useStore = create<AppState>((set, get) => ({
       await invoke("set_capture_region", {
         x: Math.round(region.x * dpr), y: Math.round(region.y * dpr),
         width: Math.round(region.width * dpr), height: Math.round(region.height * dpr),
+        relative: true, // selector coords are inside its own window, on whichever monitor it covered
       });
     } catch (e) { get().addToast(`Region failed: ${e}`, "error"); return; }
     await beginCapture(`Recording region ${Math.round(region.width * dpr)}×${Math.round(region.height * dpr)}`);
@@ -410,6 +417,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   stopRecording: async () => {
+    if (get().recordingPhase === "starting") { stopAfterStart = true; return; }
     if (get().recordingPhase !== "recording") return;
     set({ recordingPhase: "encoding", encodingProgress: 0, encodingStage: "Stopping capture..." });
     const progressInterval = setInterval(async () => {

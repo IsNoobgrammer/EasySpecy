@@ -69,7 +69,8 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
 
   // Load configuration and systems
   useEffect(() => {
-    if (config) setLocal({ ...config });
+    // Only seed once: re-seeding on every config change could drop edits made while a save was in flight
+    if (config) setLocal((prev) => prev ?? { ...config });
     loadAudioDevices();
     
     invoke<CursorPackInfo[]>("get_cursor_packs")
@@ -77,12 +78,20 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
       .catch((err) => console.error("Failed to load cursor packs:", err));
   }, [config]);
 
-  const handleSave = async () => {
-    if (!local) return;
-    await saveConfig(local);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
-  };
+  // Changes save automatically shortly after they're made, and on leaving Settings — nothing is lost
+  const pending = useRef<AppConfig | null>(null);
+  useEffect(() => {
+    if (!local || !config || JSON.stringify(local) === JSON.stringify(config)) return;
+    pending.current = local;
+    const t = setTimeout(async () => {
+      pending.current = null;
+      await saveConfig(local);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [local]);
+  useEffect(() => () => { if (pending.current) saveConfig(pending.current); }, []);
 
   const update = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) =>
     setLocal((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -670,29 +679,11 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
         )}
       </AnimatePresence>
 
-      {/* ═══ SAVE BUTTON FOOTER ═══ */}
-      <div className="px-6 py-4 border-t flex justify-center z-40 shadow-2xl" style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}>
-        <motion.button
-          onClick={handleSave}
-          className="max-w-3xl w-full py-3 font-mono text-xs uppercase font-extrabold cursor-pointer flex items-center justify-center gap-2 shadow-lg rounded"
-          style={{
-            border: "none",
-            background: saved ? "var(--accent-primary-container)" : "linear-gradient(135deg, var(--accent-primary-container), var(--accent-primary))",
-            color: "var(--on-primary)"
-          }}
-          whileHover={{ scale: 1.01, boxShadow: "0 0 25px rgba(0, 232, 138, 0.15)" }}
-          whileTap={{ scale: 0.98 }}
-        >
-          {saved ? (
-            <span className="flex items-center gap-1.5">
-              <Icon name="check_circle" size={16} /> CONFIGURATION SAVED SUCCESSFULLY
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5">
-              <Icon name="save" size={16} /> SAVE ALL SETTINGS
-            </span>
-          )}
-        </motion.button>
+      {/* ═══ AUTO-SAVE STATUS ═══ */}
+      <div className="px-6 py-2.5 border-t flex justify-center z-40" style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }} role="status" aria-live="polite">
+        <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase" style={{ color: saved ? "var(--accent-primary)" : "var(--text-muted)" }}>
+          <Icon name="check_circle" size={14} /> {saved ? "Saved" : "Changes save automatically"}
+        </span>
       </div>
     </div>
   );

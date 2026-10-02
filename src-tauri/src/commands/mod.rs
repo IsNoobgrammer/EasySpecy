@@ -13,22 +13,35 @@ pub fn get_config() -> AppConfig {
     AppConfig::load()
 }
 
-#[tauri::command]
-pub fn save_config(config: AppConfig) -> Result<(), String> {
-    config.save().map_err(|e| e.to_string())?;
-
+/// Game-capture mode needs admin rights, so toggling it relaunches the app elevated (or back).
+/// Only when that toggle actually changed — saving any other setting used to restart the app
+/// whenever elevation didn't match (e.g. the UAC prompt had been declined). Never mid-recording:
+/// the new mode then applies on the next launch.
+fn apply_elevation_change(was: bool, config: &AppConfig) {
     #[cfg(target_os = "windows")]
     {
-        if config.keyboard_game_capture && !crate::is_elevated() {
-            if crate::relaunch_as_admin() {
-                std::process::exit(0);
-            }
+        if was == config.keyboard_game_capture || capture::is_recording() {
+            return;
+        }
+        let relaunched = if config.keyboard_game_capture && !crate::is_elevated() {
+            crate::relaunch_as_admin()
         } else if !config.keyboard_game_capture && crate::is_elevated() {
-            if crate::relaunch_as_standard() {
-                std::process::exit(0);
-            }
+            crate::relaunch_as_standard()
+        } else {
+            false
+        };
+        if relaunched {
+            std::process::exit(0);
         }
     }
+}
+
+#[tauri::command]
+pub fn save_config(config: AppConfig) -> Result<(), String> {
+    let was_game_capture = AppConfig::load().keyboard_game_capture;
+    config.save().map_err(|e| e.to_string())?;
+
+    apply_elevation_change(was_game_capture, &config);
 
     Ok(())
 }
@@ -36,6 +49,7 @@ pub fn save_config(config: AppConfig) -> Result<(), String> {
 #[tauri::command]
 pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), String> {
     let mut config = AppConfig::load();
+    let was_game_capture = config.keyboard_game_capture;
     match key.as_str() {
         "resolution" => {
             if let Some(v) = value.as_str() {
@@ -141,18 +155,7 @@ pub fn update_config_field(key: String, value: serde_json::Value) -> Result<(), 
     }
     config.save().map_err(|e| e.to_string())?;
 
-    #[cfg(target_os = "windows")]
-    {
-        if config.keyboard_game_capture && !crate::is_elevated() {
-            if crate::relaunch_as_admin() {
-                std::process::exit(0);
-            }
-        } else if !config.keyboard_game_capture && crate::is_elevated() {
-            if crate::relaunch_as_standard() {
-                std::process::exit(0);
-            }
-        }
-    }
+    apply_elevation_change(was_game_capture, &config);
 
     Ok(())
 }
@@ -349,7 +352,6 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>,
     // could use a smaller, positioned window for keyboard-only mode to reduce memory and
     // compositing overhead, but that requires changes to overlay.html coordinate math and
     // always-on-top window management. Deferred to a future PR.
-    // Always created: besides effects, its heartbeat keeps capture frames flowing on static screens.
     let _ = create_effects_overlay(app.clone());
 
     // ═══ WAIT until capture is actually armed (first video frame received) ═══
@@ -513,8 +515,10 @@ pub fn clear_recording_history() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_capture_region(x: i32, y: i32, width: i32, height: i32) {
-    region::set_region(region::CaptureRegion { x, y, width, height });
+pub fn set_capture_region(x: i32, y: i32, width: i32, height: i32, relative: Option<bool>) {
+    // The region selector reports coordinates inside its own (monitor-sized) window
+    let (ox, oy) = if relative.unwrap_or(false) { region::selector_origin() } else { (0, 0) };
+    region::set_region(region::CaptureRegion { x: x + ox, y: y + oy, width, height });
 }
 
 #[tauri::command]
@@ -532,22 +536,22 @@ pub fn get_windows() -> Vec<region::WindowInfo> {
     region::get_windows()
 }
 
-/// Enter region selection: hide the app, screenshot the primary monitor (the one we capture),
-/// then cover it fullscreen. Returns the screenshot so the selector draws on the real desktop
+/// Enter region selection: hide the app, screenshot the monitor under the cursor (the one
+/// that will be recorded), then cover it fullscreen. Returns the screenshot so the selector draws on the real desktop
 /// (the main window isn't transparent, so without this the user saw the app's own background).
 #[tauri::command]
 pub async fn enter_region_mode(app: tauri::AppHandle) -> Result<String, String> {
     let window = app.get_webview_window("main").ok_or("No main window")?;
     window.hide().map_err(|e| e.to_string())?;
-    let shot = tauri::async_runtime::spawn_blocking(|| {
+    let m = region::monitor_under_cursor();
+    region::set_selector_origin(m.x, m.y);
+    let shot = tauri::async_runtime::spawn_blocking(move || {
         std::thread::sleep(std::time::Duration::from_millis(250)); // let the hide animation finish
-        region::capture_screen_png()
+        region::capture_monitor_png(&m)
     })
     .await
     .map_err(|e| e.to_string())??;
-    if let Some(m) = app.primary_monitor().map_err(|e| e.to_string())? {
-        let _ = window.set_position(*m.position());
-    }
+    let _ = window.set_position(tauri::PhysicalPosition::new(m.x, m.y));
     window.set_decorations(false).map_err(|e| e.to_string())?;
     window.set_fullscreen(true).map_err(|e| e.to_string())?;
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
@@ -624,15 +628,17 @@ pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    // Get primary monitor size via Tauri
-    let monitor = app
-        .primary_monitor()
-        .map_err(|e| format!("Monitor query failed: {}", e))?
-        .ok_or("No primary monitor found")?;
-    let scale_factor = monitor.scale_factor();
-    let size = monitor.size();
-    let logical_width = size.width as f64 / scale_factor;
-    let logical_height = size.height as f64 / scale_factor;
+    // Cover the monitor being recorded (effects drawn anywhere else wouldn't be in the video).
+    // Cursor events are sent relative to its origin, so the overlay needs no offset of its own.
+    let m = region::recording_monitor();
+    let scale_factor = app
+        .monitor_from_point(m.x as f64 + 1.0, m.y as f64 + 1.0)
+        .ok()
+        .flatten()
+        .map(|mon| mon.scale_factor())
+        .unwrap_or(1.0);
+    let logical_width = m.width as f64 / scale_factor;
+    let logical_height = m.height as f64 / scale_factor;
 
     let overlay = tauri::WebviewWindowBuilder::new(
         &app,
@@ -641,7 +647,7 @@ pub fn create_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
     )
     .title("EasySpecy Effects")
     .inner_size(logical_width, logical_height)
-    .position(0.0, 0.0)
+    .position(m.x as f64 / scale_factor, m.y as f64 / scale_factor)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)

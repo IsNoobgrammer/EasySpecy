@@ -10,6 +10,62 @@ pub struct CaptureRegion {
 }
 
 static SELECTED_REGION: Mutex<Option<CaptureRegion>> = Mutex::new(None);
+/// Desktop origin of the monitor the region selector is covering — the selector reports
+/// coordinates relative to its own window.
+static SELECTOR_ORIGIN: Mutex<(i32, i32)> = Mutex::new((0, 0));
+
+/// A monitor's bounds in virtual-desktop physical pixels (the primary monitor starts at 0,0;
+/// others can be at negative or offset coordinates).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MonitorRect {
+    pub hmonitor: isize,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
+/// The monitor containing a desktop point (primary if the point is off every screen).
+#[cfg(target_os = "windows")]
+pub fn monitor_at(x: i32, y: i32) -> MonitorRect {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTOPRIMARY};
+    unsafe {
+        let h = MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTOPRIMARY);
+        let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        let _ = GetMonitorInfoW(h, &mut mi);
+        let r = mi.rcMonitor;
+        MonitorRect { hmonitor: h.0 as isize, x: r.left, y: r.top, width: r.right - r.left, height: r.bottom - r.top }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn monitor_under_cursor() -> MonitorRect {
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut p = windows::Win32::Foundation::POINT::default();
+    unsafe { let _ = GetCursorPos(&mut p); }
+    monitor_at(p.x, p.y)
+}
+
+/// Which monitor a recording captures: the primary for full screen; for Region / Window mode
+/// the one holding the centre of the selection (it used to always be the primary, so a region
+/// on a second screen recorded the wrong picture).
+#[cfg(target_os = "windows")]
+pub fn recording_monitor() -> MonitorRect {
+    let mode = crate::config::AppConfig::load().recording_mode;
+    match (mode, get_region()) {
+        (crate::config::RecordingMode::FullScreen, _) | (_, None) => monitor_at(0, 0),
+        (_, Some(r)) => monitor_at(r.x + r.width / 2, r.y + r.height / 2),
+    }
+}
+
+pub fn set_selector_origin(x: i32, y: i32) {
+    *SELECTOR_ORIGIN.lock().unwrap() = (x, y);
+}
+
+pub fn selector_origin() -> (i32, i32) {
+    *SELECTOR_ORIGIN.lock().unwrap()
+}
 
 pub fn set_region(region: CaptureRegion) {
     *SELECTED_REGION.lock().unwrap() = Some(region);
@@ -21,6 +77,11 @@ pub fn get_region() -> Option<CaptureRegion> {
 
 pub fn clear_region() {
     *SELECTED_REGION.lock().unwrap() = None;
+}
+
+/// Move a desktop-coordinate region into the captured monitor's own pixel space.
+pub fn to_monitor_local(r: CaptureRegion, (ox, oy): (i32, i32)) -> CaptureRegion {
+    CaptureRegion { x: r.x - ox, y: r.y - oy, ..r }
 }
 
 /// Clamp a region (physical px) to the captured frame and round to even numbers —
@@ -55,6 +116,10 @@ mod tests {
         assert_eq!(sanitize(r(-10, -10, 400, 300), (1920, 1080)).unwrap().x, 0);
         assert!(sanitize(r(0, 0, 1920, 1080), (1920, 1080)).is_none());
         assert!(sanitize(r(10, 10, 20, 20), (1920, 1080)).is_none());
+        // a region on a second monitor to the left (x = -1920) maps into that monitor's pixels
+        let m = MonitorRect { hmonitor: 0, x: -1920, y: 0, width: 1920, height: 1080 };
+        let s = sanitize(to_monitor_local(r(-1500, 100, 640, 360), (m.x, m.y)), (m.width, m.height)).unwrap();
+        assert_eq!((s.x, s.y, s.width, s.height), (420, 100, 640, 360));
     }
 }
 
@@ -129,26 +194,32 @@ pub fn focus_window(hwnd: isize) {
 #[cfg(not(target_os = "windows"))]
 pub fn focus_window(_hwnd: isize) {}
 
-/// Screenshot of the primary monitor (physical px) as a PNG data URL — the backdrop the
-/// region selector draws on, so the user sees their real desktop instead of the app.
-pub fn capture_screen_png() -> Result<String, String> {
+/// Screenshot of a monitor (physical px) as a PNG data URL — the backdrop the region
+/// selector draws on, so the user sees their real desktop instead of the app.
+#[cfg(target_os = "windows")]
+pub fn capture_monitor_png(m: &MonitorRect) -> Result<String, String> {
     use base64::Engine;
-    Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(capture_screen_png_bytes()?)))
+    Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(capture_monitor_png_bytes(m)?)))
 }
 
 /// Primary-monitor screenshot as PNG bytes (physical px).
 #[cfg(target_os = "windows")]
 pub fn capture_screen_png_bytes() -> Result<Vec<u8>, String> {
+    capture_monitor_png_bytes(&monitor_at(0, 0))
+}
+
+/// Screenshot of one monitor as PNG bytes (physical px).
+#[cfg(target_os = "windows")]
+pub fn capture_monitor_png_bytes(m: &MonitorRect) -> Result<Vec<u8>, String> {
     use windows::Win32::Graphics::Gdi::*;
-    use windows::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN, SM_CYSCREEN};
-    let (w, h) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+    let (w, h) = (m.width, m.height);
     let mut px = vec![0u8; (w * h * 4) as usize];
     unsafe {
         let screen = GetDC(None);
         let mem = CreateCompatibleDC(Some(screen));
         let bmp = CreateCompatibleBitmap(screen, w, h);
         let old = SelectObject(mem, bmp.into());
-        let _ = BitBlt(mem, 0, 0, w, h, Some(screen), 0, 0, SRCCOPY);
+        let _ = BitBlt(mem, 0, 0, w, h, Some(screen), m.x, m.y, SRCCOPY);
         let mut bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
