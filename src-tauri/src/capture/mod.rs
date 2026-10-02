@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::encoder::{
     AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder,
+    VideoSettingsSubType,
 };
 use windows_capture::frame::Frame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
@@ -87,12 +88,59 @@ static SHOULD_RESUME_CAPTURE: AtomicBool = AtomicBool::new(false);
 static TOTAL_PAUSED_DURATION: Mutex<Duration> = Mutex::new(Duration::ZERO);
 /// Wall-clock instant when the current pause began
 static PAUSE_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
+/// True if the live encoder produced HEVC (else H.264). Decides whether the final pass can stream-copy.
+static CAPTURED_HEVC: AtomicBool = AtomicBool::new(false);
+
+/// Live Media Foundation encoder. H.264 unless the user picked an H.265 output, since
+/// HEVC MFTs are missing on older GPUs / stock Windows 10 (0xC00D5212, issue #2).
+/// Falls back to H.264 if HEVC can't be created.
+fn new_live_encoder(width: u32, height: u32, path: &str, want_hevc: bool) -> Result<VideoEncoder, Box<dyn std::error::Error + Send + Sync>> {
+    let config = crate::config::AppConfig::load();
+    let make = |sub| VideoEncoder::new(
+        VideoSettingsBuilder::new(width, height)
+            .sub_type(sub)
+            .bitrate(config.effective_bitrate_kbps().max(1000) * 1000)
+            .frame_rate(config.fps.max(1)),
+        AudioSettingsBuilder::default().disabled(true),
+        ContainerSettingsBuilder::default(),
+        path,
+    );
+    if want_hevc {
+        match make(VideoSettingsSubType::HEVC) {
+            Ok(e) => { CAPTURED_HEVC.store(true, Ordering::SeqCst); return Ok(e); }
+            Err(e) => tracing::warn!("HEVC live encoder unavailable ({}), falling back to H.264", e),
+        }
+    }
+    CAPTURED_HEVC.store(false, Ordering::SeqCst);
+    Ok(make(VideoSettingsSubType::H264)?)
+}
 
 struct CaptureHandler {
     encoder: Option<VideoEncoder>,
     width: u32,
     height: u32,
     segment_idx: u32,
+    /// Frames sent to the current segment's encoder (diagnostics for segment loss)
+    seg_frames: u32,
+}
+
+impl CaptureHandler {
+    /// Finalise the current encoder. Only segments that actually got frames are queued for
+    /// concat — an empty one (stop while paused, double pause) would break the stitch.
+    fn finish_segment(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(encoder) = self.encoder.take() {
+            encoder.finish()?;
+            let seg = segment_path(self.segment_idx);
+            tracing::info!("Segment {} finalised: {} ({} frames)", self.segment_idx, seg, self.seg_frames);
+            if self.seg_frames > 0 {
+                SEGMENT_PATHS.lock().unwrap().push(seg);
+            } else {
+                let _ = std::fs::remove_file(&seg);
+            }
+        }
+        self.seg_frames = 0;
+        Ok(())
+    }
 }
 
 impl GraphicsCaptureApiHandler for CaptureHandler {
@@ -106,18 +154,16 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         tracing::info!("Video encoder init: {}x{} -> {}", width, height, video_path);
 
-        let encoder = VideoEncoder::new(
-            VideoSettingsBuilder::new(width, height),
-            AudioSettingsBuilder::default().disabled(true),
-            ContainerSettingsBuilder::default(),
-            &video_path,
-        )?;
+        use crate::config::VideoEncoder as Enc;
+        let want_hevc = matches!(crate::config::AppConfig::load().effective_video_encoder(), Enc::H265 | Enc::H265_NVENC);
+        let encoder = new_live_encoder(width, height, &video_path, want_hevc)?;
 
         Ok(Self {
             encoder: Some(encoder),
             width,
             height,
             segment_idx: 0,
+            seg_frames: 0,
         })
     }
 
@@ -149,26 +195,22 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         // ═══ STOP: finish current segment, signal done ═══
         if SHOULD_STOP.load(Ordering::SeqCst) {
-            if let Some(encoder) = self.encoder.take() {
-                encoder.finish()?;
-                let seg = segment_path(self.segment_idx);
-                tracing::info!("Final segment {} finalised: {}", self.segment_idx, seg);
-                SEGMENT_PATHS.lock().unwrap().push(seg);
-            }
+            self.finish_segment()?;
             capture_control.stop();
             return Ok(());
         }
 
-        // ═══ PAUSE: finish current segment, hold until resume ═══
+        // ═══ PAUSE: finish current segment, warm up the next one, hold until resume ═══
         if SHOULD_FINISH_SEGMENT.load(Ordering::SeqCst) {
-            if let Some(encoder) = self.encoder.take() {
-                encoder.finish()?;
-            }
-            let seg = segment_path(self.segment_idx);
-            tracing::info!("Segment {} finalised: {}", self.segment_idx, seg);
-            SEGMENT_PATHS.lock().unwrap().push(seg);
-            self.segment_idx += 1;
             SHOULD_FINISH_SEGMENT.store(false, Ordering::SeqCst);
+            self.finish_segment()?;
+            // Create the next encoder NOW, not on resume. windows-capture's frame pool has a
+            // single buffer and the encoder holds that surface uncopied; a cold encoder created
+            // inside the callback could keep it pinned, starving WGC so the whole resumed
+            // segment came out as 1 frame. Warm at pause = same conditions as segment 0.
+            self.segment_idx += 1;
+            let next = segment_path(self.segment_idx);
+            self.encoder = Some(new_live_encoder(self.width, self.height, &next, CAPTURED_HEVC.load(Ordering::SeqCst))?);
             // Mark as paused AFTER the encoder is flushed — avoids race with stop_recording()
             RECORDING_PAUSED.store(true, Ordering::SeqCst);
             return Ok(());
@@ -176,25 +218,16 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
         // ═══ PAUSED: skip frames unless resume is requested ═══
         if RECORDING_PAUSED.load(Ordering::Relaxed) {
-            if SHOULD_RESUME_CAPTURE.load(Ordering::SeqCst) {
-                // Start a fresh encoder for the new segment
-                let new_path = segment_path(self.segment_idx);
-                tracing::info!("Starting segment {} at: {}", self.segment_idx, new_path);
-                self.encoder = Some(VideoEncoder::new(
-                    VideoSettingsBuilder::new(self.width, self.height),
-                    AudioSettingsBuilder::default().disabled(true),
-                    ContainerSettingsBuilder::default(),
-                    &new_path,
-                )?);
-                SHOULD_RESUME_CAPTURE.store(false, Ordering::SeqCst);
-                RECORDING_PAUSED.store(false, Ordering::SeqCst);
-                // Fall through — send this frame into the new segment
-            } else {
+            if !SHOULD_RESUME_CAPTURE.swap(false, Ordering::SeqCst) {
                 return Ok(());
             }
+            tracing::info!("Resuming into segment {}", self.segment_idx);
+            RECORDING_PAUSED.store(false, Ordering::SeqCst);
+            // Fall through — send this frame into the (already warm) segment
         }
 
         let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
+        self.seg_frames += 1;
         self.encoder.as_mut().unwrap().send_frame(frame)?;
 
         if count % 120 == 0 {
@@ -598,8 +631,8 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
     let output_path = OUTPUT_PATH.lock().unwrap().clone();
     let segments = SEGMENT_PATHS.lock().unwrap().clone();
     set_encoding_progress(8, "Stitching segments...");
-    // Verify each segment before stitching
-    for seg in &segments {
+    // Verify each segment before stitching (single segment: nothing to stitch, skip the ~1s probe)
+    for seg in segments.iter().filter(|_| segments.len() > 1) {
         match crate::sync_verifier::verify_segment_duration(seg) {
             Ok(ms) => tracing::info!("Segment pre-check: {} — {:.1}ms", seg, ms),
             Err(e) => tracing::warn!("Segment pre-check warn: {}", e),
@@ -628,87 +661,85 @@ pub fn stop_recording() -> Result<RecordingResult, String> {
 
     set_encoding_progress(10, "Processing audio...");
 
-    // Check if region capture is set
     let region = region::get_region();
+    let (webcam_dir, webcam_elapsed) = crate::webcam::stop_webcam_capture();
 
-    // Step 1: If region is set, crop video to region
+    // Crop needs its own pass only when the webcam composite needs cropped input;
+    // otherwise it's folded into the final encode.
+    let mut crop = region.as_ref().map(|r| format!("crop={}:{}:{}:{}", r.width, r.height, r.x, r.y));
     set_encoding_progress(20, "Cropping region...");
-    let processed_video = if let Some(ref r) = region {
-        let cropped_path = std::env::temp_dir()
-            .join("easyspecy")
-            .join("video_cropped.mp4")
-            .to_string_lossy()
-            .to_string();
-        crop_video(&video_path, &cropped_path, r)?;
-        let _ = std::fs::remove_file(&video_path);
-        cropped_path
-    } else {
-        video_path
+    let processed_video = match (&crop, &webcam_dir) {
+        (Some(_), Some(_)) => {
+            let cropped_path = std::env::temp_dir()
+                .join("easyspecy")
+                .join("video_cropped.mp4")
+                .to_string_lossy()
+                .to_string();
+            crop_video(&video_path, &cropped_path, region.as_ref().unwrap())?;
+            let _ = std::fs::remove_file(&video_path);
+            crop = None;
+            cropped_path
+        }
+        _ => video_path,
     };
 
     // Step 2: Webcam overlay compositing (before audio merge)
     set_encoding_progress(25, "Webcam overlay...");
-    let (webcam_dir, webcam_elapsed) = crate::webcam::stop_webcam_capture();
     // Use webcam's own elapsed time for FPS calculation (more accurate than video duration)
     let webcam_duration = if webcam_elapsed > 0.1 { webcam_elapsed } else { duration };
+    let mut composited = false;
     let processed_video = if let Some(ref wdir) = webcam_dir {
         let config_loaded = crate::config::AppConfig::load();
-        let shape = match config_loaded.webcam_shape {
-            crate::config::WebcamShape::Circle => crate::config::WebcamShape::Circle,
-            crate::config::WebcamShape::Rounded => crate::config::WebcamShape::Rounded,
-            crate::config::WebcamShape::Squircle => crate::config::WebcamShape::Squircle,
-        };
         let mask_path = crate::webcam::generate_shape_mask(
-            &shape,
+            &config_loaded.webcam_shape,
             config_loaded.webcam_size,
             config_loaded.webcam_border_width,
             &config_loaded.webcam_border_color,
         );
-        match mask_path {
+        let result = match mask_path {
             Ok(mask) => {
                 match crate::webcam::composite_webcam_on_video(&processed_video, wdir, &mask.to_string_lossy(), &config_loaded, webcam_duration) {
                     Ok(webcam_video) => {
                         let _ = std::fs::remove_file(&processed_video);
-                        crate::webcam::cleanup_webcam();
+                        composited = true;
                         webcam_video
                     }
                     Err(e) => {
                         tracing::warn!("Webcam overlay failed: {}", e);
-                        crate::webcam::cleanup_webcam();
                         processed_video
                     }
                 }
             }
             Err(e) => {
                 tracing::warn!("Webcam mask generation failed: {}", e);
-                crate::webcam::cleanup_webcam();
                 processed_video
             }
-        }
+        };
+        crate::webcam::cleanup_webcam();
+        result
     } else {
         processed_video
     };
 
-    // Step 3: Merge video + audio (real-time progress 35-85%)
+    // Step 3: Single final pass — mux audio, apply crop, and re-encode only if needed
     set_encoding_progress(35, "Encoding video...");
-    if has_audio {
-        let audio_file = audio_path.unwrap();
-        if std::path::Path::new(&audio_file).exists()
-            && std::fs::metadata(&audio_file).map(|m| m.len() > 44).unwrap_or(false)
-        {
-            merge_audio_video(&processed_video, &audio_file, &output_path)?;
-            let _ = std::fs::remove_file(&processed_video);
-            let _ = std::fs::remove_file(&audio_file);
+    // Audio enabled but nothing captured (e.g. system loopback while nothing played):
+    // still write a silent track so the file has audio like the user asked for.
+    let audio_file = audio_path.map(|a| {
+        if std::fs::metadata(&a).map(|m| m.len() > 44).unwrap_or(false) {
+            a
         } else {
-            tracing::warn!("Audio file empty or missing, saving video only");
-            fix_video_timestamps(&processed_video, &output_path)?;
-            let _ = std::fs::remove_file(&processed_video);
+            tracing::warn!("Audio file empty or missing, writing silent track");
+            let _ = std::fs::remove_file(&a);
+            SILENT_AUDIO.to_string()
         }
-    } else {
-        if processed_video != output_path {
-            fix_video_timestamps(&processed_video, &output_path)?;
-            let _ = std::fs::remove_file(&processed_video);
-        }
+    });
+    // A composited (ultrafast) intermediate is always re-encoded to the user's quality.
+    let allow_copy = crop.is_none() && !composited;
+    encode_final(&processed_video, audio_file.as_deref(), &output_path, crop.as_deref(), allow_copy)?;
+    let _ = std::fs::remove_file(&processed_video);
+    if let Some(a) = audio_file.as_deref().filter(|a| *a != SILENT_AUDIO) {
+        let _ = std::fs::remove_file(a);
     }
 
     // Cleanup temp dir
@@ -850,89 +881,99 @@ fn crop_video(input: &str, output: &str, region: &region::CaptureRegion) -> Resu
     Ok(())
 }
 
-/// Merge video + audio using FFmpeg.
-/// Forces both streams to start at exactly t=0 with no gap.
-/// Re-encodes video with setpts=PTS-STARTPTS to reset timestamps.
-/// Uses configured encoder (H264/H265/VP9) and quality settings.
+/// Final pass: mux video (+ optional audio) into `output`.
+/// Stream-copies the live-encoded video when the codec already matches the user's
+/// target and no filter is needed (the common case, so no second video encode).
+/// Otherwise re-encodes once with the configured encoder, applying `crop` if given.
 /// Reports real-time progress via -progress pipe:1.
-fn merge_audio_video(video: &str, audio: &str, output: &str) -> Result<(), String> {
+/// Sentinel audio "path" for a generated silent track (lavfi source).
+const SILENT_AUDIO: &str = "anullsrc=r=48000:cl=stereo";
+
+fn encode_final(video: &str, audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool) -> Result<(), String> {
+    use crate::config::VideoEncoder as Enc;
     let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
     let config = crate::config::AppConfig::load();
+    let target = config.effective_video_encoder();
 
-    tracing::info!("Merge: video={} + audio={} -> {}", video, audio, output);
+    let hevc = CAPTURED_HEVC.load(Ordering::SeqCst);
+    let codec_matches = match target {
+        Enc::H264 | Enc::H264_NVENC | Enc::MobileShareable => !hevc,
+        Enc::H265 | Enc::H265_NVENC => hevc,
+        _ => false,
+    };
+    let copy = allow_copy && codec_matches;
 
-    let video_duration_ms = probe_video_duration(&ffmpeg, video).unwrap_or(0.0);
-    tracing::info!("Video actual duration: {:?}ms", video_duration_ms);
+    // Only feeds the progress bar of a real encode; each probe is a ~1s ffmpeg cold start.
+    let video_duration_ms = if copy { 0.0 } else { probe_video_duration(&ffmpeg, video).unwrap_or(0.0) };
+    tracing::info!("Final pass: video={} audio={:?} -> {} (copy={}, crop={:?}, {:.0}ms)",
+        video, audio, output, copy, crop, video_duration_ms);
 
-    let encoder = config.ffmpeg_encoder().to_string();
-    let crf = config.ffmpeg_crf().to_string();
-    let bitrate = format!("{}k", config.effective_bitrate_kbps());
-
-    // Build FFmpeg args based on encoder
     let mut args: Vec<String> = vec![
         "-y".into(),
         "-fflags".into(), "+genpts+igndts".into(),
         "-i".into(), video.into(),
-        "-i".into(), audio.into(),
-        "-vf".into(), "setpts=PTS-STARTPTS".into(),
-        "-af".into(), "asetpts=PTS-STARTPTS".into(),
-        "-c:v".into(), encoder.clone(),
     ];
+    if let Some(a) = audio {
+        if a == SILENT_AUDIO {
+            args.extend(["-f".into(), "lavfi".into()]);
+        }
+        args.extend(["-i".into(), a.into(), "-map".into(), "0:v:0".into(), "-map".into(), "1:a:0".into()]);
+    }
 
-    // Add encoder-specific args (preset, tune, svt-params, etc.)
-    args.extend(config.ffmpeg_extra_args());
-
-    // Quality: use CRF for quality-based encoding
-    if config.video_quality == crate::config::VideoQuality::Custom {
-        args.extend(["-b:v".into(), bitrate]);
+    if copy {
+        args.extend(["-c:v".into(), "copy".into()]);
     } else {
-        // NVENC uses -qp instead of -crf
-        match config.video_encoder {
-            crate::config::VideoEncoder::H264_NVENC
-            | crate::config::VideoEncoder::H265_NVENC
-            | crate::config::VideoEncoder::AV1_NVENC => {
-                args.extend(["-qp".into(), crf.clone()]);
-            }
-            crate::config::VideoEncoder::VP9 => {
-                args.extend(["-crf".into(), crf.clone(), "-b:v".into(), "0".into()]);
-            }
-            _ => {
-                args.extend(["-crf".into(), crf.clone()]);
+        let mut vf = String::from("setpts=PTS-STARTPTS");
+        if let Some(c) = crop {
+            vf = format!("{},{}", c, vf);
+        }
+        let crf = config.ffmpeg_crf().to_string();
+        args.extend(["-vf".into(), vf, "-c:v".into(), config.ffmpeg_encoder().into()]);
+        // Encoder-specific args (preset, tune, svt-params, etc.)
+        args.extend(config.ffmpeg_extra_args());
+        if config.video_quality == crate::config::VideoQuality::Custom {
+            args.extend(["-b:v".into(), format!("{}k", config.effective_bitrate_kbps())]);
+        } else {
+            match target {
+                // NVENC uses -qp instead of -crf
+                Enc::H264_NVENC | Enc::H265_NVENC | Enc::AV1_NVENC => args.extend(["-qp".into(), crf]),
+                Enc::VP9 => args.extend(["-crf".into(), crf, "-b:v".into(), "0".into()]),
+                _ => args.extend(["-crf".into(), crf]),
             }
         }
+        args.extend(["-vsync".into(), "cfr".into(), "-pix_fmt".into(), "yuv420p".into(), "-threads".into(), "0".into()]);
     }
 
-    args.extend([
-        "-vsync".into(), "cfr".into(),
-        "-c:a".into(), "aac".into(),
-        "-b:a".into(), "192k".into(),
-        "-threads".into(), "0".into(),
-    ]);
-
-    if config.video_encoder == crate::config::VideoEncoder::VP9
-        || config.video_encoder == crate::config::VideoEncoder::MobileShareable
-    {
-        args.extend(["-pix_fmt".into(), "yuv420p".into()]);
+    if audio.is_some() {
+        args.extend([
+            // apad + -shortest: output length = video length. Loopback audio is shorter
+            // when nothing plays; without apad, -shortest chopped the end of the video.
+            "-af".into(), "asetpts=PTS-STARTPTS,apad".into(),
+            "-c:a".into(), "aac".into(),
+            "-b:a".into(), "192k".into(),
+            "-shortest".into(),
+        ]);
+    } else {
+        args.push("-an".into());
     }
 
-    args.extend([
-        "-shortest".into(),
-        "-progress".into(), "pipe:1".into(),
-        output.into(),
-    ]);
-
-    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    args.extend(["-progress".into(), "pipe:1".into(), output.into()]);
 
     let mut cmd = std::process::Command::new(&ffmpeg);
-    cmd.args(&args_ref);
+    cmd.args(&args);
 
-    run_ffmpeg_with_progress(cmd, video_duration_ms, 35, 85, "Encoding video...")?;
+    if let Err(e) = run_ffmpeg_with_progress(cmd, video_duration_ms, 35, 85, "Encoding video...") {
+        // Never lose the recording: without audio/crop the raw capture is a valid output.
+        if audio.is_none() && crop.is_none() {
+            tracing::warn!("Final pass failed, keeping raw capture: {}", e);
+            return std::fs::rename(video, output)
+                .or_else(|_| std::fs::copy(video, output).map(|_| ()))
+                .map_err(|e| e.to_string());
+        }
+        return Err(e);
+    }
 
-    tracing::info!(
-        "Merge complete: encoder={}, quality={:?}",
-        encoder,
-        config.video_quality
-    );
+    tracing::info!("Final pass complete: {}", if copy { "stream copy".to_string() } else { config.ffmpeg_encoder().to_string() });
     Ok(())
 }
 
@@ -969,73 +1010,6 @@ fn probe_video_duration(ffmpeg: &str, video_path: &str) -> Option<f64> {
         }
     }
     None
-}
-
-/// Fix video timestamps — re-encode to ensure video starts at t=0 with no gap.
-fn fix_video_timestamps(input: &str, output: &str) -> Result<(), String> {
-    let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
-    let config = crate::config::AppConfig::load();
-
-    tracing::info!("Fixing video timestamps: {} -> {}", input, output);
-
-    let encoder = config.ffmpeg_encoder().to_string();
-    let crf = config.ffmpeg_crf().to_string();
-
-    let preset = match config.video_encoder {
-        crate::config::VideoEncoder::VP9 => "good",
-        _ => "fast",
-    };
-
-    let mut args: Vec<String> = vec![
-        "-y".into(),
-        "-fflags".into(), "+genpts+igndts".into(),
-        "-i".into(), input.into(),
-        "-vf".into(), "setpts=PTS-STARTPTS".into(),
-        "-c:v".into(), encoder,
-        "-preset".into(), preset.into(),
-        "-crf".into(), crf,
-        "-vsync".into(), "cfr".into(),
-    ];
-
-    if config.video_encoder == crate::config::VideoEncoder::VP9
-        || config.video_encoder == crate::config::VideoEncoder::MobileShareable
-    {
-        args.extend(["-pix_fmt".into(), "yuv420p".into()]);
-    }
-
-    if config.video_encoder == crate::config::VideoEncoder::VP9 {
-        // VP9 needs -b:v 0 for CRF mode
-        args.extend(["-b:v".into(), "0".into()]);
-    }
-
-    args.extend([
-        "-an".into(),
-        output.into(),
-    ]);
-
-    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-
-    let mut cmd = std::process::Command::new(&ffmpeg);
-    cmd.args(&args_ref)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-
-    let result = cmd.output().map_err(|e| format!("FFmpeg fix timestamps error: {}", e))?;
-
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        tracing::warn!("FFmpeg timestamp fix failed, copying raw: {}", stderr);
-        std::fs::rename(input, output)
-            .or_else(|_| std::fs::copy(input, output).map(|_| ()))
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
 }
 
 fn find_ffmpeg() -> Option<String> {

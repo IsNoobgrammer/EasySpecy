@@ -844,20 +844,20 @@ fn noise_gate(
 
     let mut envelope: f32 = 0.0; // 0 = gate closed, 1 = gate open
 
+    // Sliding-window sum of squares over [lo, hi) — O(N) instead of O(N × window).
+    let energy = |f: usize| -> f64 {
+        input[f * ch..f * ch + ch].iter().map(|&s| (s as f64) * (s as f64)).sum()
+    };
+    let (mut sum_sq, mut lo, mut hi) = (0.0f64, 0usize, 0usize);
+
     for frame_idx in 0..frame_count {
-        // Compute local RMS over a window centered on current frame
+        // Local RMS over a window centered on current frame
         let win_start = frame_idx.saturating_sub(window_frames / 2);
         let win_end = (frame_idx + window_frames / 2).min(frame_count);
-        let mut sum_sq: f64 = 0.0;
-        let mut count = 0;
-        for f in win_start..win_end {
-            for c in 0..ch {
-                let s = input[f * ch + c] as f64;
-                sum_sq += s * s;
-                count += 1;
-            }
-        }
-        let local_rms = if count > 0 { (sum_sq / count as f64).sqrt() as f32 } else { 0.0 };
+        while hi < win_end { sum_sq += energy(hi); hi += 1; }
+        while lo < win_start { sum_sq -= energy(lo); lo += 1; }
+        let count = (hi - lo) * ch;
+        let local_rms = if count > 0 { (sum_sq.max(0.0) / count as f64).sqrt() as f32 } else { 0.0 };
 
         // Gate logic
         let target = if local_rms > threshold { 1.0f32 } else { 0.0f32 };

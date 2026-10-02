@@ -174,7 +174,7 @@ impl Default for AppConfig {
             resolution_width: 1920,
             resolution_height: 1080,
             fps: 30,
-            video_encoder: VideoEncoder::H265,
+            video_encoder: VideoEncoder::H264,
             video_bitrate_kbps: 4000,
             video_quality: VideoQuality::Medium,
 

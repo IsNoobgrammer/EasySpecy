@@ -473,25 +473,44 @@
 
       console.log(`[Webcam PiP] pos=(${posX},${posY}) size=${size} radius=${radius} brightness=${brightness}% contrast=${contrast}% saturate=${saturate}%`);
 
-      // Device selection — cfg.webcam_device is either "default" or a nokhwa numeric index
-      let videoConstraints;
-      try {
-        if (!cfg.webcam_device || cfg.webcam_device === "default" || cfg.webcam_device === "") {
-          videoConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } };
-        } else {
-          const allDevices = await navigator.mediaDevices.enumerateDevices();
-          const cams       = allDevices.filter(d => d.kind === "videoinput");
-          const idx        = parseInt(cfg.webcam_device, 10);
-          const target     = !isNaN(idx) && cams[idx] ? cams[idx] : null;
-          videoConstraints = target
-            ? { deviceId: { exact: target.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-            : { width: { ideal: 1280 }, height: { ideal: 720 } };
-          console.log(`[Webcam PiP] device index=${idx} -> ${target ? target.label : "fallback default"}`);
+      // Device selection — cfg.webcam_device is either "default" or a nokhwa numeric index.
+      // Try: chosen device → system default → every other camera. The default is often an
+      // idle virtual camera (NVIDIA Broadcast, phone-mirroring apps) that throws NotReadableError.
+      // 640x480 is plenty for a ~200px bubble and far cheaper than 720p.
+      // A camera only counts once it delivers a real frame: idle virtual cams open fine but stay blank.
+      // Polls decode state, not rendering: this window is still hidden while the camera opens.
+      const firstFrame = async (ms) => {
+        for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
+          if (video.readyState >= 2 && video.videoWidth > 0) return true;
         }
-
-        const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
-        video.srcObject = stream;
-        console.log("[Webcam PiP] stream started OK");
+        return false;
+      };
+      try {
+        const virtual = /virtual|broadcast|obs|douwan|manycam|xsplit|snap camera|droidcam|iriun/i;
+        const cams  = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+        const idx   = parseInt(cfg.webcam_device, 10);
+        const real  = cams.filter(c => !virtual.test(c.label)), fake = cams.filter(c => virtual.test(c.label));
+        const order = [cams[idx]?.deviceId, ...real.map(c => c.deviceId), null, ...fake.map(c => c.deviceId)]
+          .filter((id, i, a) => id !== undefined && a.indexOf(id) === i);
+        let ok = false, lastErr = null;
+        for (const id of order) {
+          const v = { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } };
+          if (id) v.deviceId = { exact: id };
+          const name = id ? (cams.find(c => c.deviceId === id)?.label || id) : "default";
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+            video.srcObject = stream;
+            await video.play().catch(() => {});
+            if (await firstFrame(2500)) { console.log(`[Webcam PiP] streaming from ${name}`); ok = true; break; }
+            console.warn(`[Webcam PiP] ${name} opened but sent no frames, trying next`);
+            stream.getTracks().forEach(t => t.stop());
+            video.srcObject = null;
+          } catch (err) {
+            lastErr = err;
+            console.warn(`[Webcam PiP] ${name} failed: ${err.name}`);
+          }
+        }
+        if (!ok) throw lastErr || new Error("NoFrames");
       } catch (e) {
         console.error("[Webcam PiP] getUserMedia failed:", e.name, e.message);
         pip.style.background   = "rgba(30,30,50,0.85)";
@@ -506,9 +525,11 @@
     async function loadConfig() {
       try {
         const cfg = await window.__TAURI__.core.invoke("get_config");
-        trail.style = cfg.trail_style || "glow";
+        // Effects toggle off → draw nothing (was ignored: trail/clicks drew whenever the overlay existed)
+        const fxOn = cfg.cursor_trail_enabled !== false;
+        trail.style = fxOn ? (cfg.trail_style || "glow") : "none";
         trail.color = cfg.cursor_trail_color || "#00e88a";
-        click.style = cfg.click_effect || "ripple";
+        click.style = fxOn ? (cfg.click_effect || "ripple") : "none";
         click.color = cfg.cursor_trail_color || "#00e88a";
         click.secondaryColor = cfg.cursor_secondary_color || "#ff4488";
 
@@ -878,7 +899,19 @@
       return false;
     }
 
+    // ── Capture heartbeat ──
+    // Windows Graphics Capture only delivers a frame when the screen changes. On a static
+    // screen, pause/resume/stop land late and that time silently vanishes from the video
+    // (audio keeps it → A/V drift). Flipping one invisible pixel every frame keeps frames
+    // flowing at the capture FPS so segment boundaries are accurate to one frame.
+    const heartbeat = document.createElement("div");
+    heartbeat.style.cssText = "position:fixed;left:0;top:0;width:2px;height:2px;pointer-events:none;z-index:2147483647";
+    document.body.appendChild(heartbeat);
+    let beat = false;
+
     function animate() {
+      beat = !beat;
+      heartbeat.style.background = beat ? "rgba(0,0,0,0.03)" : "transparent";
       const hasFx = hasActiveEffects();
       if (hasFx || wasActive) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);

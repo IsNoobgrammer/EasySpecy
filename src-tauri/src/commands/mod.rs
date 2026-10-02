@@ -329,9 +329,8 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
     // could use a smaller, positioned window for keyboard-only mode to reduce memory and
     // compositing overhead, but that requires changes to overlay.html coordinate math and
     // always-on-top window management. Deferred to a future PR.
-    if config.keyboard_overlay_enabled || config.cursor_trail_enabled || config.webcam_enabled {
-        let _ = create_effects_overlay(app.clone());
-    }
+    // Always created: besides effects, its heartbeat keeps capture frames flowing on static screens.
+    let _ = create_effects_overlay(app.clone());
 
     // ═══ WAIT until capture is actually armed (first video frame received) ═══
     // This is the key fix: frontend won't show "recording" until we're ACTUALLY recording.

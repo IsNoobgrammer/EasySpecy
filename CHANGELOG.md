@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **"Capture failed to start" on Windows 10 / older GPUs (#2)** — The live capture encoder was hardcoded to HEVC, which isn't available on GPUs like Intel HD 4000 / GT 630M or on stock Windows 10 (`0xC00D5212`). Live capture now uses H.264 unless an H.265 output is selected, and it falls back to H.264 automatically if HEVC can't be created.
+
+- **End of recording chopped off** — When system audio was shorter than the video (nothing playing near the end), `-shortest` trimmed the video to the audio length. 143 s recordings lost about 9 s. Audio is now padded to the video length.
+- **Recordings with no audio track** — If audio was enabled but nothing played, the file was saved without an audio stream. A silent track is now written.
+- **Video after resume lost** — About 1 in 3 resumed segments came out as a single frame. windows-capture's frame pool has one buffer, and a cold encoder created on the resume frame could pin it and starve capture. The next segment's encoder is now created at pause time. Empty segments are no longer queued for concat.
+- **Webcam bubble blank or "NotReadableError"** — The overlay opened the system default camera, which is often an idle virtual camera (NVIDIA Broadcast, phone mirroring). It now tries cameras until one delivers a real frame, physical cameras first, at 640×480.
+- **Pause hotkey did nothing** — `hotkey_pause` is now registered and toggles pause/resume.
+- **Old hotkeys stayed bound after changing them** — They were unregistered using the *new* config.
+- **Cursor effects toggle ignored** — The trail and click effects drew even with effects turned off.
+- **Mixed-codec segments** — Later segments reuse the codec that segment 0 actually got, so a settings change during a pause can't break concat.
+
+### Changed
+- **Stop → file ready: 111 s → 1.8 s** for a 60 s recording with pause, webcam, trail and keyboard overlay (i5-12450H / RTX 3050).
+- **Single-encode pipeline** — When the live-encoded codec matches the selected output, the final pass only muxes audio (`-c:v copy`) and no longer re-encodes the whole video. Region crop now runs inside the one final encode instead of a separate libx264 pass.
+- **Live encoder respects settings** — Bitrate and frame rate now follow the quality and FPS settings instead of a fixed 15 Mbps @ 60 fps.
+- **No redundant FFmpeg probes on stop** — The single-segment pre-check and the duration probe on the copy path are skipped; each was a ~1 s cold start of the bundled ffmpeg.
+- **Noise gate is O(N)** — It used a sliding-window sum instead of re-summing a 10 ms window for every sample.
+- **Effects overlay always created** — It now always runs during recording, with an invisible capture heartbeat.
+- **Default encoder is now H.264** for new installs, which keeps the fast copy path on every machine.
+
+---
+
 ## [0.1.5] - 2026-06-05
 
 ### Added

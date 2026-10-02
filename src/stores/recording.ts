@@ -181,6 +181,8 @@ interface AppState {
   pollKeyboardEvents: () => Promise<void>;
 }
 
+const hotkeyId = (k: string) => k.toLowerCase().replace(/\s/g, "");
+
 export const useStore = create<AppState>((set, get) => ({
   config: null,
   configLoaded: false,
@@ -228,8 +230,8 @@ export const useStore = create<AppState>((set, get) => ({
   saveConfig: async (config: AppConfig) => {
     try {
       await invoke("save_config", { config });
+      await get().unregisterHotkeys(); // must run before set(): it unregisters get().config's keys
       set({ config });
-      await get().unregisterHotkeys();
       await get().registerHotkeys();
     } catch (e) { get().addToast(`Save failed: ${e}`, "error"); }
   },
@@ -255,6 +257,12 @@ export const useStore = create<AppState>((set, get) => ({
       await register(stopKey, (event) => {
         if (event.state === "Pressed" && get().recordingPhase === "recording") get().stopRecording();
       });
+      if (config.hotkey_pause) {
+        await register(hotkeyId(config.hotkey_pause), (event) => {
+          if (event.state !== "Pressed" || get().recordingPhase !== "recording") return;
+          if (get().isPaused) get().resumeRecording(); else get().pauseRecording();
+        });
+      }
       set({ hotkeysRegistered: true });
     } catch (e) { console.error("Hotkey registration failed:", e); }
   },
@@ -265,6 +273,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (config) {
         await unregister(config.hotkey_start.toLowerCase().replace(/\s/g, "")).catch(() => {});
         await unregister(config.hotkey_stop.toLowerCase().replace(/\s/g, "")).catch(() => {});
+        if (config.hotkey_pause) await unregister(hotkeyId(config.hotkey_pause)).catch(() => {});
       }
       set({ hotkeysRegistered: false });
     } catch {}
