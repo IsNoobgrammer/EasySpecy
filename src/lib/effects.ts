@@ -1,6 +1,6 @@
 /**
  * EasySpecy — Canvas Effects Engine v2
- * Premium quality trail + click effects for Customization preview and RecordingOverlay.
+ * Trail + click effects for the Settings preview canvas (live overlay: public/overlay.html — keep in sync).
  */
 
 // ─── Types ───────────────────────────────────────────────────────

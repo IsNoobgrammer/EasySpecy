@@ -45,22 +45,11 @@ pub struct RecordingConfig {
     pub audio_source: String, // "Mic", "System", "Both"
     pub audio_sample_rate: u32,
     pub fps: u32,
-    // Webcam
-    pub webcam_enabled: bool,
-    pub webcam_device: String,
-    pub webcam_size: u32,
-    pub webcam_x: i32,
-    pub webcam_y: i32,
-    pub webcam_shape: String,
-    pub webcam_border_color: String,
-    pub webcam_border_width: u32,
-    pub webcam_opacity: f32,
 }
 
 static FRAME_COUNT: AtomicU32 = AtomicU32::new(0);
 static SHOULD_STOP: AtomicBool = AtomicBool::new(false);
 static OUTPUT_PATH: Mutex<String> = Mutex::new(String::new());
-static VIDEO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
 static AUDIO_TEMP_PATH: Mutex<String> = Mutex::new(String::new());
 static START_TIME: Mutex<Option<Instant>> = Mutex::new(None);
 /// Capture thread is alive (frames can arrive).
@@ -203,8 +192,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 }
             }
 
-            // Arm webcam capture (synced with video + audio)
-            crate::webcam::arm_webcam();
+
+            // Keyboard timestamps start at video frame 0
+            crate::keyboard::reset_keyboard_start_time();
 
             // Signal frontend: we are LIVE
             CAPTURE_READY.store(true, Ordering::SeqCst);
@@ -278,6 +268,20 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
 }
 
 fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
+    // Warm ffmpeg while recording: the first launch of the 150 MB bundled binary pays file-cache
+    // + Defender scan (~1 s); paying it now keeps stop → shareable file fast.
+    std::thread::spawn(|| {
+        if let Some(ffmpeg) = find_ffmpeg() {
+            let mut cmd = std::process::Command::new(ffmpeg);
+            cmd.arg("-version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000);
+            }
+            let _ = cmd.status();
+        }
+    });
 
     // Ensure output directory exists
     if let Some(parent) = std::path::Path::new(&config.output_path).parent() {
@@ -287,11 +291,9 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
     // Temp paths
     let temp_dir = std::env::temp_dir().join("easyspecy");
     std::fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
-    let video_temp = temp_dir.join("video_temp.mp4").to_string_lossy().to_string();
     let audio_temp = temp_dir.join("audio_temp.wav").to_string_lossy().to_string();
 
     *OUTPUT_PATH.lock().unwrap() = config.output_path;
-    *VIDEO_TEMP_PATH.lock().unwrap() = video_temp.clone();
     *AUDIO_TEMP_PATH.lock().unwrap() = audio_temp.clone();
 
     // Reset all state atomics
@@ -350,41 +352,6 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
         *AUDIO_CAPTURE.lock().unwrap() = Some(audio);
     }
 
-    // ═══ Start webcam capture (waits for CAPTURE_ARMED) ═══
-    if config.webcam_enabled {
-        // Tell frontend to release any browser webcam streams (device contention)
-        if let Some(app) = crate::app_handle() {
-            let _ = app.emit("release-webcam", ());
-        }
-        // Give browser time to release the device
-        std::thread::sleep(Duration::from_millis(300));
-
-        let webcam_config = crate::config::AppConfig {
-            webcam_enabled: config.webcam_enabled,
-            webcam_device: config.webcam_device.clone(),
-            webcam_size: config.webcam_size,
-            webcam_x: config.webcam_x,
-            webcam_y: config.webcam_y,
-            webcam_shape: match config.webcam_shape.as_str() {
-                "Circle" => crate::config::WebcamShape::Circle,
-                "Rounded" => crate::config::WebcamShape::Rounded,
-                "Squircle" => crate::config::WebcamShape::Squircle,
-                _ => crate::config::WebcamShape::Circle,
-            },
-            webcam_border_color: config.webcam_border_color.clone(),
-            webcam_border_width: config.webcam_border_width,
-            webcam_opacity: config.webcam_opacity,
-            ..Default::default()
-        };
-        if let Err(e) = crate::webcam::start_webcam_capture(&webcam_config) {
-            tracing::warn!("Webcam capture failed to start: {}", e);
-            // Emit error to frontend so user knows webcam won't be in the video
-            if let Some(app) = crate::app_handle() {
-                let _ = app.emit("webcam-error", e.to_string());
-            }
-        }
-    }
-
     RECORDING_ACTIVE.store(true, Ordering::SeqCst);
 
     // ═══ Spawn video capture thread ═══
@@ -405,7 +372,7 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
 
     // ═══ Spawn mouse tracking thread for cursor trail + click effects ═══
     // Polls cursor position at ~120Hz for smooth overlay rendering.
-    // Emits events to the overlay window AND feeds postprocess for FFmpeg bake-in.
+    // Emits events to the live effects overlay window.
     std::thread::Builder::new()
         .name("easyspecy-mouse".to_string())
         .spawn(move || {
@@ -435,24 +402,18 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
                 std::thread::sleep(Duration::from_millis(5));
             }
 
-            // ═══ SYNC: Reset cursor timestamp origin to NOW (= first video frame) ═══
-            crate::postprocess::reset_session_start();
 
             while RECORDING_ACTIVE.load(Ordering::SeqCst) {
                 // Get cursor position (screen coordinates = video coordinates)
                 let mut point = windows::Win32::Foundation::POINT { x: 0, y: 0 };
-                let (mut vx, mut vy) = (last_x as f32, last_y as f32);
 
                 if unsafe { GetCursorPos(&mut point).is_ok() } {
-                    vx = point.x as f32;
-                    vy = point.y as f32;
 
                     // Emit and record only if position changed (prevents high-frequency lock contention)
                     if point.x != last_x || point.y != last_y {
                         last_x = point.x;
                         last_y = point.y;
 
-                        crate::postprocess::record_cursor(vx, vy);
 
                         if let Some(app) = crate::app_handle() {
                             let _ = app.emit_to(
@@ -470,11 +431,6 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
                 let middle_down = unsafe { GetAsyncKeyState(VK_MBUTTON.0 as i32) } & 0x8000u16 as i16 != 0;
 
                 if left_down && !left_was_down {
-                    crate::postprocess::record_click(vx, vy, "left");
-                    // ═══ AUTO-ZOOM: Capture window bounds on click asynchronously ═══
-                    std::thread::spawn(|| {
-                        capture_window_bounds_on_click();
-                    });
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -484,10 +440,6 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
                     }
                 }
                 if right_down && !right_was_down {
-                    crate::postprocess::record_click(vx, vy, "right");
-                    std::thread::spawn(|| {
-                        capture_window_bounds_on_click();
-                    });
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -497,10 +449,6 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
                     }
                 }
                 if middle_down && !middle_was_down {
-                    crate::postprocess::record_click(vx, vy, "middle");
-                    std::thread::spawn(|| {
-                        capture_window_bounds_on_click();
-                    });
                     if let Some(app) = crate::app_handle() {
                         let _ = app.emit_to(
                             "effects-overlay",
@@ -644,8 +592,6 @@ pub fn abort_recording() {
         std::thread::sleep(Duration::from_millis(20));
     }
     RECORDING_ACTIVE.store(false, Ordering::SeqCst);
-    let _ = crate::webcam::stop_webcam_capture();
-    let _ = crate::postprocess::finalize();
     let _ = std::fs::remove_dir_all(std::env::temp_dir().join("easyspecy"));
     SESSION_ACTIVE.store(false, Ordering::SeqCst);
     tracing::info!("Recording session aborted");
@@ -682,23 +628,11 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    // ─── Stitch segments into video_temp.mp4 ───────────────────────────────
-    let video_path = VIDEO_TEMP_PATH.lock().unwrap().clone();
+    // Segments go straight into the final pass (concat demuxer) — no separate stitch run.
     let output_path = OUTPUT_PATH.lock().unwrap().clone();
     let segments = SEGMENT_PATHS.lock().unwrap().clone();
-    set_encoding_progress(8, "Stitching segments...");
-    // Verify each segment before stitching (single segment: nothing to stitch, skip the ~1s probe)
-    for seg in segments.iter().filter(|_| segments.len() > 1) {
-        match crate::sync_verifier::verify_segment_duration(seg) {
-            Ok(ms) => tracing::info!("Segment pre-check: {} — {:.1}ms", seg, ms),
-            Err(e) => tracing::warn!("Segment pre-check warn: {}", e),
-        }
-    }
-    if let Err(e) = concat_segments(&segments, &video_path) {
-        tracing::error!("Segment concat failed: {} — falling back to first segment", e);
-        if let Some(first) = segments.first() {
-            let _ = std::fs::copy(first, &video_path);
-        }
+    if segments.is_empty() {
+        return Err("No video was captured".to_string());
     }
     let frame_count = FRAME_COUNT.load(Ordering::Relaxed);
     let start = START_TIME.lock().unwrap().take();
@@ -722,64 +656,8 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
         crate::config::RecordingMode::FullScreen => None,
         _ => region::get_region().and_then(|r| region::sanitize(r, *CAPTURE_SIZE.lock().unwrap())),
     };
-    let (webcam_dir, webcam_elapsed) = crate::webcam::stop_webcam_capture();
-
-    // Crop needs its own pass only when the webcam composite needs cropped input;
-    // otherwise it's folded into the final encode.
-    let mut crop = region.as_ref().map(|r| format!("crop={}:{}:{}:{}", r.width, r.height, r.x, r.y));
-    set_encoding_progress(20, "Cropping region...");
-    let processed_video = match (&crop, &webcam_dir) {
-        (Some(_), Some(_)) => {
-            let cropped_path = std::env::temp_dir()
-                .join("easyspecy")
-                .join("video_cropped.mp4")
-                .to_string_lossy()
-                .to_string();
-            crop_video(&video_path, &cropped_path, region.as_ref().unwrap())?;
-            let _ = std::fs::remove_file(&video_path);
-            crop = None;
-            cropped_path
-        }
-        _ => video_path,
-    };
-
-    // Step 2: Webcam overlay compositing (before audio merge)
-    set_encoding_progress(25, "Webcam overlay...");
-    // Use webcam's own elapsed time for FPS calculation (more accurate than video duration)
-    let webcam_duration = if webcam_elapsed > 0.1 { webcam_elapsed } else { duration };
-    let mut composited = false;
-    let processed_video = if let Some(ref wdir) = webcam_dir {
-        let config_loaded = crate::config::AppConfig::load();
-        let mask_path = crate::webcam::generate_shape_mask(
-            &config_loaded.webcam_shape,
-            config_loaded.webcam_size,
-            config_loaded.webcam_border_width,
-            &config_loaded.webcam_border_color,
-        );
-        let result = match mask_path {
-            Ok(mask) => {
-                match crate::webcam::composite_webcam_on_video(&processed_video, wdir, &mask.to_string_lossy(), &config_loaded, webcam_duration) {
-                    Ok(webcam_video) => {
-                        let _ = std::fs::remove_file(&processed_video);
-                        composited = true;
-                        webcam_video
-                    }
-                    Err(e) => {
-                        tracing::warn!("Webcam overlay failed: {}", e);
-                        processed_video
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Webcam mask generation failed: {}", e);
-                processed_video
-            }
-        };
-        crate::webcam::cleanup_webcam();
-        result
-    } else {
-        processed_video
-    };
+    // Crop (Region/Window mode) is folded into the single final encode.
+    let crop = region.as_ref().map(|r| format!("crop={}:{}:{}:{}", r.width, r.height, r.x, r.y));
 
     // Step 3: Single final pass — mux audio, apply crop, and re-encode only if needed
     set_encoding_progress(35, "Encoding video...");
@@ -794,10 +672,10 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
             SILENT_AUDIO.to_string()
         }
     });
-    // A composited (ultrafast) intermediate is always re-encoded to the user's quality.
-    let allow_copy = crop.is_none() && !composited;
-    encode_final(&processed_video, audio_file.as_deref(), &output_path, crop.as_deref(), allow_copy)?;
-    let _ = std::fs::remove_file(&processed_video);
+    encode_final(&segments, duration * 1000.0, audio_file.as_deref(), &output_path, crop.as_deref(), crop.is_none())?;
+    for seg in &segments {
+        let _ = std::fs::remove_file(seg);
+    }
     if let Some(a) = audio_file.as_deref().filter(|a| *a != SILENT_AUDIO) {
         let _ = std::fs::remove_file(a);
     }
@@ -834,59 +712,10 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
 
     set_encoding_progress(100, "Complete");
 
-    // ═══ Save cursor metadata and apply effects ═══
-    tracing::info!("══ stop_recording: calling finalize() ══");
-    let final_output = if let Some(meta) = crate::postprocess::finalize() {
-        tracing::info!(
-            "══ finalize() returned Some: {} trail, {} clicks, trail='{}', click='{}' ══",
-            meta.cursor_trail.len(), meta.click_events.len(),
-            meta.trail_style, meta.click_effect
-        );
-        // Save metadata to disk — required for post-processing (effects, autozoom, etc.)
-        if let Err(e) = crate::postprocess::save_metadata(&meta, &output_path) {
-            tracing::warn!("Failed to save cursor metadata: {}", e);
-        }
-
-        // Apply trail + click effects to the video
-        let effects_output = output_path.replace(".mp4", "_fx.mp4");
-        tracing::info!("══ calling apply_effects({}) ══", output_path);
-        let res_path = match crate::postprocess::apply_effects(&output_path, &effects_output, &meta) {
-            Ok(ref effects_path) if effects_path != &output_path => {
-                tracing::info!("══ apply_effects SUCCESS: {} → {} ══", effects_path, output_path);
-                // Effects were applied — swap files
-                let _ = std::fs::remove_file(&output_path);
-                let _ = std::fs::rename(effects_path, &output_path);
-                tracing::info!("Effects baked into final video");
-                output_path.clone()
-            }
-            Ok(ref same_path) => {
-                tracing::info!("══ apply_effects RETURNED SAME PATH (no effects): {} ══", same_path);
-                output_path.clone()
-            }
-            Err(e) => {
-                tracing::error!("══ apply_effects ERROR: {} ══", e);
-                output_path.clone()
-            }
-        };
-
-        // All post-processing done — delete .meta.json, user only needs the .mp4
-        let meta_path = output_path.replace(".mp4", ".meta.json");
-        if std::path::Path::new(&meta_path).exists() {
-            if let Err(e) = std::fs::remove_file(&meta_path) {
-                tracing::warn!("Failed to delete .meta.json after post-processing: {}", e);
-            } else {
-                tracing::info!("Cleaned up .meta.json after post-processing: {}", meta_path);
-            }
-        }
-
-        res_path
-    } else {
-        tracing::info!("══ finalize() returned None — no metadata! ══");
-        output_path.clone()
-    };
+    tracing::info!("Recording ready: {}", output_path);
 
     Ok(RecordingResult {
-        output_path: final_output,
+        output_path,
         duration_secs: duration,
         frame_count,
         file_size_bytes: file_size,
@@ -894,62 +723,10 @@ fn stop_recording_inner() -> Result<RecordingResult, String> {
     })
 }
 
-/// Crop video to region using FFmpeg crop filter
-fn crop_video(input: &str, output: &str, region: &region::CaptureRegion) -> Result<(), String> {
-    let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
-
-    tracing::info!(
-        "Crop: {}x{}+{},{} -> {}",
-        region.width, region.height, region.x, region.y, output
-    );
-
-    let crop_filter = format!(
-        "crop={}:{}:{}:{}",
-        region.width, region.height, region.x, region.y
-    );
-
-    let mut cmd = std::process::Command::new(&ffmpeg);
-    cmd.args([
-            "-y",
-            "-i",
-            input,
-            "-vf",
-            &crop_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "ultrafast",
-            "-crf",
-            "23",
-            output,
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-
-    let result = cmd.output().map_err(|e| format!("FFmpeg crop error: {}", e))?;
-
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        return Err(format!("FFmpeg crop failed: {}", stderr));
-    }
-    Ok(())
-}
-
-/// Final pass: mux video (+ optional audio) into `output`.
-/// Stream-copies the live-encoded video when the codec already matches the user's
-/// target and no filter is needed (the common case, so no second video encode).
-/// Otherwise re-encodes once with the configured encoder, applying `crop` if given.
-/// Reports real-time progress via -progress pipe:1.
 /// Sentinel audio "path" for a generated silent track (lavfi source).
 const SILENT_AUDIO: &str = "anullsrc=r=48000:cl=stereo";
 
-fn encode_final(video: &str, audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool) -> Result<(), String> {
+fn encode_final(segments: &[String], duration_ms: f64, audio: Option<&str>, output: &str, crop: Option<&str>, allow_copy: bool) -> Result<(), String> {
     use crate::config::VideoEncoder as Enc;
     let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found")?;
     let config = crate::config::AppConfig::load();
@@ -963,16 +740,19 @@ fn encode_final(video: &str, audio: Option<&str>, output: &str, crop: Option<&st
     };
     let copy = allow_copy && codec_matches;
 
-    // Only feeds the progress bar of a real encode; each probe is a ~1s ffmpeg cold start.
-    let video_duration_ms = if copy { 0.0 } else { probe_video_duration(&ffmpeg, video).unwrap_or(0.0) };
-    tracing::info!("Final pass: video={} audio={:?} -> {} (copy={}, crop={:?}, {:.0}ms)",
-        video, audio, output, copy, crop, video_duration_ms);
+    tracing::info!("Final pass: {} segment(s) + audio={:?} -> {} (copy={}, crop={:?}, {:.0}ms)",
+        segments.len(), audio, output, copy, crop, duration_ms);
 
-    let mut args: Vec<String> = vec![
-        "-y".into(),
-        "-fflags".into(), "+genpts+igndts".into(),
-        "-i".into(), video.into(),
-    ];
+    let mut args: Vec<String> = vec!["-y".into(), "-fflags".into(), "+genpts+igndts".into()];
+    if segments.len() == 1 {
+        args.extend(["-i".into(), segments[0].clone()]);
+    } else {
+        // Pause/resume segments: concat demuxer stitches them inside this same run
+        let list = std::env::temp_dir().join("easyspecy").join("concat_list.txt");
+        let body: String = segments.iter().map(|p| format!("file '{}'\n", p.replace('\\', "/"))).collect();
+        std::fs::write(&list, body).map_err(|e| format!("Concat list write failed: {}", e))?;
+        args.extend(["-f".into(), "concat".into(), "-safe".into(), "0".into(), "-i".into(), list.to_string_lossy().into_owned()]);
+    }
     if let Some(a) = audio {
         if a == SILENT_AUDIO {
             args.extend(["-f".into(), "lavfi".into()]);
@@ -1024,12 +804,12 @@ fn encode_final(video: &str, audio: Option<&str>, output: &str, crop: Option<&st
     let mut cmd = std::process::Command::new(&ffmpeg);
     cmd.args(&args);
 
-    if let Err(e) = run_ffmpeg_with_progress(cmd, video_duration_ms, 35, 85, "Encoding video...") {
-        // Never lose the recording: without audio/crop the raw capture is a valid output.
-        if audio.is_none() && crop.is_none() {
+    if let Err(e) = run_ffmpeg_with_progress(cmd, duration_ms, 35, 85, "Encoding video...") {
+        // Never lose the recording: a single segment with no audio/crop is already a valid file.
+        if audio.is_none() && crop.is_none() && segments.len() == 1 {
             tracing::warn!("Final pass failed, keeping raw capture: {}", e);
-            return std::fs::rename(video, output)
-                .or_else(|_| std::fs::copy(video, output).map(|_| ()))
+            return std::fs::rename(&segments[0], output)
+                .or_else(|_| std::fs::copy(&segments[0], output).map(|_| ()))
                 .map_err(|e| e.to_string());
         }
         return Err(e);
@@ -1039,42 +819,13 @@ fn encode_final(video: &str, audio: Option<&str>, output: &str, crop: Option<&st
     Ok(())
 }
 
-/// Probe video duration in milliseconds using ffmpeg
-fn probe_video_duration(ffmpeg: &str, video_path: &str) -> Option<f64> {
-    let mut cmd = std::process::Command::new(ffmpeg);
-    cmd.args(["-i", video_path])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-
-    let output = cmd.output().ok()?;
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    for line in stderr.lines() {
-        if line.contains("Duration:") {
-            // Parse "Duration: HH:MM:SS.mm"
-            let start = line.find("Duration:")? + "Duration:".len();
-            let rest = line[start..].trim();
-            let end = rest.find(',')?;
-            let time_str = rest[..end].trim();
-            let parts: Vec<&str> = time_str.split(':').collect();
-            if parts.len() == 3 {
-                let h: f64 = parts[0].parse().ok()?;
-                let m: f64 = parts[1].parse().ok()?;
-                let s: f64 = parts[2].parse().ok()?;
-                return Some((h * 3600.0 + m * 60.0 + s) * 1000.0);
-            }
-        }
-    }
-    None
+/// Cached: the lookup can spawn `ffmpeg -version`, and it's needed several times per stop.
+fn find_ffmpeg() -> Option<String> {
+    static FFMPEG: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    FFMPEG.get_or_init(locate_ffmpeg).clone()
 }
 
-fn find_ffmpeg() -> Option<String> {
+fn locate_ffmpeg() -> Option<String> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
 
     let candidates = [
@@ -1114,37 +865,6 @@ pub fn find_ffmpeg_pub() -> Option<String> {
     find_ffmpeg()
 }
 
-/// Capture the foreground window bounds and record them for auto-zoom
-fn capture_window_bounds_on_click() {
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, GetWindowRect};
-    use windows::Win32::Foundation::RECT;
-
-    unsafe {
-        let hwnd = GetForegroundWindow();
-        if hwnd.0.is_null() {
-            return;
-        }
-
-        let mut rect = RECT::default();
-        if GetWindowRect(hwnd, &mut rect).is_ok() {
-            let x = rect.left;
-            let y = rect.top;
-            let width = rect.right - rect.left;
-            let height = rect.bottom - rect.top;
-
-            // Get window title
-            let mut title_buf: [u16; 256] = [0; 256];
-            let len = GetWindowTextW(hwnd, &mut title_buf);
-            let title = String::from_utf16_lossy(&title_buf[..len as usize]);
-
-            // Only record if window has reasonable dimensions
-            if width > 50 && height > 50 {
-                crate::postprocess::record_window_bounds(x, y, width, height, &title);
-            }
-        }
-    }
-}
-
 /// Returns the temp file path for video segment N.
 fn segment_path(idx: u32) -> String {
     std::env::temp_dir()
@@ -1152,73 +872,6 @@ fn segment_path(idx: u32) -> String {
         .join(format!("video_seg_{:03}.mp4", idx))
         .to_string_lossy()
         .to_string()
-}
-
-/// Concatenate video segments into a single MP4 using FFmpeg's concat demuxer.
-/// Uses `-c copy` — no re-encode, only container header stitching (~instant).
-/// If there is only one segment, renames it directly (zero FFmpeg overhead).
-fn concat_segments(segments: &[String], output: &str) -> Result<(), String> {
-    if segments.is_empty() {
-        return Err("No segments to concatenate".to_string());
-    }
-    if segments.len() == 1 {
-        // Fast path — single segment, just move it
-        std::fs::rename(&segments[0], output)
-            .or_else(|_| std::fs::copy(&segments[0], output).map(|_| ()))
-            .map_err(|e| format!("Single segment rename failed: {}", e))?;
-        tracing::info!("Single segment fast-path: {} -> {}", segments[0], output);
-        return Ok(());
-    }
-
-    // Write the concat list file
-    let list_path = std::env::temp_dir()
-        .join("easyspecy")
-        .join("concat_list.txt");
-    let list_content: String = segments
-        .iter()
-        .map(|p| format!("file '{}'\n", p.replace('\\', "/")))
-        .collect();
-    std::fs::write(&list_path, &list_content)
-        .map_err(|e| format!("Concat list write failed: {}", e))?;
-
-    tracing::info!(
-        "Concatenating {} segments -> {} via FFmpeg concat demuxer",
-        segments.len(), output
-    );
-
-    let ffmpeg = find_ffmpeg().ok_or("FFmpeg not found for concat")?;
-    let mut cmd = std::process::Command::new(&ffmpeg);
-    cmd.args([
-        "-f", "concat",
-        "-safe", "0",
-        "-i", &list_path.to_string_lossy(),
-        "-c", "copy",
-        "-y",
-        output,
-    ])
-    .stdout(std::process::Stdio::piped())
-    .stderr(std::process::Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-
-    let result = cmd.output().map_err(|e| format!("FFmpeg concat exec failed: {}", e))?;
-    if !result.status.success() {
-        let stderr = String::from_utf8_lossy(&result.stderr);
-        return Err(format!("FFmpeg concat error: {}", stderr));
-    }
-
-    // Clean up segment files and concat list
-    let _ = std::fs::remove_file(&list_path);
-    for seg in segments {
-        let _ = std::fs::remove_file(seg);
-    }
-
-    tracing::info!("Concat complete: {}", output);
-    Ok(())
 }
 
 pub fn pause_recording() {

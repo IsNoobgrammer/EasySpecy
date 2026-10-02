@@ -156,11 +156,6 @@ export default function App() {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
     }
-    const unlisten = listen("region-recording-started", () => {
-      useStore.setState({ recordingPhase: "recording", isPaused: false, recordingStartTime: Date.now() });
-      useStore.getState().addToast("Recording started (region)", "success");
-    });
-    
     // Tray menu event listeners
     const unlistenTrayStart = listen("tray-start-recording", async () => {
       const { recordingPhase, startRecording } = useStore.getState();
@@ -169,9 +164,7 @@ export default function App() {
     
     const unlistenTrayStop = listen("tray-stop-recording", async () => {
       const { recordingPhase, stopRecording } = useStore.getState();
-      if (recordingPhase === "recording" || recordingPhase === "encoding") {
-        await stopRecording();
-      }
+      if (recordingPhase === "recording") await stopRecording(); // not while encoding: that double-stopped
     });
     
     const unlistenTrayPause = listen("tray-pause-recording", async () => {
@@ -184,20 +177,6 @@ export default function App() {
       if (recordingPhase === "recording" && isPaused) await resumeRecording();
     });
     
-    // Release browser webcam when backend needs the device for nokhwa capture
-    const unlistenWebcam = listen("release-webcam", () => {
-      // Stop any existing video element streams (from WebcamPreview etc.)
-      document.querySelectorAll("video").forEach((v) => {
-        if (v.srcObject instanceof MediaStream) {
-          (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-          v.srcObject = null;
-        }
-      });
-    });
-    // Show webcam errors to user
-    const unlistenWebcamError = listen<string>("webcam-error", (event) => {
-      useStore.getState().addToast(`Webcam error: ${event.payload}`, "error");
-    });
     // Capture died mid-recording (GPU reset, display change…): stop now so the segments
     // and audio already on disk are saved instead of lost.
     const unlistenCaptureError = listen<string>("capture-error", (event) => {
@@ -207,13 +186,10 @@ export default function App() {
     });
     return () => {
       unlistenCaptureError.then((fn) => fn());
-      unlisten.then((fn) => fn());
       unlistenTrayStart.then((fn) => fn());
       unlistenTrayStop.then((fn) => fn());
       unlistenTrayPause.then((fn) => fn());
       unlistenTrayResume.then((fn) => fn());
-      unlistenWebcam.then((fn) => fn());
-      unlistenWebcamError.then((fn) => fn());
     };
   }, []);
 

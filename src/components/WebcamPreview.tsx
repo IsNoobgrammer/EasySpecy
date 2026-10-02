@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { Rnd } from "react-rnd";
 import { Icon } from "./Icon";
-import { invoke } from "@tauri-apps/api/core";
 
 // ═══ TYPES ═══
 
@@ -89,12 +88,14 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
     contrast: initial?.contrast ?? 1.1,
   });
 
-  // Query webcam devices list on mount
-  useEffect(() => {
-    invoke<{ index: string; name: string }[]>("get_webcam_devices")
-      .then(setWebcamDevices)
-      .catch((err) => console.error("Failed to load webcams inside preview:", err));
-  }, []);
+  // Device list comes from the browser — the same ordering overlay.html resolves the
+  // saved index against, so picker, preview and recording all mean the same camera.
+  const refreshDevices = () =>
+    navigator.mediaDevices.enumerateDevices()
+      .then((ds) => setWebcamDevices(ds.filter((d) => d.kind === "videoinput")
+        .map((d, i) => ({ index: String(i), name: d.label || `Camera ${i + 1}` }))))
+      .catch((err) => console.error("Failed to list cameras:", err));
+  useEffect(() => { refreshDevices(); }, []);
 
   // Start webcam + handle cleanup properly when active device changes
   useEffect(() => {
@@ -107,14 +108,17 @@ export function WebcamPreview({ onSave, onCancel, initial, recordingWidth = 1920
       streamRef.current = null;
     }
 
-    const devIndex = overlay.device;
-    const constraints: MediaStreamConstraints = {
-      video: devIndex === "default" ? { width: { ideal: 640 }, height: { ideal: 480 } } : { deviceId: devIndex, width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false,
-    };
-
-    navigator.mediaDevices.getUserMedia(constraints)
+    navigator.mediaDevices.enumerateDevices()
+      .then((ds) => {
+        const cams = ds.filter((d) => d.kind === "videoinput");
+        const id = overlay.device === "default" ? undefined : cams[parseInt(overlay.device, 10)]?.deviceId;
+        return navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, ...(id ? { deviceId: { exact: id } } : {}) },
+          audio: false,
+        });
+      })
       .then((s) => {
+        refreshDevices(); // labels are only readable after permission is granted
         if (!mounted) {
           s.getTracks().forEach((t) => t.stop());
           return;

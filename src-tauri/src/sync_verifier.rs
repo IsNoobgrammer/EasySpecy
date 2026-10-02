@@ -283,6 +283,10 @@ struct StreamInfo {
 
 /// Probe the output file using ffprobe (or ffmpeg -i) to extract stream metadata
 fn probe_streams(ffprobe_path: &str, file_path: &str) -> Result<Vec<StreamInfo>, String> {
+    // ffmpeg doesn't take ffprobe flags — go straight to `-i` parsing instead of a doomed launch
+    if !ffprobe_path.to_ascii_lowercase().contains("ffprobe") {
+        return probe_with_ffmpeg_fallback(ffprobe_path, file_path);
+    }
     // Try ffprobe JSON output first
     let mut cmd = Command::new(ffprobe_path);
     cmd.args([
@@ -475,140 +479,13 @@ fn extract_fps_from_line(line: &str) -> f64 {
     0.0
 }
 
-/// Find ffprobe or ffmpeg binary for probing
+/// Bundled ffprobe if one ships next to the bundled ffmpeg, else that same ffmpeg (already
+/// warm from the final pass). Used to probe PATH and hardcoded dev paths first, which cost a
+/// cold launch of a different binary on every stop and shipped a developer's home dir.
 fn find_ffprobe_or_ffmpeg() -> Result<String, String> {
-    // Try ffprobe first (more accurate)
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
-
-    if let Some(ref dir) = exe_dir {
-        let candidates = [
-            dir.join("resources").join("ffprobe.exe"),
-            dir.join("ffprobe.exe"),
-        ];
-        for path in &candidates {
-            if path.exists() {
-                return Ok(path.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    // Check if ffprobe is on PATH
-    let mut cmd = Command::new("ffprobe");
-    cmd.arg("-version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    if cmd.status().is_ok() {
-        return Ok("ffprobe".to_string());
-    }
-
-    // Fall back to ffmpeg (can also probe with -i)
-    if let Some(ref dir) = exe_dir {
-        let candidates = [
-            dir.join("resources").join("ffmpeg.exe"),
-            dir.join("ffmpeg.exe"),
-            dir.parent().unwrap_or(dir).join("resources").join("ffmpeg.exe"),
-            std::path::PathBuf::from(r"C:\Users\shaur\OneDrive\Documents\ffmpeg\bin\ffprobe.exe"),
-            std::path::PathBuf::from(r"C:\Users\shaur\OneDrive\Documents\ffmpeg\bin\ffmpeg.exe"),
-        ];
-        for path in &candidates {
-            if path.exists() {
-                return Ok(path.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    // Last resort: ffmpeg on PATH
-    let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    if cmd.status().is_ok() {
-        return Ok("ffmpeg".to_string());
-    }
-
-    Err("Neither ffprobe nor ffmpeg found. Cannot verify sync.".to_string())
+    let ffmpeg = crate::capture::find_ffmpeg_pub().ok_or("FFmpeg not found. Cannot verify sync.")?;
+    let probe = std::path::Path::new(&ffmpeg).with_file_name("ffprobe.exe");
+    Ok(if probe.exists() { probe.to_string_lossy().into_owned() } else { ffmpeg })
 }
 
-/// Verify that audio WAV file (pre-merge) has correct properties.
-/// Called internally before FFmpeg merge to catch issues early.
-pub fn verify_audio_pre_merge(
-    wav_path: &str,
-    expected_duration_ms: f64,
-    source: &str, // "Mic", "System", "Both"
-) -> Result<(), String> {
-    let reader = hound::WavReader::open(wav_path)
-        .map_err(|e| format!("Cannot open WAV for verification: {}", e))?;
 
-    let spec = reader.spec();
-    let num_samples = reader.len() as f64;
-    let duration_ms = (num_samples / spec.channels as f64 / spec.sample_rate as f64) * 1000.0;
-
-    tracing::info!(
-        "Audio pre-merge verify: {}Hz {}ch, {:.1}ms, source={}",
-        spec.sample_rate, spec.channels, duration_ms, source
-    );
-
-    // Check duration is reasonable (within 100ms of expected)
-    let drift = (duration_ms - expected_duration_ms).abs();
-    if drift > 100.0 && expected_duration_ms > 0.0 {
-        tracing::warn!(
-            "Audio pre-merge: duration drift {:.1}ms (audio={:.1}ms, expected={:.1}ms)",
-            drift, duration_ms, expected_duration_ms
-        );
-    }
-
-    // For "Both" mode: if audio is roughly 2x expected, it's concatenated not mixed
-    if source == "Both" && expected_duration_ms > 0.0 {
-        let ratio = duration_ms / expected_duration_ms;
-        if ratio > 1.8 {
-            return Err(format!(
-                "CONCATENATION BUG DETECTED: Audio duration ({:.1}ms) is {:.2}x \
-                 video duration ({:.1}ms). Mic and system audio are being \
-                 concatenated instead of overlapped/mixed!",
-                duration_ms, ratio, expected_duration_ms
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-/// Lightweight pre-concat segment check.
-/// Probes a single video segment with ffprobe and returns its duration in ms.
-/// Warns (but does not fail) if the segment is shorter than 100ms — this can
-/// happen if the user paused very quickly after starting/resuming, but it is
-/// still a valid (if tiny) segment for concat.
-pub fn verify_segment_duration(segment_path: &str) -> Result<f64, String> {
-    if !std::path::Path::new(segment_path).exists() {
-        return Err(format!("Segment file missing: {}", segment_path));
-    }
-
-    let ffprobe = find_ffprobe_or_ffmpeg()?;
-    let streams = probe_streams(&ffprobe, segment_path)?;
-
-    let video = streams.iter().find(|s| s.codec_type == "video")
-        .ok_or_else(|| format!("No video stream in segment: {}", segment_path))?;
-
-    let duration_ms = video.duration_ms;
-
-    if duration_ms < 100.0 {
-        tracing::warn!(
-            "Segment is very short ({:.1}ms < 100ms): {} — may cause concat issues",
-            duration_ms, segment_path
-        );
-    }
-
-    Ok(duration_ms)
-}

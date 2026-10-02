@@ -5,10 +5,8 @@ mod config;
 pub mod cursors;
 mod history;
 mod keyboard;
-mod postprocess;
 mod region;
 pub mod sync_verifier;
-pub mod webcam;
 mod tray;
 
 use std::sync::OnceLock;
@@ -141,12 +139,9 @@ pub fn run() {
             commands::restore_cursors,
             commands::create_effects_overlay,
             commands::destroy_effects_overlay,
-            commands::create_webcam_overlay,
-            commands::destroy_webcam_overlay,
             commands::start_audio_monitor_cmd,
             commands::stop_audio_monitor_cmd,
             commands::get_audio_levels,
-            commands::get_webcam_devices,
             commands::get_keyboard_events,
             commands::is_portable_mode,
             commands::install_portable_update,

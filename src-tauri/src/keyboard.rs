@@ -422,9 +422,6 @@ fn run_worker(
                         event,
                     );
                 }
-
-                // Record for post-processing/video baking
-                crate::postprocess::record_keyboard_event(&key, ctrl, shift, alt, win);
             }
         }
 

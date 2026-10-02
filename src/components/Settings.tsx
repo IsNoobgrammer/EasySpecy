@@ -463,56 +463,9 @@ export function Settings({ onBack, onCheckUpdate }: { onBack: () => void; onChec
             </AnimatePresence>
           </Card>
 
-          {/* ── Auto-Zoom Section ── */}
-          <Card title="Auto-Zoom" icon="zoom_in" index={4} badge="Post-processing">
-            <Row label="Enable Auto-Zoom" desc="Automatically pan and zoom towards mouse click positions in post-processing">
-              <Toggle checked={local.auto_zoom_enabled} onChange={(v) => update("auto_zoom_enabled", v)} />
-            </Row>
-            <AnimatePresence>
-              {local.auto_zoom_enabled && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="overflow-hidden space-y-4 pt-4 border-t"
-                  style={{ borderColor: "var(--border-default)" }}
-                >
-                  <Row label="Zoom Factor" desc="How close to zoom in on targets">
-                    <Segmented
-                      value={local.zoom_level}
-                      options={[
-                        { label: "1.5×", value: 1.5 },
-                        { label: "2.0×", value: 2.0 },
-                        { label: "2.5×", value: 2.5 },
-                        { label: "3.0×", value: 3.0 },
-                      ]}
-                      onChange={(v) => update("zoom_level", v as number)}
-                    />
-                  </Row>
-                  <Row label="Dwell Hold Duration" desc="Time window to hold zoom at target click coordinates">
-                    <Select
-                      value={local.zoom_dwell_ms}
-                      onChange={(v) => update("zoom_dwell_ms", Number(v))}
-                      options={[
-                        { label: "500ms — Quick snap", value: 500 },
-                        { label: "1.0s — Standard", value: 1000 },
-                        { label: "1.5s — Longer hold", value: 1500 },
-                        { label: "2.0s — Continuous", value: 2000 },
-                      ]}
-                    />
-                  </Row>
-                  <Row label="Pan Smoothing Speed" desc="How quickly the camera glides to zoom targets">
-                    <Slider value={local.zoom_speed} min={0.5} max={3.0} step={0.1} onChange={(v) => update("zoom_speed", v)} suffix=" s" />
-                  </Row>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </Card>
-
           {/* ── Cursor & Click Effects Redesign ── */}
-          <Card title="Cursor & Click Effects" icon="mouse" index={5} badge="Post-processing">
-            <Row label="Cursor Custom Pack" desc="Visual pointer pack override used in post-processing">
+          <Card title="Cursor & Click Effects" icon="mouse" index={4} badge="Live">
+            <Row label="Cursor Custom Pack" desc="Pointer style shown while recording">
               <Select
                 value={local.cursor_pack || "default"}
                 onChange={(v) => update("cursor_pack", v)}

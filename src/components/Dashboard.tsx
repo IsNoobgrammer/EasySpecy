@@ -577,7 +577,6 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
 
         {/* Feature Badges */}
         <motion.div className="flex items-center gap-2" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
-          {config?.auto_zoom_enabled && <Badge text="AUTO-ZOOM" />}
           {config?.cursor_trail_enabled && <Badge text="CURSOR-FX" />}
           {config?.webcam_enabled && <Badge text="WEBCAM" />}
         </motion.div>

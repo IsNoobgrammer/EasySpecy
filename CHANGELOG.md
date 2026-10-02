@@ -34,8 +34,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Cursor effects toggle ignored** — The trail and click effects drew even with effects turned off.
 - **Mixed-codec segments** — Later segments reuse the codec that segment 0 actually got, so a settings change during a pause can't break concat.
 
+### Removed
+- **Dead post-processing (about 4,500 lines)** — The Rust webcam capture (PNG sequence + FFmpeg composite), effect baking (`apply_effects`) and the cursor/click/keystroke metadata that only fed them. The webcam, trail and keys are drawn live by the overlay and captured directly. This also removes the `.meta.json` that briefly held every keystroke, and a thread spawned per click.
+- **Unused crates** — `nokhwa`, `rayon`, `font8x8`, `miniz_oxide`, `crc32fast`.
+- **Dead files** — `webcam.html`, both `region-select.html`, `Customization.tsx`, `RecordingOverlay.tsx`.
+- **Auto-zoom UI** — Never implemented; planned for 2.x.
+- **Hardcoded developer paths** — Removed from the sync verifier and cursor packs.
+
 ### Changed
-- **Stop → file ready: 111 s → 1.8 s** for a 60 s recording with pause, webcam, trail and keyboard overlay (i5-12450H / RTX 3050).
+- **Stop → file ready: 111 s → 1.2–1.5 s** for a 60 s recording with pause. The final pass reads pause segments directly (one FFmpeg run, not concat + mux), per-segment probe launches are gone, the verifier reuses the bundled ffmpeg instead of a cold ffprobe, and ffmpeg is pre-warmed while recording.
+- **Webcam picker uses the browser's camera list** — The same ordering the overlay uses, so preview and recording show the same camera.
+- **Effects badge** — "Post-processing" → "Live".
+- **Previously: stop → file ready: 111 s → 1.8 s** for a 60 s recording with pause, webcam, trail and keyboard overlay (i5-12450H / RTX 3050).
 - **Single-encode pipeline** — When the live-encoded codec matches the selected output, the final pass only muxes audio (`-c:v copy`) and no longer re-encodes the whole video. Region crop now runs inside the one final encode instead of a separate libx264 pass.
 - **Live encoder respects settings** — Bitrate and frame rate now follow the quality and FPS settings instead of a fixed 15 Mbps @ 60 fps.
 - **No redundant FFmpeg probes on stop** — The single-segment pre-check and the duration probe on the copy path are skipped; each was a ~1 s cold start of the bundled ffmpeg.

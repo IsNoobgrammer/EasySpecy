@@ -125,8 +125,6 @@ fn load_bundled_pack(pack_id: &str) -> Result<HashMap<u32, Vec<u8>>, String> {
         exe_dir.parent().unwrap_or(&exe_dir).parent().unwrap_or(&exe_dir).join("src-tauri").join("resources").join("cursors").join(pack_id),
         // CWD-relative fallback
         PathBuf::from("src-tauri").join("resources").join("cursors").join(pack_id),
-        // Absolute path fallback (common dev location)
-        PathBuf::from(r"C:\Users\shaur\OneDrive\Documents\EasySpecy\src-tauri\resources\cursors").join(pack_id),
     ];
     let dir = candidates.iter().find(|p| p.exists())
         .ok_or(format!("Bundled pack '{}' not found", pack_id))?;

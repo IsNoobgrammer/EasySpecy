@@ -301,26 +301,14 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
         audio_source: format!("{:?}", config.audio_source),
         audio_sample_rate: config.audio_sample_rate,
         fps: config.fps,
-        webcam_enabled: false, // Bypassed because we use live HTML5 overlay window!
-        webcam_device: config.webcam_device.clone(),
-        webcam_size: config.webcam_size,
-        webcam_x: config.webcam_x,
-        webcam_y: config.webcam_y,
-        webcam_shape: format!("{:?}", config.webcam_shape),
-        webcam_border_color: config.webcam_border_color.clone(),
-        webcam_border_width: config.webcam_border_width,
-        webcam_opacity: config.webcam_opacity,
     });
     if let Err(e) = started {
         let _ = crate::cursors::restore_cursors();
         return Err(e);
     }
 
-    // Start cursor metadata collection for post-processing
-    crate::postprocess::start_collection();
-
-    // Start keyboard capture for overlay or auto-zoom if enabled
-    if config.keyboard_overlay_enabled || config.auto_zoom_enabled {
+    // Start keyboard capture for the overlay
+    if config.keyboard_overlay_enabled {
         crate::keyboard::start_keyboard_capture();
     }
 
@@ -379,8 +367,6 @@ pub async fn start_recording(app: tauri::AppHandle, output_path: Option<String>)
         tracing::info!("Effects overlay window made visible from Rust");
     }
 
-    // Webcam overlay is shown from JS (webcam.html) once the video stream starts playing.
-    // The JS has a 2-second fallback timer as well, so no Rust-side show needed.
 
     tracing::info!("start_recording: capture armed, returning to frontend");
     crate::tray::update_tray_state(true, false);
@@ -679,135 +665,6 @@ pub fn destroy_effects_overlay(app: tauri::AppHandle) -> Result<(), String> {
         tracing::info!("Effects overlay window destroyed");
     }
     Ok(())
-}
-
-/// Create a transparent webcam overlay window for live webcam PiP during recording.
-#[tauri::command]
-pub fn create_webcam_overlay(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri::WebviewUrl;
-
-    if app.get_webview_window("webcam-overlay").is_some() {
-        return Ok(());
-    }
-
-    let config = AppConfig::load();
-    if !config.webcam_enabled {
-        tracing::info!("Webcam overlay skipped: webcam_enabled=false");
-        return Ok(());
-    }
-
-    // Get primary monitor dimensions and scale factor
-    let monitor = app
-        .primary_monitor()
-        .map_err(|e| format!("Monitor query failed: {}", e))?
-        .ok_or("No primary monitor found")?;
-    let scale_factor = monitor.scale_factor();
-    let mon_phys_w = monitor.size().width as f64;
-    let mon_phys_h = monitor.size().height as f64;
-    // Logical monitor dimensions = physical / scale_factor
-    let mon_log_w = mon_phys_w / scale_factor;
-    let mon_log_h = mon_phys_h / scale_factor;
-
-    // Config stores x/y/size in OUTPUT resolution space (resolution_width x resolution_height).
-    // Convert to logical monitor pixels:
-    //   logical = config_val * (monitor_logical_dim / config_resolution_dim)
-    let res_w = config.resolution_width as f64;
-    let res_h = config.resolution_height as f64;
-    let scale_x = mon_log_w / res_w;
-    let scale_y = mon_log_h / res_h;
-
-    let mut logical_x = config.webcam_x as f64 * scale_x;
-    let mut logical_y = config.webcam_y as f64 * scale_y;
-    // Use average scale for size (keep aspect ratio)
-    let logical_size = config.webcam_size as f64 * ((scale_x + scale_y) / 2.0);
-
-    // In region mode, offset by region origin (also scaled)
-    if config.recording_mode == crate::config::RecordingMode::Region {
-        if let Some(r) = crate::region::get_region() {
-            logical_x += r.x as f64 * scale_x;
-            logical_y += r.y as f64 * scale_y;
-        }
-    }
-
-    // Clamp to screen bounds
-    logical_x = logical_x.clamp(0.0, mon_log_w - logical_size);
-    logical_y = logical_y.clamp(0.0, mon_log_h - logical_size);
-
-    tracing::info!(
-        "Webcam overlay: config({}, {}) size={} | monitor={}x{} (logical) scale={} | res={}x{} \
-         → logical({:.1}, {:.1}) size={:.1}",
-        config.webcam_x, config.webcam_y, config.webcam_size,
-        mon_log_w, mon_log_h, scale_factor,
-        res_w, res_h,
-        logical_x, logical_y, logical_size
-    );
-
-    let overlay = tauri::WebviewWindowBuilder::new(
-        &app,
-        "webcam-overlay",
-        WebviewUrl::App("/webcam.html".into()),
-    )
-    .title("EasySpecy Webcam")
-    .inner_size(logical_size, logical_size)
-    .position(logical_x, logical_y)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .resizable(false)
-    .focused(false)
-    .visible(false) // JS shows it once camera stream starts
-    .build()
-    .map_err(|e| format!("Failed to create webcam window: {}", e))?;
-
-    let _ = overlay.set_ignore_cursor_events(true);
-
-    // Periodically re-assert always-on-top state to keep webcam overlay visible over games
-    let overlay_clone = overlay.clone();
-    std::thread::spawn(move || {
-        while overlay_clone.is_minimized().is_ok() {
-            if let Ok(true) = overlay_clone.is_visible() {
-                let _ = overlay_clone.set_always_on_top(true);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(500));
-        }
-    });
-
-    tracing::info!("Webcam overlay window created OK");
-    Ok(())
-}
-
-/// Destroy the webcam overlay window
-#[tauri::command]
-pub fn destroy_webcam_overlay(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("webcam-overlay") {
-        window.close().map_err(|e| e.to_string())?;
-        tracing::info!("Webcam overlay window destroyed");
-    }
-    Ok(())
-}
-
-
-#[derive(serde::Serialize)]
-pub struct WebcamDeviceInfo {
-    pub index: String,
-    pub name: String,
-}
-
-#[tauri::command]
-pub fn get_webcam_devices() -> Result<Vec<WebcamDeviceInfo>, String> {
-    use nokhwa::utils::ApiBackend;
-    let devices = nokhwa::query(ApiBackend::Auto)
-        .map_err(|e| format!("Failed to query webcam devices: {}", e))?;
-    
-    let mut list = Vec::new();
-    for d in devices {
-        list.push(WebcamDeviceInfo {
-            index: d.index().to_string(),
-            name: d.human_name(),
-        });
-    }
-    Ok(list)
 }
 
 #[tauri::command]
