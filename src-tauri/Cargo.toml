@@ -1,6 +1,6 @@
 [package]
 name = "easyspecy"
-version = "0.1.5"
+version = "1.0.0"
 description = "Free, cross-platform screen recorder with auto-zoom and cursor effects"
 authors = ["Shaurya"]
 edition = "2021"

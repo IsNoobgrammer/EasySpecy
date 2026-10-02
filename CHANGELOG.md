@@ -5,7 +5,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.0.0] - 2026-10-02
+
+**Highlights:** A recording is ready to share about **1 second after you press stop** (it took ~2 minutes for a 1-minute video in 0.1.5). Capture now works on GPUs without HEVC (#2). Passwords are masked in the keyboard overlay. Window recording is new, and region recording works properly. The app uses ~6× less CPU while idle.
 
 ### Security
 - **Passwords no longer appear in the keyboard overlay** — Keys typed into a password field show as `•`. This covers browser `<input type="password">`, Win32 password edits and UWP PasswordBox, detected via UI Automation `IsPassword`. A focus-changed handler switches on Chromium/Electron accessibility up front, so the first keystrokes aren't missed. Shortcuts and Enter/Tab/Backspace stay visible.
@@ -24,7 +26,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Tray stuck on "recording" when stop failed.**
 - **Re-encode path output 25 fps** — It now uses the configured FPS.
 - **"Capture failed to start" on Windows 10 / older GPUs (#2)** — The live capture encoder was hardcoded to HEVC, which isn't available on GPUs like Intel HD 4000 / GT 630M or on stock Windows 10 (`0xC00D5212`). Live capture now uses H.264 unless an H.265 output is selected, and it falls back to H.264 automatically if HEVC can't be created.
-
 - **End of recording chopped off** — When system audio was shorter than the video (nothing playing near the end), `-shortest` trimmed the video to the audio length. 143 s recordings lost about 9 s. Audio is now padded to the video length.
 - **Recordings with no audio track** — If audio was enabled but nothing played, the file was saved without an audio stream. A silent track is now written.
 - **Video after resume lost** — About 1 in 3 resumed segments came out as a single frame. windows-capture's frame pool has one buffer, and a cold encoder created on the resume frame could pin it and starve capture. The next segment's encoder is now created at pause time. Empty segments are no longer queued for concat.
@@ -55,16 +56,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Hardcoded developer paths** — Removed from the sync verifier and cursor packs.
 
 ### Changed
-- **Stop → file ready: 111 s → 1.2–1.5 s** for a 60 s recording with pause. The final pass reads pause segments directly (one FFmpeg run, not concat + mux), per-segment probe launches are gone, the verifier reuses the bundled ffmpeg instead of a cold ffprobe, and ffmpeg is pre-warmed while recording.
+- **Stop → file ready: 111 s → 1.2–1.5 s** for a 60 s recording with pause, webcam, trail and keyboard overlay (i5-12450H / RTX 3050). The final pass reads pause segments directly (one FFmpeg run, not concat + mux), per-segment probe launches are gone, the verifier reuses the bundled ffmpeg instead of a cold ffprobe, and ffmpeg is pre-warmed while recording.
 - **Webcam picker uses the browser's camera list** — The same ordering the overlay uses, so preview and recording show the same camera.
 - **Effects badge** — "Post-processing" → "Live".
-- **Previously: stop → file ready: 111 s → 1.8 s** for a 60 s recording with pause, webcam, trail and keyboard overlay (i5-12450H / RTX 3050).
 - **Single-encode pipeline** — When the live-encoded codec matches the selected output, the final pass only muxes audio (`-c:v copy`) and no longer re-encodes the whole video. Region crop now runs inside the one final encode instead of a separate libx264 pass.
 - **Live encoder respects settings** — Bitrate and frame rate now follow the quality and FPS settings instead of a fixed 15 Mbps @ 60 fps.
 - **No redundant FFmpeg probes on stop** — The single-segment pre-check and the duration probe on the copy path are skipped; each was a ~1 s cold start of the bundled ffmpeg.
 - **Noise gate is O(N)** — It used a sliding-window sum instead of re-summing a 10 ms window for every sample.
-- **Effects overlay always created** — It now always runs during recording, with an invisible capture heartbeat.
+- **Effects overlay always created** — It now always runs during recording.
 - **Default encoder is now H.264** for new installs, which keeps the fast copy path on every machine.
+
+### Known issues (planned for 1.1)
+- Noise reduction (RNN) gets audio at the wrong scale, so it mostly attenuates.
+- The mic device selection is ignored and the default input is used.
+- Mic-only mode skips mic gain and denoise.
+- Slow audio/video clock drift on long recordings (sub-second, not yet corrected).
+- The Resolution setting doesn't scale output; recordings are always at monitor resolution.
+- The sync verifier reports ~100 ms "drift" false positives (one-frame tolerance).
 
 ---
 
