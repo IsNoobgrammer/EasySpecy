@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-03
+
 ### Fixed
 - **Noise reduction mostly just lowered the volume.** RNNoise expects 48 kHz audio at 16-bit scale and was fed ±1.0 floats, which it heard as near-silence. It's now fed the right scale, resampled to 48 kHz, with its one-frame (10 ms) delay removed. Tested: voice keeps its level, and fan-like background noise drops by ~45 dB.
 - **The microphone chosen in Settings was ignored.** Recording and the level meter now use it, and fall back to the default if it's unplugged.
