@@ -336,6 +336,13 @@ pub fn start_recording(config: RecordingConfig) -> Result<(), String> {
 }
 
 fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
+    // Screen capture (Windows Graphics Capture, as this app uses it) needs Windows 10 version
+    // 2004 or newer. Older builds used to fail later with "The Graphics Capture API is not
+    // supported on this platform" plus a second "Capture failed to start" error.
+    if !windows_capture::graphics_capture_api::GraphicsCaptureApi::is_supported().unwrap_or(false) {
+        return Err("Screen recording needs Windows 10 version 2004 (May 2020 Update) or newer. Please update Windows and try again.".to_string());
+    }
+
     // Warm ffmpeg while recording: the first launch of the 150 MB bundled binary pays file-cache
     // + Defender scan (~1 s); paying it now keeps stop → shareable file fast.
     std::thread::spawn(|| {

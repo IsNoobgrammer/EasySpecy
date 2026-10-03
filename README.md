@@ -163,10 +163,16 @@ Use **Compare quality** in the app to see each one on your own screen before cho
 
 | | |
 |---|---|
-| **OS** | Windows 10 (version 1903 or later) or Windows 11, 64-bit |
+| **OS** | Windows 10 version 2004 (May 2020 Update) or later, or Windows 11; 64-bit |
 | **macOS / Linux** | Not supported. Capture, encoding, the keyboard hook and cursor packs all use Windows-only APIs |
 | **GPU** | Any GPU with a hardware video encoder (Intel, NVIDIA or AMD). H.265 needs a GPU and Windows install that provide an HEVC encoder; EasySpecy falls back to H.264 if not |
 | **FFmpeg** | Bundled with the installer, nothing to install |
+
+**Windows 10 notes**
+- **Yellow border:** Windows 10 draws a yellow border around the screen while it's being recorded, and apps can't turn it off there.
+- **Frame rate:** Windows 10 delivers frames at up to the monitor's refresh rate, and EasySpecy keeps only the frame rate you chose. Windows 11 caps capture at that rate itself.
+- **"N" editions** (sold in Europe without media features) need Microsoft's free **Media Feature Pack** for the video encoder.
+- **Portable ZIP:** it needs the Microsoft Edge WebView2 Runtime, which most Windows 10 PCs already have. The installer adds it automatically if it's missing.
 
 ---
 

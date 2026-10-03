@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Windows 10 versions older than 2004 got two confusing errors** ("The Graphics Capture API is not supported on this platform", then "Capture failed to start"). Windows support is now checked before recording, with one clear message to update Windows. The README's minimum version was also wrong (said 1903): it's 2004.
+
 ## [1.2.1] - 2026-10-03
 
 ### Fixed
