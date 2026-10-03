@@ -54,7 +54,7 @@
     
     <foreignObject x="24" y="92" width="528" height="100">
       <div xmlns="http://www.w3.org/1999/xhtml" style="color:#9a9eb5; font-family:'Inter', sans-serif; font-size:13px; line-height:1.6;">
-        Your GPU encodes the video while you record, so pressing Stop gives a shareable file in about 2 seconds, with no long re-encode. Need it small for chat or email? Turn on Smaller file for a ~5× smaller video.
+        Your GPU encodes the video while you record, so pressing Stop gives a shareable file in about 2 seconds, with no long re-encode. Need it small for chat or email? Turn on Smaller file for a ~4× smaller video.
       </div>
     </foreignObject>
   </g>

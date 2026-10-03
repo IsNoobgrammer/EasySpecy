@@ -11,7 +11,7 @@
 //!   cargo run --release --example bench_post -- <intermediates dir> <out dir>
 
 use easyspecy_lib::capture::encode_final_with;
-use easyspecy_lib::config::{AppConfig, VideoEncoder, VideoQuality};
+use easyspecy_lib::config::{AppConfig, VideoEncoder};
 use std::time::Instant;
 
 struct Case {
@@ -60,7 +60,7 @@ fn main() {
         let output = format!("{out}/{}_{}fps_{}s.mp4", c.name.replace([' ', '.', '+'], ""), c.fps, c.secs);
         let _ = std::fs::remove_file(&output);
 
-        let config = AppConfig { video_encoder: c.encoder.clone(), video_quality: VideoQuality::High, fps: c.fps, compact_output: c.small, gpu_encoders_enabled: true, ..AppConfig::default() };
+        let config = AppConfig { video_encoder: c.encoder.clone(), fps: c.fps, compact_output: c.small, gpu_encoders_enabled: true, ..AppConfig::default() };
         let t = Instant::now();
         let r = encode_final_with(&config, hevc, &segments, &[], c.secs as f64 * 1000.0, Some(&audio), &output, c.crop, c.crop.is_none());
         let secs = t.elapsed().as_secs_f64();

@@ -133,6 +133,16 @@ struct CaptureHandler {
     seg_frames: u32,
     /// When the current segment's first frame arrived
     seg_first: Option<Instant>,
+    /// Shortest gap between encoded frames (100 ns units), and the last encoded frame's time
+    min_gap: i64,
+    last_sent: Option<i64>,
+}
+
+/// Should a frame captured at `ts` be encoded, given the last encoded one? Keeps the configured
+/// fps where Windows can't cap capture itself (Windows 10 delivers up to the refresh rate).
+/// 10% slack so frames arriving on a 60 Hz grid still give a steady 30 fps.
+fn frame_due(ts: i64, last: Option<i64>, min_gap: i64) -> bool {
+    last.map_or(true, |l| ts - l >= min_gap)
 }
 
 impl CaptureHandler {
@@ -159,6 +169,7 @@ impl CaptureHandler {
         }
         self.seg_frames = 0;
         self.seg_first = None;
+        self.last_sent = None; // a new segment always starts with the first frame it gets
         Ok(())
     }
 }
@@ -196,6 +207,8 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             segment_idx: 0,
             seg_frames: 0,
             seg_first: None,
+            min_gap: 9_000_000 / crate::config::AppConfig::load().fps.max(1) as i64,
+            last_sent: None,
         })
     }
 
@@ -275,6 +288,12 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             RECORDING_PAUSED.store(false, Ordering::SeqCst);
             // Fall through — send this frame into the (already warm) segment
         }
+
+        let ts = frame.timestamp()?.Duration;
+        if !frame_due(ts, self.last_sent, self.min_gap) {
+            return Ok(());
+        }
+        self.last_sent = Some(ts);
 
         let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
         if self.encoder.is_none() {
@@ -370,11 +389,20 @@ fn start_recording_inner(config: RecordingConfig) -> Result<(), String> {
     let height = monitor.height().map_err(|e| e.to_string())? as i32;
     *CAPTURE_SIZE.lock().unwrap() = (width, height);
 
-    let min_interval = if config.fps > 0 {
+    // Windows 11 can cap the frame rate itself. Windows 10 has no such setting, and asking for
+    // it made capture refuse to start ("minimum update interval is not supported") — every
+    // recording failed. There, frames come at the monitor's refresh rate and on_frame_arrived
+    // drops the extras (see `frame_due`).
+    let native_interval = windows_capture::graphics_capture_api::GraphicsCaptureApi::is_minimum_update_interval_supported()
+        .unwrap_or(false);
+    let min_interval = if config.fps > 0 && native_interval {
         MinimumUpdateIntervalSettings::Custom(Duration::from_millis(1000 / config.fps as u64))
     } else {
         MinimumUpdateIntervalSettings::Default
     };
+    if !native_interval {
+        tracing::info!("Capture frame-rate cap not available on this Windows version — limiting to {} fps in software", config.fps);
+    }
 
     tracing::info!(
         "Starting capture: {}x{} @ {}fps, audio={} ({}), sample_rate={}",
@@ -1150,6 +1178,19 @@ pub struct DisplayInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_due_keeps_30fps_from_60hz() {
+        let gap = 9_000_000 / 30;
+        let hz60 = 166_667i64; // one 60 Hz frame in 100 ns units
+        let mut last = None;
+        let sent = (0..60).filter(|i| {
+            let ok = frame_due(i * hz60, last, gap);
+            if ok { last = Some(i * hz60); }
+            ok
+        }).count();
+        assert_eq!(sent, 30); // 1 s of 60 Hz frames → exactly 30 encoded
+    }
 
     #[test]
     fn segment_durations_follow_the_timeline() {

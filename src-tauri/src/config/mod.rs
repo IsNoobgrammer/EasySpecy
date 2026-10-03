@@ -147,10 +147,10 @@ pub enum VideoEncoder {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum VideoQuality {
-    Low,       // ~2 MB/min @ 1080p30 — max compression, visible artifacts
-    Medium,    // ~8 MB/min @ 1080p30 — good balance
-    High,      // ~20 MB/min @ 1080p30 — near-lossless
-    Ultra,     // ~40 MB/min @ 1080p30 — visually lossless
+    Low,       // ~13 MB/min live @ 1080p30 H.264 — visible artifacts after changes
+    Medium,    // ~22 MB/min live — the default
+    High,      // ~36 MB/min live — crisper while things move
+    Ultra,     // ~53 MB/min live — near-lossless
     Insane,    // AV1 only: ~1 MB/min @ 1080p30 — extreme compression, still watchable
     Custom,    // Use video_bitrate_kbps directly
 }

@@ -10,8 +10,8 @@ const LABEL: Record<string, string> = {
 };
 const NOTE: Record<string, string> = {
   Low: "Text may smear while scrolling",
-  Medium: "Good for most screen recordings",
-  High: "Crisp text — the default",
+  Medium: "Good for most screen recordings — the default",
+  High: "Crisper text while things move",
   Ultra: "Near-lossless, big files",
   Smaller: "Smaller video, takes longer to save",
   Custom: "Your own bitrate",

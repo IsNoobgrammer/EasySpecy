@@ -7,7 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-10-03
+
 ### Fixed
+- **Recording failed on Windows 10 ("Setting a minimum update interval is not supported").** The frame-rate cap is a Windows 11-only capture setting, and asking for it made capture refuse to start, so every recording and preview failed. It's now only requested where Windows supports it. Elsewhere, extra frames are dropped in software, so 30 fps still records 30 fps.
+- **The app said High was the default quality, but Medium is.** The dashboard, Compare quality and README now say Medium. Benchmarks were re-measured at Medium: H.264 ~24 MB/min, H.265 ~18 MB/min, Smaller file ~5.5 MB/min.
 - **Compare quality showed the same picture for every bitrate.** Each tile really was encoded at its own bitrate (Low ≈ 150 kb/s → Ultra ≈ 500 kb/s on the crop), but the frame shown was taken 1.5 s in. By then smooth scrolling had let even Low converge to near-lossless (PSNR 42 vs 53 dB). Tiles now show the moment right after the screen changes (0.33 s), where the difference is real and visible (29 vs 46 dB): blocky, smeared text on Low, clean on High and Ultra.
 
 ### Changed

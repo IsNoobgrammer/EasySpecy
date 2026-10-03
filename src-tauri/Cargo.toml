@@ -1,6 +1,6 @@
 [package]
 name = "easyspecy"
-version = "1.2.0"
+version = "1.2.1"
 description = "Free screen recorder for Windows with cursor effects, webcam and keyboard overlays"
 authors = ["Shaurya"]
 edition = "2021"

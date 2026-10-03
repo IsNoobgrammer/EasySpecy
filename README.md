@@ -115,27 +115,27 @@ flowchart TB
 
 ## Benchmarks
 
-**Time to save** is from pressing Stop to the file being ready to share. All runs are **1080p at 30 fps** (the default) with **High** quality, mic + system audio, on an i5-12450H laptop using Intel QSV for live encoding. The test video is real screen content (an editor and a terminal), half still and half scrolling. Scrolling is the hardest case for file size.
+**Time to save** is from pressing Stop to the file being ready to share. All runs use the defaults, **1080p at 30 fps** and **Medium** quality, with mic + system audio, on an i5-12450H laptop using Intel QSV for live encoding. The test video is real screen content (an editor and a terminal), half still and half scrolling. Scrolling is the hardest case for file size.
 
 **Main choices on the dashboard**
 
 | Output | Time to save (1 min) | Time to save (2 min) | Size per minute |
 |---|---|---|---|
-| **H.264** (default, plays everywhere) | ~2 s | ~4 s | ~37 MB |
-| **H.265** (~25% smaller, newer players) | ~2 s | ~3 s | ~28 MB |
-| **H.264 + Smaller file** | ~11 s | ~24 s | **~6.5 MB** |
-| **H.265 + Smaller file** | ~12 s | ~22 s | **~6.5 MB** |
-| H.264 with a pause/resume | ~2 s | ~4 s | ~37 MB |
+| **H.264** (default, plays everywhere) | ~2 s | ~3 s | ~24 MB |
+| **H.265** (~25% smaller, newer players) | ~1.5 s | ~3 s | ~18 MB |
+| **H.264 + Smaller file** | ~9 s | ~20 s | **~5.5 MB** |
+| **H.265 + Smaller file** | ~10 s | ~19 s | **~5.5 MB** |
+| H.264 with a pause/resume | ~1.5 s | ~3 s | ~24 MB |
 
-H.264 and H.265 save almost instantly because the video is already encoded on the GPU while you record. Saving just copies it into the final file. **Smaller file** re-encodes after you stop: the file is about 5× smaller, but saving takes longer, roughly 11 s per minute of video. It always outputs H.264, which comes out the same size as H.265 for screen content but encodes much faster and plays everywhere.
+H.264 and H.265 save almost instantly because the video is already encoded on the GPU while you record. Saving just copies it into the final file. **Smaller file** re-encodes after you stop: the file is about 4× smaller, but saving takes longer, roughly 9–10 s per minute of video. It always outputs H.264, which comes out the same size as H.265 for screen content but encodes much faster and plays everywhere.
 
 **Quality presets** (live encoder, video only, per minute at 1080p30)
 
 | Quality | H.264 | H.265 |
 |---|---|---|
 | Low | ~13 MB | ~10 MB |
-| Medium | ~22 MB | ~17 MB |
-| **High** (default) | ~36 MB | ~27 MB |
+| **Medium** (default) | ~22 MB | ~17 MB |
+| High | ~36 MB | ~27 MB |
 | Ultra | ~53 MB | ~40 MB |
 
 Use **Compare quality** in the app to see each one on your own screen before choosing.
@@ -144,10 +144,10 @@ Use **Compare quality** in the app to see each one on your own screen before cho
 
 | Output | Time to save (1 min) | Time to save (2 min) | Size per minute |
 |---|---|---|---|
-| AV1 (CPU, SVT-AV1) | ~32 s | ~56 s | ~5 MB |
-| VP9 (CPU) | ~22 s | ~28 s | ~17 MB |
-| Region / window crop 1280×720, H.264 | ~8 s | ~15 s | ~4.7 MB |
-| Region / window crop 1280×720, H.265 | ~17 s | ~39 s | ~4.5 MB |
+| AV1 (CPU, SVT-AV1) | ~21 s | ~45 s | ~5 MB |
+| VP9 (CPU) | ~17 s | ~26 s | ~15 MB |
+| Region / window crop 1280×720, H.264 | ~5 s | ~10 s | ~3.9 MB |
+| Region / window crop 1280×720, H.265 | ~12 s | ~27 s | ~3.6 MB |
 
 - **NVENC H.264/H.265:** saves just as fast as H.264/H.265 above, because live capture already produced the video.
 - **AV1 NVENC:** needs an RTX 40-series GPU.

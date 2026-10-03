@@ -519,8 +519,8 @@ export function Dashboard({ onOpenSettings: _onOpenSettings }: { onOpenSettings:
             label="Quality" value={qualityValue} index={2} disabled={isRecording}
             options={[
               { label: "LOW", value: "Low" },
-              { label: "MEDIUM", value: "Medium" },
-              { label: "HIGH (default)", value: "High" },
+              { label: "MEDIUM (default)", value: "Medium" },
+              { label: "HIGH", value: "High" },
               { label: "ULTRA", value: "Ultra" },
               { label: "👁 SEE THE DIFFERENCE…", value: "__compare" },
             ]}
