@@ -133,16 +133,27 @@ struct CaptureHandler {
     seg_frames: u32,
     /// When the current segment's first frame arrived
     seg_first: Option<Instant>,
-    /// Shortest gap between encoded frames (100 ns units), and the last encoded frame's time
-    min_gap: i64,
-    last_sent: Option<i64>,
+    /// Next scheduled frame time and output interval (100 ns units)
+    frame_interval: i64,
+    next_frame_ts: Option<i64>,
 }
 
-/// Should a frame captured at `ts` be encoded, given the last encoded one? Keeps the configured
-/// fps where Windows can't cap capture itself (Windows 10 delivers up to the refresh rate).
-/// 10% slack so frames arriving on a 60 Hz grid still give a steady 30 fps.
-fn frame_due(ts: i64, last: Option<i64>, min_gap: i64) -> bool {
-    last.map_or(true, |l| ts - l >= min_gap)
+/// Select frames on the configured timeline. Advancing from the scheduled time instead of the
+/// last captured frame avoids accumulating refresh-rate rounding error.
+fn frame_due(ts: i64, next_frame_ts: &mut Option<i64>, frame_interval: i64) -> bool {
+    let interval = frame_interval.max(1);
+    let Some(deadline) = *next_frame_ts else {
+        *next_frame_ts = Some(ts.saturating_add(interval));
+        return true;
+    };
+    if ts < deadline {
+        return false;
+    }
+
+    let elapsed_intervals = ts.saturating_sub(deadline) / interval;
+    let intervals_to_advance = elapsed_intervals.saturating_add(1);
+    *next_frame_ts = Some(deadline.saturating_add(interval.saturating_mul(intervals_to_advance)));
+    true
 }
 
 impl CaptureHandler {
@@ -169,7 +180,7 @@ impl CaptureHandler {
         }
         self.seg_frames = 0;
         self.seg_first = None;
-        self.last_sent = None; // a new segment always starts with the first frame it gets
+        self.next_frame_ts = None; // a new segment always starts with the first frame it gets
         Ok(())
     }
 }
@@ -207,8 +218,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
             segment_idx: 0,
             seg_frames: 0,
             seg_first: None,
-            min_gap: 9_000_000 / crate::config::AppConfig::load().fps.max(1) as i64,
-            last_sent: None,
+            frame_interval: (10_000_000 / crate::config::AppConfig::load().fps.max(1) as i64)
+                .max(1),
+            next_frame_ts: None,
         })
     }
 
@@ -290,10 +302,9 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         }
 
         let ts = frame.timestamp()?.Duration;
-        if !frame_due(ts, self.last_sent, self.min_gap) {
+        if !frame_due(ts, &mut self.next_frame_ts, self.frame_interval) {
             return Ok(());
         }
-        self.last_sent = Some(ts);
 
         let count = FRAME_COUNT.fetch_add(1, Ordering::Relaxed);
         if self.encoder.is_none() {
@@ -1188,15 +1199,67 @@ mod tests {
 
     #[test]
     fn frame_due_keeps_30fps_from_60hz() {
-        let gap = 9_000_000 / 30;
+        let interval = 10_000_000 / 30;
         let hz60 = 166_667i64; // one 60 Hz frame in 100 ns units
-        let mut last = None;
-        let sent = (0..60).filter(|i| {
-            let ok = frame_due(i * hz60, last, gap);
-            if ok { last = Some(i * hz60); }
-            ok
-        }).count();
+        let mut next_frame_ts = None;
+        let mut sent = 0;
+        for i in 0..60 {
+            if frame_due(i * hz60, &mut next_frame_ts, interval) {
+                sent += 1;
+            }
+        }
         assert_eq!(sent, 30); // 1 s of 60 Hz frames → exactly 30 encoded
+    }
+
+    #[test]
+    fn frame_due_keeps_30fps_from_50hz() {
+        let interval = 10_000_000 / 30;
+        let hz50 = 200_000i64; // one 50 Hz frame in 100 ns units
+        let mut next_frame_ts = None;
+        let mut sent = 0;
+        for i in 0..500 {
+            if frame_due(i * hz50, &mut next_frame_ts, interval) {
+                sent += 1;
+            }
+        }
+        assert_eq!(sent, 300); // 10 s of 50 Hz frames → 30 fps (the old gap threshold yielded 25)
+    }
+
+    #[test]
+    fn frame_due_keeps_60fps_from_144hz() {
+        let interval = 10_000_000 / 60;
+        let hz144 = 10_000_000 / 144;
+        let mut next_frame_ts = None;
+        let mut sent = 0;
+        for i in 0..1440 {
+            if frame_due(i * hz144, &mut next_frame_ts, interval) {
+                sent += 1;
+            }
+        }
+        assert_eq!(sent, 600); // 10 s of 144 Hz frames → 60 fps without refresh-rate aliasing
+    }
+
+    #[test]
+    fn frame_due_does_not_duplicate_frames_when_capture_is_slower() {
+        let interval = 10_000_000 / 30;
+        let hz15 = 10_000_000 / 15;
+        let mut next_frame_ts = None;
+        let mut sent = 0;
+        for i in 0..15 {
+            if frame_due(i * hz15, &mut next_frame_ts, interval) {
+                sent += 1;
+            }
+        }
+        assert_eq!(sent, 15);
+    }
+
+    #[test]
+    fn frame_due_skips_missed_deadlines_without_bursting() {
+        let mut next_frame_ts = None;
+        let interval = 10_000_000 / 30;
+        assert!(frame_due(0, &mut next_frame_ts, interval));
+        assert!(frame_due(1_000_000, &mut next_frame_ts, interval));
+        assert!(!frame_due(1_000_001, &mut next_frame_ts, interval));
     }
 
     #[test]
